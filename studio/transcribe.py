@@ -1,4 +1,4 @@
-"""Speech to text with word timestamps, using Parakeet 0.6b through sherpa-onnx.
+"""Speech to text with word timestamps: Parakeet for English, or local Whisper for mixed speech.
 
 It runs in one of two places. On this machine's processors (the default), or, when PEAKCUT_ASR_URL is set, on a
 separate machine with a graphics card (studio/asr_worker.py), which does the same work many times faster. If that
@@ -202,6 +202,9 @@ def transcribe(audio: np.ndarray, on_progress=None) -> list:
     """Returns [{'w': word, 's': start_sec, 'e': end_sec}, ...] for the whole audio.
     Speech is cut at quiet moments into 12-24 s pieces; silent pieces are skipped."""
     global _remote_down_until
+    if config.ASR_BACKEND == "whisper":
+        from . import whisper
+        return whisper.transcribe(audio, on_progress)
     words = []
     todo = []
     for a, b in _chunks(audio):

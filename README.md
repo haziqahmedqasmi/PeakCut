@@ -49,6 +49,30 @@ The first start downloads the speech model by itself (about 480 MB, once).
 Open http://127.0.0.1:8765. There is no sign-in: it opens straight into the dashboard. Go to **Settings, AI**, choose
 your AI service, paste your key and press **Save and test** (see [Choose your AI](#choose-your-ai)).
 
+## Hindi-English mixed speech (Hinglish)
+
+The default Parakeet v2 speech model is English-only. For Hindi or mixed Hindi-English audio, set these in `.env`
+and restart PeakCut:
+
+```ini
+PEAKCUT_ASR_BACKEND=whisper
+PEAKCUT_WHISPER_MODEL=medium
+```
+
+The multilingual Whisper model downloads once (about 1.5 GB). It transcribes rather than translates, checks the
+language throughout the audio, and keeps word timings. Hindi words then pass through the existing Roman-letter
+caption step; spoken English stays English. Audio stays on this machine. No speech-service key is needed.
+
+Whisper is slower and uses more memory than Parakeet. Two inference workers share one model's weights, so a live
+request can run alongside a video job rather than wait for the whole video. Concurrent work uses extra memory.
+`large-v3` is an option for machines with more room. Avoid `.en` models: they only support English. Accuracy still depends on the speaker,
+noise and vocabulary; Roman spelling is not always exact. Existing transcripts are not changed: reprocess the video.
+If a YouTube link has inaccurate borrowed captions, also set `PEAKCUT_YT_TRANSCRIPT=0` to transcribe its audio instead.
+This backend runs locally (CPU by default, or `PEAKCUT_ASR_PROVIDER=cuda` with CTranslate2's CUDA requirements) and
+does not use the Parakeet-only remote service at `PEAKCUT_ASR_URL`. The separate `studio.asr_worker` service requires
+`PEAKCUT_ASR_BACKEND=parakeet` on the worker; it refuses to start with Whisper selected. Set
+`PEAKCUT_ASR_BACKEND=parakeet` on the main server to switch back.
+
 ## Choose your AI
 
 PeakCut needs a chat model that can return JSON. The easy way is in the dashboard: **Settings, AI**. Pick the

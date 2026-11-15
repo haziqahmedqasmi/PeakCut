@@ -16,7 +16,7 @@ import numpy as np
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 
-from . import transcribe
+from . import config, transcribe
 
 TOKEN = os.environ.get("PEAKCUT_ASR_TOKEN", "").strip()
 PORT = int(os.environ.get("PEAKCUT_ASR_PORT", "9000"))
@@ -75,6 +75,8 @@ async def decode(request: Request):
 
 
 def main():
+    if config.ASR_BACKEND != "parakeet":
+        raise SystemExit("The speech worker only supports Parakeet. Set PEAKCUT_ASR_BACKEND=parakeet on this worker; Whisper runs on the main PeakCut server.")
     if not TOKEN:
         raise SystemExit("Set PEAKCUT_ASR_TOKEN: the speech machine refuses to start without a shared secret.")
     transcribe._recognizer()            # load the model now, so the first request is not the slow one

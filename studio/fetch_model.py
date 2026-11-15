@@ -7,6 +7,7 @@ import shutil
 import tarfile
 import threading
 import urllib.request
+from pathlib import Path
 
 from . import config
 
@@ -16,7 +17,17 @@ state = {"doing": False, "percent": 0, "error": ""}
 
 
 def ready() -> bool:
-    """Is the whole model there: the word list and all three parts?"""
+    """Is the selected model present, including its weights and word lists?"""
+    if config.ASR_BACKEND == "whisper":
+        try:
+            from faster_whisper.utils import download_model
+            d = Path(download_model(config.WHISPER_MODEL, cache_dir=str(config.MODELS_DIR / "whisper"), local_files_only=True))
+            return all((d / name).is_file() and (d / name).stat().st_size > 0
+                       for name in ("model.bin", "config.json", "tokenizer.json")) and any(
+                           (d / name).is_file() and (d / name).stat().st_size > 0
+                           for name in ("vocabulary.json", "vocabulary.txt"))
+        except (OSError, ValueError):
+            return False
     d = config.ASR_MODEL_DIR
     if not (d / "tokens.txt").is_file():
         return False
@@ -37,6 +48,21 @@ def ensure() -> None:
         if ready():
             return
         state.update(doing=True, percent=0, error="")
+        if config.ASR_BACKEND == "whisper":
+            try:
+                from faster_whisper.utils import download_model
+                print("Downloading the multilingual speech model (one time)...", flush=True)
+                download_model(config.WHISPER_MODEL, cache_dir=str(config.MODELS_DIR / "whisper"))
+                if not ready():
+                    raise OSError("The downloaded speech model is incomplete.")
+                state["percent"] = 100
+            except Exception as e:
+                state["error"] = str(e)[-200:]
+                raise RuntimeError("PeakCut couldn't download its multilingual speech model. Check the internet "
+                                   "connection and free disk space, then try again.") from e
+            finally:
+                state["doing"] = False
+            return
         print("\n  Downloading the speech model (one time, about 480 MB)...\n", flush=True)
         config.MODELS_DIR.mkdir(parents=True, exist_ok=True)
         tmp, part = config.MODELS_DIR / "speech-model.tar.bz2", config.MODELS_DIR / "speech-model.unpacking"

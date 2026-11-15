@@ -53,6 +53,7 @@ def main() -> int:
                 ("AI services", ["tests/test_ai.py"]),
                 ("no sign-in, and the AI key from the dashboard", ["tests/test_local.py"]),
                 ("Hindi and Urdu captions in Roman letters", ["tests/test_roman.py"]),
+                ("Hindi-English mixed speech", ["tests/test_whisper.py"]),
                 ("connecting YouTube, Instagram and TikTok", ["tests/test_connect.py"]),
                 ("the new-version notice", ["tests/test_updates.py"]),
                 ("no limits by default", ["tests/test_limits.py"]),

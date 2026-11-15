@@ -501,9 +501,9 @@ def _run_job(job):
         _set(job, status="running", stage="Picking up where it stopped", error=None)
     else:
         _set(job, status="running", stage="Getting the audio", progress=0.03, error=None, clips=[], ai={}, done_blocks=0)
-    if not transcribe.model_ready() and not transcribe.REMOTE:
+    if not transcribe.model_ready() and (config.ASR_BACKEND == "whisper" or not transcribe.REMOTE):
         from . import fetch_model
-        _set(job, stage="Getting the speech model (one time, about 480 MB)")
+        _set(job, stage="Getting the speech model (one time)")
         fetch_model.ensure()
         _set(job, stage="Getting the audio")
     fetch = ThreadPoolExecutor(1)
