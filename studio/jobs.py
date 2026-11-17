@@ -156,6 +156,9 @@ def public(job) -> dict:
     out["clips"] = [{k: v for k, v in c.items() if k not in ("src", "fixed_words", "fixed_for")} for c in job["clips"]]
     ai = job.get("ai") or {}
     out["ai"] = {"tokens": ai.get("tokens", 0), "note": ai.get("note", ""), "used": bool(ai.get("model"))}   # never the model, never raw errors
+    from . import posting      # here, not at the top: posting imports this module
+    c = creators.get(job.get("creator")) or dict(creators.DEFAULTS)
+    out["credit"] = posting.credit_line(c, job.get("uploader", ""))   # shown under the post text, added when posted
     if job.get("status") == "queued":
         n = _q.ahead().get(job["id"])
         if n:

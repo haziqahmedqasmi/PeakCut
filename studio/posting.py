@@ -1,4 +1,5 @@
 """Post queue: decides when each finished clip goes to which account, posts it, and tracks views."""
+import re
 import secrets
 import threading
 import time
@@ -100,9 +101,32 @@ def on_clip_ready(job, clip):
         creators.log(c["id"], f"Queued for {len(made)} account(s): {clip.get('title') or clip.get('hook')}")
 
 
-def _caption(clip, creator):
+def credit(creator, uploader=""):
+    """Who made the original stream, for every post: their @handle from the channel link
+    (youtube.com/@name -> @name), else the channel's name, else the creator's name in PeakCut."""
+    for url in [creator.get("channel", "")] + list((creator.get("channels") or {}).values()):
+        m = re.search(r"youtube\.com/(@[\w.\-]+)", url or "")
+        if m:
+            return f"🎥 Credit: {m.group(1)}"
+        m = re.search(r"(?:twitch\.tv|kick\.com)/([\w\-]+)", url or "")
+        if m:
+            return f"🎥 Credit: {m.group(1)} ({url.split('/')[2]})"
+    who = uploader or creator.get("name", "")
+    return f"🎥 Credit: {who}" if who else ""
+
+
+def credit_line(creator, uploader=""):
+    """The credit line a post will carry: empty when turned off, or when the footer already names them."""
+    line = credit(creator, uploader) if creator.get("post_credit", True) else ""
+    if line and line.split(": ", 1)[-1].split(" ")[0].lower() in creator.get("post_footer", "").lower():
+        return ""
+    return line
+
+
+def _caption(clip, creator, uploader=""):
     tags = " ".join("#" + h for h in clip.get("hashtags", []))
-    return "\n\n".join(x for x in (clip.get("description", ""), tags, creator.get("post_footer", "")) if x)
+    line = credit_line(creator, uploader)
+    return "\n\n".join(x for x in (clip.get("description", ""), line, tags, creator.get("post_footer", "")) if x)
 
 
 def _post(p):
@@ -116,7 +140,7 @@ def _post(p):
             raise RuntimeError("That account was disconnected.")
         path = Path(job["dir"]) / "clips" / clip["file"]
         creator = creators.get(job["creator"]) or dict(creators.DEFAULTS, name="clips")
-        title, cap = clip.get("title") or clip.get("hook") or "Clip", _caption(clip, creator)
+        title, cap = clip.get("title") or clip.get("hook") or "Clip", _caption(clip, creator, job.get("uploader", ""))
         if acc["platform"] == "youtube":
             rid, url = accounts.youtube_upload(acc, path, title, cap + "\n\n#Shorts", clip.get("hashtags", []), creator["privacy"])
         elif acc["platform"] == "instagram":

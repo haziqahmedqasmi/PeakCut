@@ -1873,7 +1873,8 @@ function drawCreatorForm() {
         <label class="f">Most posts per account per day<input data-k="daily_cap" type="number" value="${c.daily_cap}"></label>
         <label class="f">Who can see posts (YouTube, TikTok)<select data-k="privacy">${opts({public:"Public", unlisted:"Unlisted", private:"Private"}, c.privacy)}</select></label>
         <label class="f">Campaign pay per 1,000 views ($)<input data-k="rate_per_1k" type="number" step="0.1" min="0" value="${c.rate_per_1k}"></label>
-        <label class="f span">Line added to every post (credit, campaign tag)<input data-k="post_footer" value="${esc(c.post_footer)}" placeholder="Clipped from @streamer"></label></div></div>
+        <label class="f span">Line added to every post (credit, campaign tag)<input data-k="post_footer" value="${esc(c.post_footer)}" placeholder="Clipped from @streamer"></label>
+        <label class="sw span"><input type="checkbox" data-k="post_credit" ${c.post_credit !== false ? "checked" : ""}><span>Credit the streamer in every post<small>Adds "🎥 Credit: @their-channel" under the description, taken from their channel link.</small></span></label></div></div>
     <div class="card danger-card"><h2>Delete this creator</h2><p class="help">Removes ${esc(c.name)}, their settings and every video and clip filed under them. This cannot be undone.</p>
       <button class="btn danger" data-act="delcreator">${ic("trash")}Delete creator</button></div>
     <div class="savebar" id="savebar"><span>${ic("warn")}You have unsaved changes</span><button class="btn ghost" data-act="cdiscard">Discard</button><button class="btn primary" data-act="csave">${ic("check")}Save changes</button></div>`;
@@ -2151,6 +2152,7 @@ function drawClipDlg(full) {
         <h3>Post text</h3>
         <label class="f">Title<input data-f="title" value="${esc(c.title)}"></label>
         <label class="f">Description<textarea data-f="description" rows="2">${esc(c.description)}</textarea></label>
+        ${j.credit ? `<small class="sub">Added to every post: ${esc(j.credit)}</small>` : ""}
         <button class="btn" data-act="remake">${ic("scissors")}Save and re-make clip</button>
         <h3>Post it</h3>
         <div id="dposts" class="row" style="gap:4px"></div>
@@ -2328,8 +2330,8 @@ document.addEventListener("click", async e => {
       dlg.returnValue = "no"; return dlg.showModal();
     }
     if (a === "copy") {
-      const c = jobOf(d.j).clips.find(x => x.id === d.c);
-      await navigator.clipboard.writeText(`${c.title}\n\n${c.description}\n\n${(c.hashtags || []).map(h => "#" + h).join(" ")}`); return toast("Post text copied", "ok");
+      const j = jobOf(d.j), c = j.clips.find(x => x.id === d.c);
+      await navigator.clipboard.writeText([c.title, c.description, j.credit, (c.hashtags || []).map(h => "#" + h).join(" ")].filter(Boolean).join("\n\n")); return toast("Post text copied", "ok");
     }
     if (a === "logout") { await api("/api/auth/logout", {method:"POST"}); location.href = "/"; return; }
     if (a === "pwsave") {
