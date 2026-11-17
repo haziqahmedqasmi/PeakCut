@@ -403,6 +403,17 @@ img.av{object-fit:cover}
 .composer.compact .range label{background:var(--muted)}
 .range input,.range input:focus{flex:1;min-width:0;height:40px;border:0;background:transparent;padding:0;font-size:15px;font-weight:600;color:var(--brand-ink);-moz-appearance:textfield}
 .range>svg{width:14px;height:14px;color:var(--faint);flex:none}
+.ohint{margin:8px 0 0;font-size:12px;color:var(--faint);line-height:1.4}
+.moments{width:100%;box-sizing:border-box;border:0;border-radius:10px;background:#fff;padding:10px 12px;font:inherit;font-size:14px;color:var(--text);resize:vertical;min-height:72px}
+.moments:focus{outline:2px solid var(--brand-soft)}
+.composer.compact .moments{background:var(--muted)}
+.xchecks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.xchecks label{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;align-items:start;background:#fff;border-radius:10px;padding:10px 12px;cursor:pointer;font-size:14px;font-weight:600;color:var(--text);transition:background-color .15s ease}
+.xchecks label:hover{background:#EDE3DB}
+.xchecks input{accent-color:var(--brand);margin:3px 0 0}
+.xchecks small{grid-column:2;font-size:12px;font-weight:500;color:var(--faint)}
+.composer.compact .xchecks label{background:var(--muted)}
+@media (max-width:640px){.xchecks{grid-template-columns:1fr}}
 @media (max-width:640px){.og{grid-template-columns:1fr}.nsteps{grid-template-columns:1fr}}
 
 /* ---------- home blocks */
@@ -1384,8 +1395,16 @@ function drawAdd(variant) {
         <button type="button" data-seg="o_quality" data-v="720" aria-pressed="true">720p<small>Fast</small></button>
         <button type="button" data-seg="o_quality" data-v="1080" aria-pressed="false">1080p<small>Sharper, about 2x slower</small></button></div></div>
       <div class="ob"><div class="ot">Part of the video</div><div class="range">
-        <label>From<input id="o_from" type="number" min="0" placeholder="start" aria-label="From minute">min</label>${ic("arrowr")}
-        <label>To<input id="o_to" type="number" min="0" placeholder="end" aria-label="Up to minute">min</label></div></div>
+        <label>From<input id="o_from" type="text" inputmode="numeric" placeholder="0:00" aria-label="From (like 1:05:10, or minutes)"></label>${ic("arrowr")}
+        <label>To<input id="o_to" type="text" inputmode="numeric" placeholder="end" aria-label="Up to (like 1:30:00, or minutes)"></label></div>
+        <p class="ohint">Write times like YouTube does (1:05:10), or just minutes. Only this part is downloaded.</p></div>
+      <div class="ob wide"><div class="ot">Exact moments</div>
+        <textarea id="o_moments" class="moments" rows="3" spellcheck="false" aria-label="Exact moments, one per line"
+          placeholder="One per line, the way YouTube writes times:&#10;1:05:10 – 1:06:09 Funny moment&#10;2:30 - 3:15 Opening scene"></textarea>
+        <p class="ohint">Each line becomes one clip, exactly there. Words after the times tell the AI what happens. Only these moments are downloaded.</p></div>
+      <div class="ob wide"><div class="ot">Extras</div><div class="xchecks">
+        <label><input type="checkbox" id="o_replayed">Use YouTube's “Most replayed”<small>Clips come from the parts people rewatched most. Good for videos with little talking.</small></label>
+        <label><input type="checkbox" id="o_clean">Hide swear words<small>Stars them out in captions, hook, title and post text.</small></label></div></div>
     </div></div></form>`;
   drawAtt();
 }
@@ -1446,8 +1465,14 @@ const targetCreator = () => creatorId() || $("#o_creator")?.value || "";
 function jobOptions() {
   const n = id => { const v = $(id).value; return v === "" ? null : Number(v); };
   const o = {max_clips:n("#o_max"), min_len:n("#o_min"), max_len:n("#o_maxlen"), captions:$("#o_captions").checked, style:$("#o_style").value, layout:$("#o_layout").value, quality:n("#o_quality")};
-  if (n("#o_from") !== null) o.range_start = n("#o_from") * 60;
-  if (n("#o_to") !== null) o.range_end = n("#o_to") * 60;
+  // a plain number is minutes, as before; anything else ("1:05:10", "1h5m") is read by the server
+  const t = id => { const v = $(id).value.trim(); return v === "" ? null : /^\d+(\.\d+)?$/.test(v) ? Number(v) * 60 : v; };
+  if (t("#o_from") !== null) o.range_start = t("#o_from");
+  if (t("#o_to") !== null) o.range_end = t("#o_to");
+  const m = $("#o_moments").value.trim();
+  if (m) o.moments = m;
+  if ($("#o_replayed").checked) o.replayed = true;
+  if ($("#o_clean").checked) o.clean = true;
   return o;
 }
 /* ---------- attachments: nothing starts until Make clips is pressed.
@@ -1736,12 +1761,14 @@ function jobHtml(j) {
                 j.took ? "made in " + fmt(j.took) : "", j.kind === "live" ? "recording, " + j.stage.toLowerCase() : ""].filter(Boolean).map(esc).join(" · ");
   const pic = j.thumb ? `<img src="/media/${esc(j.id)}/thumb.jpg" alt="" loading="lazy">` : ic(j.source?.type === "file" ? "film" : "link");
   return `<div class="job-head"><div class="jt"><span class="jthumb">${pic}${j.duration ? `<span class="du">${fmt(j.duration)}</span>` : ""}</span><div style="min-width:0"><h3>${esc(j.title || j.source.name)}</h3><p class="sub">${meta}</p></div></div>
-      <div class="row" style="flex-wrap:nowrap;gap:4px">${busy ? "" : `
+      <div class="row" style="flex-wrap:nowrap;gap:4px">${busy ? (j.stage === "Stopping…" ? "" : `<button class="btn sm ghost" data-act="stopjob" data-j="${j.id}" title="Stop working on this video" aria-label="Stop working on this video">${ic("stop")}Stop</button>`) : `
+        ${j.status === "stopped" || j.status === "error" ? `<button class="btn sm ghost" data-act="retryjob" data-j="${j.id}" title="Start this video again, carrying on from what was already downloaded" aria-label="Start this video again">${ic("arrowr")}Retry</button>` : ""}
         ${j.clips.some(c => c.status === "done") ? `<button class="btn sm icon ghost" data-act="dlall" data-j="${j.id}" title="Download all clips of this video" aria-label="Download all clips of this video">${ic("down")}</button>` : ""}
         <button class="btn sm icon ghost" data-act="deljob" data-j="${j.id}" title="Delete" aria-label="Delete this video and its clips">${ic("trash")}</button>
         <label class="selck" title="Select this video and its clips"><input type="checkbox" data-sel="j:${j.id}" ${sel().has("j:" + j.id) ? "checked" : ""} aria-label="Select this video"></label>`}</div></div>
     ${busy ? `<div class="bar"><i style="width:${Math.round(j.progress * 100)}%"></i></div><p class="sub">${esc(j.stage)} · ${Math.round(j.progress * 100)}%</p>` : ""}
-    ${j.status === "done" && !j.clips.length ? `<p class="sub">${esc(j.stage)}</p>` : ""}
+    ${(j.status === "done" && !j.clips.length) || j.status === "stopped" ? `<p class="sub">${esc(j.stage)}${j.status === "stopped" ? ". Press Retry to carry on from what was already downloaded." : ""}</p>` : ""}
+    ${j.notice ? `<p class="sub">${esc(j.notice)}</p>` : ""}
     ${j.error ? `<div class="err">${esc(j.error)}<button class="rep" data-act="report" data-ctx="${esc("Video failed: " + (j.title || j.source.name || "") + " | " + j.error)}">Report this</button></div>` : ""}${j.ai?.note ? `<p class="sub">${esc(j.ai.note)}</p>` : ""}
     ${j.clips.length ? `<div class="grid">${j.clips.map(c => clipHtml(j, c)).join("")}</div>` : ""}`;
 }
@@ -2373,6 +2400,8 @@ document.addEventListener("click", async e => {
       await send("/api/account/delete", {confirm: typed});
       location.href = "/"; return;
     }
+    if (a === "stopjob") { await api(`/api/jobs/${d.j}/stop`, {method:"POST"}); toast("Stopping"); return tick(); }
+    if (a === "retryjob") { await api(`/api/jobs/${d.j}/retry`, {method:"POST"}); toast("Started again"); return tick(); }
     if (a === "deljob") {
       if (!await ask("Delete this video?", "The video and all of its clips are permanently deleted. This cannot be undone.", "Delete", true)) return;
       await api(`/api/jobs/${d.j}`, {method:"DELETE"}); toast("Deleted"); return tick();

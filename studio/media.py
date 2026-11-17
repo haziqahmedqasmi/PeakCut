@@ -100,7 +100,10 @@ def _ydl(opts):
     # a channel or playlist link is answered as "a list" straight away, never walked video by video
     return yt_dlp.YoutubeDL({"noplaylist": True, "quiet": True, "no_warnings": True, "logger": _Quiet(),
                              "extract_flat": "in_playlist", "playlistend": 1, "socket_timeout": 20,
-                             "concurrent_fragment_downloads": 4, **opts})
+                             "concurrent_fragment_downloads": 4,
+                             # a long download over a shaky line drops now and then: keep trying, and carry on
+                             # from the half-finished file instead of starting again
+                             "retries": 20, "fragment_retries": 20, "continuedl": True, **opts})
 
 
 def _video_format(height):
@@ -121,7 +124,36 @@ def info(url: str) -> dict:
         i = ydl.extract_info(url, download=False)
     return {"title": i.get("title") or "", "uploader": i.get("uploader") or i.get("channel") or "",
             "duration": float(i.get("duration") or 0), "is_live": bool(i.get("is_live")),
-            "thumbnail": i.get("thumbnail") or "", "kind": i.get("_type") or "video"}
+            "thumbnail": i.get("thumbnail") or "", "kind": i.get("_type") or "video",
+            # YouTube's "Most replayed" graph: how often each stretch of the video was watched again
+            "heatmap": [{"start": float(h["start_time"]), "end": float(h["end_time"]), "value": float(h["value"])}
+                        for h in (i.get("heatmap") or []) if isinstance(h, dict) and "start_time" in h]}
+
+
+def most_replayed(heatmap: list, n: int, width: float, duration: float, lo=0.0, hi=None) -> list:
+    """The n stretches people watched again the most, from YouTube's graph: [(start, end, value)], in time order.
+
+    The graph has 100 points whatever the length, so on a long video one point covers minutes. Each pick is the
+    middle `width` seconds of its point. The opening point is left out (everyone is there at the start), and so are
+    the points either side of one already taken, so two picks are never the same moment."""
+    hi = duration if hi is None else hi
+    pts = [h for h in heatmap if h["end"] > lo and h["start"] < hi]
+    first = min((h["start"] for h in heatmap), default=0.0)
+    taken, out = [], []
+    for h in sorted(pts, key=lambda h: -h["value"]):
+        if h["start"] <= first and lo <= first:
+            continue
+        if any(abs(h["start"] - t) < 1.5 * (h["end"] - h["start"]) for t in taken):
+            continue
+        mid = (max(lo, h["start"]) + min(hi, h["end"])) / 2
+        a = max(lo, mid - width / 2)
+        b = min(hi, a + width)
+        a = max(lo, b - width)
+        taken.append(h["start"])
+        out.append((round(a, 2), round(b, 2), h["value"]))
+        if len(out) >= n:
+            break
+    return sorted(out)
 
 
 def youtube_words(url: str):
@@ -242,16 +274,36 @@ def save_thumb(job_dir: Path, url: str = "", video: Path = None) -> bool:
     return False
 
 
-def download_audio(url: str, job_dir: Path, on_progress=None) -> Path:
-    """Audio only: a few seconds even for long videos, and all the AI needs to pick clips."""
+def download_audio(url: str, job_dir: Path, on_progress=None, start=None, end=None, check=None) -> Path:
+    """Audio only: a few seconds even for long videos, and all the AI needs to pick clips.
+
+    With `start` or `end`, only that part of the audio is fetched: a two-hour part of a fifteen-hour stream is
+    two hours of download, not fifteen. The file then begins at `start`.
+    `check` is called while downloading; it raises to stop the download (the Stop button).
+    A dropped connection is tried again from where it stopped, a few times, before giving up."""
     def hook(d):
+        if check:
+            check()
         total = d.get("total_bytes") or d.get("total_bytes_estimate")
         if on_progress and d.get("status") == "downloading" and total:
             on_progress(d.get("downloaded_bytes", 0) / total)
 
-    with _youtube_guard(url), _ydl({"format": "ba[ext=m4a]/ba/worst", "outtmpl": str(job_dir / "audio_src.%(ext)s"),
-               "progress_hooks": [hook]}) as ydl:
-        ydl.download([url])
+    opts = {"format": "ba[ext=m4a]/ba/worst", "outtmpl": str(job_dir / "audio_src.%(ext)s"), "progress_hooks": [hook]}
+    if start or end:
+        from yt_dlp.utils import download_range_func
+        opts["download_ranges"] = download_range_func(None, [(max(0.0, float(start or 0)), float(end) if end else float("inf"))])
+    for attempt in range(4):
+        try:
+            with _youtube_guard(url), _ydl(opts) as ydl:
+                ydl.download([url])
+            break
+        except Exception as e:  # noqa: BLE001
+            import yt_dlp
+            if check:
+                check()                        # stopped by the person: never tried again
+            if attempt == 3 or not isinstance(e, yt_dlp.utils.DownloadError):
+                raise
+            time.sleep(5 * (attempt + 1))      # the half-finished file is kept, and the next try carries on from it
     return _biggest(job_dir, "audio_src")
 
 
