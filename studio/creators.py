@@ -16,6 +16,7 @@ _lock = threading.RLock()
 
 DEFAULTS = {"name": "", "channel": "", "style": "bounce", "layout": "blur", "captions": True, "min_len": 15, "max_len": 60,
             "max_clips": 6, "min_score": 80, "auto_watch": False, "buffer_min": 20, "live_per_hour": 4, "ai_every_min": 3, "ai_only_on_spike": True, "auto_jump_pct": 60,
+            "live_rewind": "all", "live_from": None, "live_to": None,
             "plan": "free", "decide_mode": "both", "must_clip_min": 0, "min_gap_min": 2,
             "game": "",
             "trigger_words": "clip that, clip it",
@@ -80,6 +81,11 @@ def _clean(data: dict) -> dict:
             v = v if v in ("both", "either") else "both"
         elif k == "privacy":
             v = v if v in ("public", "unlisted", "private") else "public"
+        elif k in ("live_from", "live_to"):
+            try:
+                v = max(0.0, float(v)) if v not in ("", None) else None
+            except (ValueError, TypeError):
+                v = None
         else:
             v = str(v).strip()[:300]
         out[k] = v

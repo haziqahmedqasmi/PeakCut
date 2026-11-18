@@ -553,6 +553,49 @@ img.av{object-fit:cover}
 .lc-acts{flex:none;display:flex;gap:8px;align-items:center}
 .lc-acts .btn{height:40px}
 @media (max-width:900px){.lc-head{flex-direction:column}.lc-acts{width:100%}.lc-acts .btn{flex:1;justify-content:center}}
+.lc-range-bar{background:var(--muted);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin:14px 0}
+.lc-range-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px}
+.lc-range-label{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--brand-ink);font-weight:500}
+.lc-range-label svg{width:16px;height:16px;color:var(--brand)}
+.lc-presets{display:flex;gap:6px;align-items:center}
+.lc-presets .chip{height:26px;padding:0 10px;font-size:12px;cursor:pointer;border-radius:13px;border:1px solid var(--line);background:#fff;color:var(--dim);transition:all .15s ease}
+.lc-presets .chip:hover{border-color:var(--brand);color:var(--brand)}
+.lc-presets .chip.on{background:var(--brand-soft);border-color:var(--brand-line);color:var(--brand-deep);font-weight:600}
+.lc-sliders{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px}
+@media (max-width:700px){.lc-sliders{grid-template-columns:1fr}}
+.lc-slide-row{display:flex;flex-direction:column;gap:6px}
+.slide-tag{font-size:12px;color:var(--dim);display:flex;justify-content:space-between}
+.slide-tag b{color:var(--brand-ink);font-variant-numeric:tabular-nums}
+.cr-slider{width:100%;height:6px;border-radius:3px;background:var(--line-2);outline:none;-webkit-appearance:none;cursor:pointer}
+.cr-slider::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--brand);border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:pointer;transition:transform .1s ease}
+.cr-slider::-webkit-slider-thumb:hover{transform:scale(1.15);background:var(--brand-press)}
+.cr-slider::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--brand);border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:pointer}
+.cr-timeline-wrap{margin:8px 0 12px}
+.cr-timeline{position:relative;height:22px;background:var(--line-2);border-radius:6px;overflow:hidden;cursor:pointer}
+.cr-timeline-fill{position:absolute;top:2px;bottom:2px;background:var(--brand);border-radius:4px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:600;min-width:32px;pointer-events:none;transition:left .08s ease,width .08s ease}
+.cr-timeline-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--faint);margin-top:4px}
+.cr-nudge{display:inline-flex;gap:3px;align-items:center}
+.cr-nudge button{height:20px;padding:0 6px;border:1px solid var(--line-2);border-radius:4px;background:#fff;color:var(--dim);font-size:11px;cursor:pointer;line-height:1;transition:all .15s ease}
+.cr-nudge button:hover{border-color:var(--brand);color:var(--brand)}
+.rec-modes{display:flex;flex-direction:column;gap:8px}
+.rec-mode{display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border-radius:var(--r);background:var(--muted);border:1px solid var(--line);cursor:pointer;transition:border-color .15s ease,background .15s ease}
+.rec-mode:hover{border-color:var(--brand-line)}
+.rec-mode.on{background:var(--brand-soft);border-color:var(--brand)}
+.rec-mode input[type="radio"]{position:absolute;opacity:0;pointer-events:none}
+.rm-icon{width:32px;height:32px;border-radius:8px;background:#fff;border:1px solid var(--line-2);display:grid;place-items:center;color:var(--brand);flex:none;margin-top:2px}
+.rec-mode.on .rm-icon{background:var(--brand);color:#fff;border-color:var(--brand)}
+.rm-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.rm-info b{font-size:14px;color:var(--brand-ink);font-weight:600}
+.rm-info span{font-size:12px;color:var(--dim)}
+.rm-chips{display:flex;gap:6px;margin-top:8px}
+.rm-chips .chip{height:24px;padding:0 8px;font-size:11px;border-radius:12px;border:1px solid var(--line-2);background:#fff;color:var(--dim);cursor:pointer;transition:all .15s ease}
+.rm-chips .chip:hover{border-color:var(--brand);color:var(--brand)}
+.rm-chips .chip.on{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:600}
+.rm-inputs{display:flex;align-items:center;gap:10px;margin-top:8px}
+.rm-inputs label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dim)}
+.rm-inputs input{width:75px;height:30px;padding:0 8px;font-size:12px;border:1px solid var(--line-2);border-radius:6px;background:#fff}
+.rm-inputs input:focus{border-color:var(--brand);outline:none}
+.lc-range-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px}
 .stats{display:flex;gap:28px;flex-wrap:wrap;margin:18px 0}
 .stat b{display:block;font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--brand-ink)}
 .evbtn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 8px 0 0;border:0;background:transparent;font:inherit;font-size:20px;font-weight:600;color:var(--brand-ink);cursor:pointer;border-radius:8px;transition:color .15s ease}
@@ -1114,7 +1157,7 @@ function drawStream() {
     ${stats.length ? `<div class="sstats">${stats.map(([v, l]) => `<div><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join("")}</div>` : ""}
     <div class="cta">${rec
       ? `<button class="btn danger" data-act="stoplive" data-j="${esc(rec)}">${ic("stop")}Stop recording</button><small>Recording now. Clips appear below as they're made.</small>`
-      : `<button class="btn primary" data-act="golive" data-url="${esc(p.channel)}"><span class="rdot"></span>Record this stream</button><small>PeakCut watches it and clips the best moments as they happen.</small>`}</div>`);
+      : `<button class="btn primary" data-act="golive" data-cid="${esc(c.id)}" data-url="${esc(p.channel)}"><span class="rdot"></span>Record this stream</button><small>PeakCut watches it and clips the best moments as they happen.</small>`}</div>`);
 }
 function liveOn(c) { return Object.entries(c.profiles || {}).filter(([k, p]) => p.live && c.channels?.[k] === p.channel).sort(([, p]) => p.channel === c.channel ? -1 : 1); }
 function statusBadge(c) {
@@ -1280,7 +1323,7 @@ function drawShell() {  const nav = (v, icon, label, extra = "") => `<button cla
     tabs = [["clips", "Clips", "scissors", nJobs], ["setup", "Setup", "cog", 0], ["activity", "Activity", "clock", nLog]].map(([k, l, i, n]) =>
       `<button class="tabbtn ${S.ctab === k ? "on" : ""}" data-act="tab" data-t="${k}" role="tab" aria-selected="${S.ctab === k}">${ic(i)}${l}${n ? `<span class="n">${n > 99 ? "99+" : n}</span>` : ""}</button>`).join("");
     act = c.live_job ? `<button class="btn danger" data-act="stoplive" data-j="${esc(c.live_job)}">${ic("stop")}Stop recording</button>`
-                     : `<button class="btn primary" data-act="golive"><span class="rdot"></span>${liveOn(c).length ? "Record live stream" : "Start recording"}</button>`;
+                     : `<button class="btn primary" data-act="golive" data-cid="${esc(c.id)}"><span class="rdot"></span>${liveOn(c).length ? "Record live stream" : "Start recording"}</button>`;
   }
   if (S.view === "overview" || S.view === "library") {
     const L = S.status.links || {};
@@ -1708,14 +1751,105 @@ function everyPick(cid, v) {
     <button type="button" class="evbtn pick-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="How often the AI checks"><span class="pv">${cur[1]}</span>${ic("caret").replace("<svg", '<svg class="car"')}</button>
     <div class="pick-menu" role="listbox">${EVERY.map(([k, l, h]) => `<button type="button" class="pick-opt" role="option" data-v="${k}" aria-selected="${k === cur[0]}"><span class="pl">${l}</span>${h ? `<small class="ph">${h}</small>` : ""}${ic("check").replace("<svg", '<svg class="tick"')}</button>`).join("")}</div></div>`;
 }
+function syncClipRangeUI(jid, sVal, eVal) {
+  const dur = Math.max(5, sVal - eVal);
+  const fmtD = d => d < 60 ? `${d}s` : `${Math.floor(d / 60)}m${d % 60 ? " " + (d % 60) + "s" : ""}`;
+  const fmtA = v => v === 0 ? "0s (now)" : v < 60 ? `${v}s ago` : `${Math.floor(v / 60)}m${v % 60 ? " " + (v % 60) + "s" : ""} ago`;
+  const startLbl = $(`#cr_start_lbl_${jid}`);
+  if (startLbl) startLbl.textContent = fmtA(sVal);
+  const endLbl = $(`#cr_end_lbl_${jid}`);
+  if (endLbl) endLbl.textContent = fmtA(eVal);
+  const infoEl = $(`#cr_info_${jid}`);
+  if (infoEl) infoEl.textContent = eVal === 0 ? `Last ${fmtD(sVal)}` : `From ${fmtA(sVal)} to ${fmtA(eVal)}`;
+  const durEl = $(`#cr_dur_${jid}`);
+  if (durEl) durEl.textContent = fmtD(dur);
+
+  const startEl = $(`#cr_start_${jid}`);
+  const max = Number(startEl?.max || 60);
+  const clipLeft = Math.max(0, Math.min(98, (1 - (sVal / max)) * 100));
+  const clipRight = Math.max(2, Math.min(100, (1 - (eVal / max)) * 100));
+  const clipWidth = Math.max(2, clipRight - clipLeft);
+  const track = $(`#cr_track_${jid}`);
+  if (track) {
+    track.style.left = `${clipLeft}%`;
+    track.style.width = `${clipWidth}%`;
+    track.textContent = fmtD(dur);
+  }
+
+  $$(`[data-act="cr_preset"][data-j="${jid}"]`).forEach(btn => {
+    const bs = Number(btn.dataset.s), be = Number(btn.dataset.e || 0);
+    btn.classList.toggle("on", bs === sVal && be === eVal);
+  });
+}
 function liveHtml(j) {
   const L = j.live || {elapsed:0, lines:[], level:[], chat:null, checks:0, buffer_sec:0, pending_clips:0};
+  S.clipRanges = S.clipRanges || {};
+  const userRange = S.clipRanges[j.id] = S.clipRanges[j.id] || {s: 30, e: 0};
+  const maxAvail = Math.round(L.buffer_sec || L.elapsed || 60);
+  const maxSlider = Math.max(60, Math.min(1800, maxAvail));
+  if (userRange.s > maxSlider) userRange.s = maxSlider;
+  if (userRange.e > maxSlider - 5) userRange.e = Math.max(0, maxSlider - 5);
+  const dur = Math.max(5, userRange.s - userRange.e);
+  const fmtD = d => d < 60 ? `${d}s` : `${Math.floor(d / 60)}m${d % 60 ? " " + (d % 60) + "s" : ""}`;
+  const fmtA = v => v === 0 ? "0s (now)" : v < 60 ? `${v}s ago` : `${Math.floor(v / 60)}m${v % 60 ? " " + (v % 60) + "s" : ""} ago`;
+  const infoText = userRange.e === 0 ? `Last ${fmtD(userRange.s)}` : `From ${fmtA(userRange.s)} to ${fmtA(userRange.e)}`;
+  const clipLeft = Math.max(0, Math.min(98, (1 - (userRange.s / maxSlider)) * 100));
+  const clipRight = Math.max(2, Math.min(100, (1 - (userRange.e / maxSlider)) * 100));
+  const clipWidth = Math.max(2, clipRight - clipLeft);
   return `<div class="livecard">
     <div class="lc-head"><div class="lc-title"><span class="pill live"><span class="dot"></span>Live</span>
         <h3>${esc(j.title || j.source.name)}</h3><p class="sub">${esc(j.uploader)}${j.uploader ? " · " : ""}${esc(j.stage)}</p></div>
       <div class="lc-acts"><button class="btn primary" data-act="clipnow" data-j="${j.id}" data-s="30">${ic("scissors")}Clip last 30s</button>
         <button class="btn" data-act="clipnow" data-j="${j.id}" data-s="60">Last 60s</button>
         <button class="btn danger" data-act="stoplive" data-j="${j.id}">${ic("stop")}Stop</button></div></div>
+    <div class="lc-range-bar">
+      <div class="lc-range-header">
+        <span class="lc-range-label">${ic("scissors")}<b>Clip Range:</b> <span id="cr_info_${j.id}">${infoText}</span></span>
+        <div class="lc-presets">
+          <button type="button" class="chip ${userRange.s === 15 && userRange.e === 0 ? "on" : ""}" data-act="cr_preset" data-j="${j.id}" data-s="15" data-e="0">15s</button>
+          <button type="button" class="chip ${userRange.s === 30 && userRange.e === 0 ? "on" : ""}" data-act="cr_preset" data-j="${j.id}" data-s="30" data-e="0">30s</button>
+          <button type="button" class="chip ${userRange.s === 60 && userRange.e === 0 ? "on" : ""}" data-act="cr_preset" data-j="${j.id}" data-s="60" data-e="0">60s</button>
+          <button type="button" class="chip ${userRange.s === 90 && userRange.e === 0 ? "on" : ""}" data-act="cr_preset" data-j="${j.id}" data-s="90" data-e="0">90s</button>
+          <button type="button" class="chip ${userRange.s === 120 && userRange.e === 0 ? "on" : ""}" data-act="cr_preset" data-j="${j.id}" data-s="120" data-e="0">2m</button>
+          <button type="button" class="chip ${userRange.s === 300 && userRange.e === 0 ? "on" : ""}" data-act="cr_preset" data-j="${j.id}" data-s="300" data-e="0">5m</button>
+        </div>
+      </div>
+      <div class="cr-timeline-wrap">
+        <div class="cr-timeline" id="cr_timeline_${j.id}" data-act="cr_timeline" data-j="${j.id}" title="Click anywhere to jump the clip window">
+          <div class="cr-timeline-fill" id="cr_track_${j.id}" style="left:${clipLeft}%;width:${clipWidth}%">${fmtD(dur)}</div>
+        </div>
+        <div class="cr-timeline-labels">
+          <span>← Buffer start (${fmtA(maxSlider)})</span>
+          <span>🔴 Live edge (now)</span>
+        </div>
+      </div>
+      <div class="lc-sliders">
+        <div class="lc-slide-row">
+          <span class="slide-tag">
+            <span>Start: <b id="cr_start_lbl_${j.id}">${fmtA(userRange.s)}</b></span>
+            <span class="cr-nudge">
+              <button type="button" data-act="cr_nudge" data-j="${j.id}" data-role="start" data-delta="-5" title="5s closer to live">-5s</button>
+              <button type="button" data-act="cr_nudge" data-j="${j.id}" data-role="start" data-delta="5" title="5s earlier">+5s</button>
+            </span>
+          </span>
+          <input type="range" class="cr-slider" id="cr_start_${j.id}" data-j="${j.id}" data-role="start" min="5" max="${maxSlider}" step="1" value="${userRange.s}">
+        </div>
+        <div class="lc-slide-row">
+          <span class="slide-tag">
+            <span>End: <b id="cr_end_lbl_${j.id}">${fmtA(userRange.e)}</b></span>
+            <span class="cr-nudge">
+              <button type="button" data-act="cr_nudge" data-j="${j.id}" data-role="end" data-delta="-5" title="5s closer to live (or now)">-5s</button>
+              <button type="button" data-act="cr_nudge" data-j="${j.id}" data-role="end" data-delta="5" title="5s earlier">+5s</button>
+            </span>
+          </span>
+          <input type="range" class="cr-slider" id="cr_end_${j.id}" data-j="${j.id}" data-role="end" min="0" max="${Math.max(0, maxSlider - 5)}" step="1" value="${userRange.e}">
+        </div>
+      </div>
+      <div class="lc-range-actions">
+        <span class="sub" style="font-size:12px;margin-right:auto">Adjust sliders or tap ±5s to fine-tune your moment</span>
+        <button class="btn primary sm" data-act="cliprange" data-j="${j.id}" id="cr_btn_${j.id}">${ic("scissors")}Clip range (<span id="cr_dur_${j.id}">${fmtD(dur)}</span>)</button>
+      </div>
+    </div>
     <div class="stats"><div class="stat"><b>${fmt(L.elapsed)}</b><span>Recorded</span></div><div class="stat"><b>${Math.round(L.buffer_sec / 60)} min</b><span>Kept in buffer</span></div>
       <div class="stat">${everyPick(j.creator, L.every_min ?? 3)}<span>${L.every_min === 0 ? (L.auto?.warming ? "AI checks: learning the stream" : L.auto?.waiting ? "AI checks: jump spotted, checking soon" : `AI checks on jumps · ${L.auto?.spikes || 0} so far`) : "AI checks every"}</span></div>
       <div class="stat"><b>${L.checks}</b><span>AI calls${L.skipped ? ` · ${L.skipped} skipped` : ""}${L.rejected ? ` · ${L.rejected} turned down` : ""}</span></div><div class="stat"><b>${j.clips.length}</b><span>Clips so far</span></div>
@@ -1797,7 +1931,8 @@ function drawJobs() {
   let list = cid ? S.jobs.filter(j => j.creator === cid) : S.jobs;
   const liveBox = $("#live");
   if (liveBox) { const lj = list.find(j => j.status === "live");
-    if (!liveBox.querySelector(".pick.open")) put(liveBox, lj ? liveHtml(lj) : "");  // don't redraw under an open menu
+    const sliderActive = S.sliding || (liveBox.contains(document.activeElement) && document.activeElement.classList.contains("cr-slider"));
+    if (!liveBox.querySelector(".pick.open") && !sliderActive) put(liveBox, lj ? liveHtml(lj) : "");  // don't redraw under an open menu or active slider
     list = list.filter(j => j.status !== "live"); }
   if (!list.length) {
     root.querySelectorAll("section").forEach(e => e.remove());
@@ -1844,7 +1979,13 @@ function drawCreatorForm() {
   const A = S.accounts;
   box.innerHTML = `<div class="card"><h2>Their stream</h2><p class="help">Where to record from, and whether to start by itself.</p>
       <div class="chans">${channelRows(c)}</div>
-      <div class="fields" style="margin-top:14px"><label class="sw span"><input type="checkbox" data-k="auto_watch" ${c.auto_watch ? "checked" : ""}><span>Record automatically when they go live<small>Checks straight away, then every two minutes.</small></span></label></div></div>
+      <div class="fields" style="margin-top:14px"><label class="sw span"><input type="checkbox" data-k="auto_watch" ${c.auto_watch ? "checked" : ""}><span>Record automatically when they go live<small>Checks straight away, then every two minutes.</small></span></label>
+        <label class="f span" style="margin-top:10px">Rewind & analyze previous stream<select data-k="live_rewind">${opts({all:"From stream start (catch up on all previous hours)", "3h":"Past 3 hours", "2h":"Past 2 hours", "1h":"Past 1 hour", custom:"Custom range (set minutes below)", "0":"Live edge only (from now)"}, c.live_rewind || "all")}</select><small class="sub" style="font-weight:400">When recording an ongoing stream, PeakCut rewinds to analyze earlier hours so no reactions or clips are missed.</small></label>
+        <div class="range span" style="margin-top:6px;display:flex;gap:12px;align-items:center">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px">From minute<input data-k="live_from" type="number" min="0" placeholder="0 (start)" style="width:90px" value="${c.live_from ?? ""}"></label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px">To minute<input data-k="live_to" type="number" min="0" placeholder="live (now)" style="width:90px" value="${c.live_to ?? ""}"></label>
+          <small class="sub" style="margin:0;font-size:12px;color:var(--dim)">Leave "To minute" blank to continue monitoring live.</small>
+        </div></div></div>
     <div class="card"><h2>How the AI decides</h2><p class="help">Two separate AI checks. The words judge reads only what was said. The reaction judge sees only how loud the streamer got and how busy chat was, never the words.</p>
       <div class="fields">
         <label class="f">Check the live stream every<select data-k="ai_every_min">${opts({1:"1 minute", 2:"2 minutes", 3:"3 minutes", 5:"5 minutes", 10:"10 minutes"}, c.ai_every_min || 3)}</select><small class="sub" id="costhint" style="font-weight:400">${costHint(c.ai_every_min)}</small></label>
@@ -2224,6 +2365,42 @@ document.addEventListener("drop", e => { const a = $(".composer"); if (a) { e.pr
 function syncCaptionStyle(toggle) {
   toggle.closest("#addform, #cform, #clipdlg").querySelectorAll("[data-caption-style]").forEach(i => i.disabled = !toggle.checked);
 }
+document.addEventListener("input", e => {
+  const t = e.target;
+  if (!t.classList.contains("cr-slider")) return;
+  const jid = t.dataset.j, role = t.dataset.role;
+  if (!jid) return;
+  S.clipRanges = S.clipRanges || {};
+  const cur = S.clipRanges[jid] = S.clipRanges[jid] || {s: 30, e: 0};
+  const startEl = $(`#cr_start_${jid}`);
+  const endEl = $(`#cr_end_${jid}`);
+  let sVal = startEl ? Number(startEl.value) : cur.s;
+  let eVal = endEl ? Number(endEl.value) : cur.e;
+
+  if (role === "start") {
+    if (sVal < eVal + 5) {
+      eVal = Math.max(0, sVal - 5);
+      if (endEl) endEl.value = eVal;
+    } else if (sVal - eVal > 300) {
+      eVal = sVal - 300;
+      if (endEl) endEl.value = eVal;
+    }
+  } else if (role === "end") {
+    if (eVal > sVal - 5) {
+      sVal = eVal + 5;
+      if (startEl) startEl.value = sVal;
+    } else if (sVal - eVal > 300) {
+      sVal = eVal + 300;
+      if (startEl) startEl.value = sVal;
+    }
+  }
+
+  S.clipRanges[jid] = {s: sVal, e: eVal};
+  syncClipRangeUI(jid, sVal, eVal);
+});
+document.addEventListener("pointerdown", e => { if (e.target.classList?.contains("cr-slider")) S.sliding = true; }, true);
+document.addEventListener("pointerup", () => { S.sliding = false; }, true);
+document.addEventListener("pointercancel", () => { S.sliding = false; }, true);
 document.addEventListener("change", async e => {
   const t = e.target;
   if (t.id === "o_creator") {
@@ -2255,6 +2432,176 @@ document.addEventListener("change", async e => {
   if (t.dataset.k === "autopost" && t.checked && !await ask("Turn on auto-posting?", "Clips that score high enough will be posted to the ticked accounts without you seeing them first.", "Turn on")) { t.checked = false; return; }
   saveCreator(true);
 });
+
+function openGoLiveDialog(cr, defaultUrl) {
+  return new Promise(res => {
+    const d = $("#formdlg");
+    const channels = cr.channels || (cr.channel ? {main: cr.channel} : {});
+    const chanKeys = Object.keys(channels);
+    const curRewind = String(cr.live_rewind || "all");
+    const curFrom = cr.live_from ?? "";
+    const curTo = cr.live_to ?? "";
+    const creatorName = cr.name || "this creator";
+
+    const isHours = ["1h", "2h", "3h"].includes(curRewind);
+    const isCustom = curRewind === "custom" || curFrom !== "";
+    const initialMode = isCustom ? "custom" : isHours ? "hours" : (curRewind === "0" ? "0" : "all");
+    const initialHour = isHours ? curRewind : "2h";
+
+    d.innerHTML = `<form method="dialog" class="dlg" style="width:480px">
+      <h2>Record live stream</h2>
+      <p class="help">Choose what portion of <b>${esc(creatorName)}</b>'s stream to analyze:</p>
+      ${chanKeys.length > 1 ? `
+        <label class="f">Channel
+          <select id="rec_chan">${chanKeys.map(k => `<option value="${esc(channels[k])}" ${(defaultUrl ? channels[k] === defaultUrl : channels[k] === cr.channel) ? "selected" : ""}>${esc(PLAT[k]?.name || k)} · ${esc(channels[k])}</option>`).join("")}</select>
+        </label>` : `<input type="hidden" id="rec_chan" value="${esc(defaultUrl || cr.channel || Object.values(channels)[0] || "")}">`}
+
+      <div class="rec-modes" id="rec_modes_box">
+        <label class="rec-mode ${initialMode === 'all' ? 'on' : ''}">
+          <input type="radio" name="rec_mode" value="all" ${initialMode === 'all' ? 'checked' : ''}>
+          <div class="rm-icon">${ic("film")}</div>
+          <div class="rm-info">
+            <b>Full video from start</b>
+            <span>Catch up on earlier broadcast hours, then continue recording live</span>
+          </div>
+        </label>
+
+        <label class="rec-mode ${initialMode === '0' ? 'on' : ''}">
+          <input type="radio" name="rec_mode" value="0" ${initialMode === '0' ? 'checked' : ''}>
+          <div class="rm-icon">${ic("play")}</div>
+          <div class="rm-info">
+            <b>Live edge only</b>
+            <span>Record strictly from this moment forward</span>
+          </div>
+        </label>
+
+        <label class="rec-mode ${initialMode === 'hours' ? 'on' : ''}">
+          <input type="radio" name="rec_mode" value="hours" ${initialMode === 'hours' ? 'checked' : ''}>
+          <div class="rm-icon">${ic("clock")}</div>
+          <div class="rm-info">
+            <b>Past broadcast hours</b>
+            <span>Rewind recent stream history and stay live</span>
+            <div class="rm-chips" id="rec_hour_chips">
+              <button type="button" class="chip ${initialHour === '1h' ? 'on' : ''}" data-h="1h">Past 1 hour</button>
+              <button type="button" class="chip ${initialHour === '2h' ? 'on' : ''}" data-h="2h">Past 2 hours</button>
+              <button type="button" class="chip ${initialHour === '3h' ? 'on' : ''}" data-h="3h">Past 3 hours</button>
+            </div>
+          </div>
+        </label>
+
+        <label class="rec-mode ${initialMode === 'custom' ? 'on' : ''}">
+          <input type="radio" name="rec_mode" value="custom" ${initialMode === 'custom' ? 'checked' : ''}>
+          <div class="rm-icon">${ic("scissors")}</div>
+          <div class="rm-info">
+            <b>Custom minute range</b>
+            <span>Track a specific window of the stream</span>
+            <div class="rm-inputs" id="rec_custom_box">
+              <label>From min<input id="rec_from" type="number" min="0" placeholder="0 (start)" value="${esc(String(curFrom))}"></label>
+              <label>To min<input id="rec_to" type="number" min="0" placeholder="live (now)" value="${esc(String(curTo))}"></label>
+              <small class="sub" style="font-size:11px;margin:0;color:var(--dim)">Leave blank for live</small>
+            </div>
+          </div>
+        </label>
+      </div>
+
+      <div id="rec_val_err" style="display:none;color:var(--bad);font-size:12px;font-weight:500;padding:2px 0"></div>
+      <label class="ck" style="margin-top:2px"><input type="checkbox" id="rec_save_def">Remember as default for ${esc(creatorName)}</label>
+      <div class="dlg-foot">
+        <button class="btn" value="no" type="button" data-act="dlg_cancel">Cancel</button>
+        <button class="btn primary" value="yes" id="rec_submit"><span class="rdot"></span>Start recording</button>
+      </div>
+    </form>`;
+
+    let activeHour = initialHour;
+    const submitBtn = $("#rec_submit", d);
+    const errEl = $("#rec_val_err", d);
+    const fromIn = $("#rec_from", d);
+    const toIn = $("#rec_to", d);
+
+    function getSelectedMode() {
+      return $("input[name='rec_mode']:checked", d)?.value || "all";
+    }
+
+    function syncModeCards() {
+      const mode = getSelectedMode();
+      $$(".rec-mode", d).forEach(label => {
+        const inp = $("input[type='radio']", label);
+        label.classList.toggle("on", inp && inp.value === mode);
+      });
+      validateCustom();
+    }
+
+    function validateCustom() {
+      if (getSelectedMode() !== "custom") {
+        if (errEl) errEl.style.display = "none";
+        if (submitBtn) submitBtn.disabled = false;
+        return;
+      }
+      const f = fromIn?.value?.trim(), t = toIn?.value?.trim();
+      if (f !== "" && t !== "" && Number(t) <= Number(f)) {
+        if (errEl) { errEl.textContent = "To minute must be greater than From minute."; errEl.style.display = "block"; }
+        if (submitBtn) submitBtn.disabled = true;
+      } else {
+        if (errEl) errEl.style.display = "none";
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    }
+
+    $$(".rec-mode input[type='radio']", d).forEach(r => {
+      r.addEventListener("change", syncModeCards);
+    });
+
+    $$("#rec_hour_chips button", d).forEach(btn => {
+      btn.addEventListener("click", e => {
+        e.preventDefault();
+        e.stopPropagation();
+        activeHour = btn.dataset.h;
+        $$("#rec_hour_chips button", d).forEach(b => b.classList.toggle("on", b === btn));
+        const hourRadio = $("input[value='hours']", d);
+        if (hourRadio) { hourRadio.checked = true; syncModeCards(); }
+      });
+    });
+
+    [fromIn, toIn].filter(Boolean).forEach(inp => {
+      inp.addEventListener("focus", () => {
+        const customRadio = $("input[value='custom']", d);
+        if (customRadio) { customRadio.checked = true; syncModeCards(); }
+      });
+      inp.addEventListener("input", validateCustom);
+    });
+
+    if (submitBtn) submitBtn.onclick = () => { d.returnValue = "yes"; };
+
+    const cancelBtn = $('[data-act="dlg_cancel"]', d);
+    if (cancelBtn) cancelBtn.onclick = () => { d.returnValue = "no"; d.close(); };
+
+    d.onclose = () => {
+      if (d.returnValue !== "yes") return res(null);
+      const mode = getSelectedMode();
+      const chanVal = $("#rec_chan", d)?.value || "";
+      const fromVal = fromIn?.value?.trim();
+      const toVal = toIn?.value?.trim();
+      const saveDef = $("#rec_save_def", d)?.checked;
+
+      let finalRewind = mode;
+      if (mode === "hours") finalRewind = activeHour;
+      else if (mode === "custom") finalRewind = "custom";
+
+      res({
+        channel: chanVal,
+        rewind: finalRewind,
+        from_min: fromVal !== "" && fromVal !== undefined ? Number(fromVal) : null,
+        to_min: toVal !== "" && toVal !== undefined ? Number(toVal) : null,
+        range_start: mode === "custom" && fromVal !== "" && fromVal !== undefined ? Number(fromVal) * 60 : undefined,
+        range_end: mode === "custom" && toVal !== "" && toVal !== undefined ? Number(toVal) * 60 : undefined,
+        save_default: !!saveDef
+      });
+    };
+
+    d.returnValue = "no";
+    d.showModal();
+  });
+}
 
 document.addEventListener("click", async e => {
   const b = e.target.closest("[data-act]"); if (!b) return;
@@ -2387,16 +2734,46 @@ document.addEventListener("click", async e => {
     if (a === "spick") { S.spick = {...S.spick, [creatorId()]: d.p}; return drawStream(); }
     if (a === "chmain") return saveChannels(creator().channels, creator().channels[d.p]);
     if (a === "golive") {
-      if (!creator().channel) { setTab("setup"); return toast("Connect one of their channels first, then press Start recording.", "bad"); }
+      const cid0 = d.cid || creatorId();
+      const cr = (cid0 ? S.creators.find(x => x.id === cid0) : null) || creator() || {};
+      if (!cr.channel && !d.url) { setTab("setup"); return toast("Connect one of their channels first, then press Start recording.", "bad"); }
+      const choice = await openGoLiveDialog(cr, d.url);
+      if (!choice) return;
+
       b.disabled = true; const was = b.innerHTML; b.innerHTML = `<span class="rdot"></span>Starting…`;
       try {
-        // The creator is fixed before asking: starting can take a few seconds, and the person may open another
-        // creator meanwhile. The recording must stay with the one whose button was pressed.
-        const cid0 = creatorId();
-        const j = await send(`/api/creators/${cid0}/live`, d.url ? {channel: d.url} : {});
-        if (j?.id) { const c = S.creators.find(x => x.id === cid0); if (c) c.live_job = j.id; if (!jobOf(j.id)) S.jobs.unshift(j); render(); }
+        if (choice.save_default && cid0) {
+          await send(`/api/creators/${cid0}`, {
+            live_rewind: choice.rewind,
+            live_from: choice.from_min,
+            live_to: choice.to_min
+          }, "PUT");
+        }
+        let j;
+        if (cid0) {
+          j = await send(`/api/creators/${cid0}/live`, {
+            channel: choice.channel,
+            rewind: choice.rewind,
+            range_start: choice.range_start,
+            range_end: choice.range_end
+          });
+        } else {
+          j = await send(`/api/jobs`, {
+            url: choice.channel,
+            options: {
+              live_rewind: choice.rewind,
+              range_start: choice.range_start,
+              range_end: choice.range_end
+            }
+          });
+        }
+        if (j?.id) {
+          if (cid0) { const c = S.creators.find(x => x.id === cid0); if (c) c.live_job = j.id; }
+          if (!jobOf(j.id)) S.jobs.unshift(j);
+          render();
+        }
         const still = creatorId() === cid0;
-        toast(still ? "Recording started. Clips appear below as they're made." : `Recording started for ${S.creators.find(x => x.id === cid0)?.name || "that creator"}.`, "ok");
+        toast(still ? "Recording started. Clips appear below as they're made." : `Recording started for ${(cid0 && S.creators.find(x => x.id === cid0)?.name) || "that creator"}.`, "ok");
         if (still) setTab("clips");
       } catch (e) { b.disabled = false; b.innerHTML = was; throw e; }
       return tick();
@@ -2408,7 +2785,88 @@ document.addEventListener("click", async e => {
       toast("Recording stopped. Clips already made are kept.", "ok");
       api(`/api/live/${d.j}/stop`, {method:"POST"}).catch(e => toast(e.message, "bad")).finally(tick); return;
     }
-    if (a === "clipnow") { await send(`/api/live/${d.j}/clip`, {seconds:Number(d.s)}); return toast(`Clipping the last ${d.s} seconds…`, "ok"); }
+    if (a === "clipnow") {
+      await send(`/api/live/${d.j}/clip`, {seconds:Number(d.s)});
+      if (S.clipRanges) {
+        S.clipRanges[d.j] = {s: Number(d.s), e: 0};
+        const se = $(`#cr_start_${d.j}`), ee = $(`#cr_end_${d.j}`);
+        if (se) se.value = d.s; if (ee) ee.value = 0;
+        syncClipRangeUI(d.j, Number(d.s), 0);
+      }
+      return toast(`Clipping the last ${d.s} seconds…`, "ok");
+    }
+    if (a === "cr_preset") {
+      const jid = d.j, sVal = Number(d.s), eVal = Number(d.e || 0);
+      S.clipRanges = S.clipRanges || {};
+      S.clipRanges[jid] = {s: sVal, e: eVal};
+      const startEl = $(`#cr_start_${jid}`);
+      const endEl = $(`#cr_end_${jid}`);
+      if (startEl) startEl.value = sVal;
+      if (endEl) endEl.value = eVal;
+      syncClipRangeUI(jid, sVal, eVal);
+      return;
+    }
+    if (a === "cr_nudge") {
+      const jid = d.j, role = d.role, delta = Number(d.delta);
+      S.clipRanges = S.clipRanges || {};
+      const cur = S.clipRanges[jid] = S.clipRanges[jid] || {s: 30, e: 0};
+      const startEl = $(`#cr_start_${jid}`), endEl = $(`#cr_end_${jid}`);
+      const max = Number(startEl?.max || 60);
+      let sVal = cur.s, eVal = cur.e;
+      if (role === "start") {
+        sVal = Math.max(eVal + 5, Math.min(max, sVal + delta));
+        if (sVal - eVal > 300) sVal = eVal + 300;
+      } else if (role === "end") {
+        eVal = Math.max(0, Math.min(sVal - 5, eVal + delta));
+        if (sVal - eVal > 300) eVal = Math.max(0, sVal - 300);
+      }
+      cur.s = sVal; cur.e = eVal;
+      if (startEl) startEl.value = sVal;
+      if (endEl) endEl.value = eVal;
+      syncClipRangeUI(jid, sVal, eVal);
+      return;
+    }
+    if (a === "cr_timeline") {
+      const jid = d.j;
+      const track = $(`#cr_timeline_${jid}`);
+      if (!track) return;
+      const rect = track.getBoundingClientRect();
+      const clickRatio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const startEl = $(`#cr_start_${jid}`), endEl = $(`#cr_end_${jid}`);
+      const max = Number(startEl?.max || 60);
+      S.clipRanges = S.clipRanges || {};
+      const cur = S.clipRanges[jid] = S.clipRanges[jid] || {s: 30, e: 0};
+      const dur = Math.max(5, cur.s - cur.e);
+      const centerSecAgo = Math.round((1 - clickRatio) * max);
+      let sVal = Math.round(centerSecAgo + dur / 2);
+      let eVal = Math.max(0, sVal - dur);
+      sVal = Math.min(max, eVal + dur);
+      eVal = Math.max(0, sVal - dur);
+      cur.s = sVal; cur.e = eVal;
+      if (startEl) startEl.value = sVal;
+      if (endEl) endEl.value = eVal;
+      syncClipRangeUI(jid, sVal, eVal);
+      return;
+    }
+    if (a === "cliprange") {
+      const jid = d.j;
+      const cur = S.clipRanges?.[jid] || {s: 30, e: 0};
+      const sVal = cur.s, eVal = cur.e;
+      const dur = Math.max(5, sVal - eVal);
+      const was = b.innerHTML;
+      b.disabled = true;
+      b.innerHTML = `<span class="rdot"></span>Preparing…`;
+      try {
+        await send(`/api/live/${jid}/clip`, {start_offset: sVal, end_offset: eVal});
+        toast(eVal === 0 ? `Clipping the last ${sVal} seconds…` : `Clipping ${dur}s (from ${sVal}s ago to ${eVal}s ago)…`, "ok");
+      } catch (err) {
+        toast(err.message, "bad");
+      } finally {
+        b.innerHTML = was;
+        b.disabled = false;
+      }
+      return tick();
+    }
     if (a === "resendverify") {
       b.disabled = true;
       try { const r = await send("/api/auth/resend-verification"); if (r.verified) { S.status = await api("/api/status"); drawShell(); return toast("Your email is already confirmed.", "ok"); }

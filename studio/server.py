@@ -721,6 +721,22 @@ def create_from_link(body: dict = Body(...)):
     creator = str(body.get("creator") or "") or None
     if creator and not creators.get(creator):
         raise HTTPException(404, "No such creator")
+    seen = media._PREVIEWS.get(url)
+    if not seen:
+        try:
+            seen = media.preview(url)
+        except Exception:
+            seen = None
+    if seen and seen.get("is_live"):
+        c = creators.get(creator) if creator else next((cr for cr in creators.all_creators() if url in cr.get("channels", {}).values() or cr.get("channel") == url), None)
+        if not c:
+            name = (seen.get("uploader") or seen.get("title") or "Live Stream")[:50]
+            c = creators.create({"name": name, "channel": url})
+        opts = body.get("options") or {}
+        rewind_opt = opts.get("live_rewind", c.get("live_rewind", "all"))
+        return jobs.public(live.start_session(c, url, rewind=rewind_opt,
+                                              range_start=opts.get("range_start"),
+                                              range_end=opts.get("range_end")))
     try:
         with _create_lock:
             _job_slots()
@@ -1213,8 +1229,14 @@ def go_live(cid: str, body: dict = Body(default={})):
     on_air = [p["channel"] for k, p in (c.get("profiles") or {}).items() if p.get("live") and c["channels"].get(k) == p.get("channel")]
     asked = str((body or {}).get("channel") or "")
     url = asked if asked in c["channels"].values() else c["channel"] if c["channel"] in on_air or not on_air else on_air[0]
+    rewind = (body or {}).get("rewind", c.get("live_rewind", "all"))
+    range_start = (body or {}).get("range_start")
+    range_end = (body or {}).get("range_end")
+    if "rewind" not in body and rewind == "custom":
+        range_start = float(c.get("live_from") or 0) * 60
+        range_end = float(c["live_to"]) * 60 if c.get("live_to") is not None else None
     try:
-        return jobs.public(live.start_session(c, url))
+        return jobs.public(live.start_session(c, url, rewind=rewind, range_start=range_start, range_end=range_end))
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -1237,7 +1259,15 @@ def clip_now(jid: str, body: dict = Body(...)):
     if len(s.manual) >= 3:
         raise HTTPException(429, "Give it a moment: your last clips are still being made.")
     try:
-        s.clip_last(max(5, min(180, float(body.get("seconds", 30)))))
+        if "start_offset" in body or "start" in body:
+            s.clip_range(
+                start_offset=body.get("start_offset"),
+                end_offset=body.get("end_offset", 0.0),
+                start=body.get("start"),
+                end=body.get("end")
+            )
+        else:
+            s.clip_range(seconds=max(5, min(300, float(body.get("seconds", 30)))))
     except (ValueError, TypeError) as e:
         raise HTTPException(400, str(e))
     return {"ok": True}

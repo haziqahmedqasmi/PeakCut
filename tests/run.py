@@ -65,6 +65,7 @@ def main() -> int:
                 ("fresh installs: ffmpeg, the speech model, AI errors", ["tests/test_tools.py"]),
                 ("the storage folder: full drive, open, move", ["tests/test_storage.py"]),
                 ("security: visitor address, email addresses, Google sign-in, prompts", ["tests/test_hardening.py"]),
+                ("live rewind and range clipping", ["tests/test_live_rewind.py"]),
                 ("long logs, the machine monitor, failed recordings, admin day totals", ["tests/test_robustness.py"])]
         for name, args in runs:
             print(f"\n=== {name} ===", flush=True)

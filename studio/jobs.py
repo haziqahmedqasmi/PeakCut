@@ -108,7 +108,7 @@ _lock = threading.RLock()
 on_clip_ready: list = []   # callbacks (job, clip), run once when a clip first finishes
 
 DEFAULTS = {"max_clips": 6, "min_len": 15, "max_len": 60, "style": "bounce", "layout": "blur", "quality": 720,
-            "range_start": None, "range_end": None, "captions": True}
+            "range_start": None, "range_end": None, "captions": True, "live_rewind": "all"}
 
 
 LIMITS = {"max_clips": (1, 20), "min_len": (5, 120), "max_len": (10, 180), "quality": (360, 1080)}
@@ -132,6 +132,8 @@ def clean_options(options) -> dict:
             v = v if v in render.STYLES else DEFAULTS["style"]
         elif k == "layout":
             v = v if v in render.LAYOUTS else DEFAULTS["layout"]
+        elif k == "live_rewind":
+            v = str(v).strip()[:10]
         else:                                    # range_start, range_end: seconds into the video
             v = float(v)
             if not math.isfinite(v) or v < 0:
@@ -288,7 +290,11 @@ def create(source: dict, options: dict, enqueue=True, creator=None, kind="video"
     c = creators.get(creator) if creator else None
     if c:
         d = creators.root(c["id"]) / ("live" if kind == "live" else "videos") / jid
-        base = {**DEFAULTS, **{k: c[k] for k in ("max_clips", "min_len", "max_len", "style", "layout", "captions")}}
+        base = {**DEFAULTS, **{k: c[k] for k in ("max_clips", "min_len", "max_len", "style", "layout", "captions", "live_rewind") if k in c}}
+        if kind == "live" and c.get("live_rewind") == "custom" and c.get("live_from") is not None:
+            base["range_start"] = float(c["live_from"]) * 60
+        if kind == "live" and c.get("live_rewind") == "custom" and c.get("live_to") is not None:
+            base["range_end"] = float(c["live_to"]) * 60
     else:
         d, base, creator = config.user_dir(ctx.uid()) / "jobs" / jid, dict(DEFAULTS), None
     opts = {**base, **clean_options(options)}
@@ -584,8 +590,8 @@ def _run_job(job):
         if ((o["range_end"] or meta["duration"]) - (o["range_start"] or 0)) > config.MAX_VIDEO_HOURS * 3600:
             raise RuntimeError(f"That is longer than {config.MAX_VIDEO_HOURS:g} hours. Choose a shorter part of it under Options.")
         if meta["is_live"]:
-            raise RuntimeError("This link is a live stream, so it would never finish downloading. Open the creator, "
-                               "put this link under Setup, and press Start recording instead.")
+            raise RuntimeError("This link is an ongoing live stream. PeakCut records and analyzes live streams (including previous hours) "
+                               "from the creator's page with 'Record live stream'.")
         _set(job, title=meta["title"], uploader=meta["uploader"], duration=meta["duration"])
         if not job.get("thumb") and media.save_thumb(d, url=src["url"]):
             _set(job, thumb=True)

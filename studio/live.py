@@ -62,7 +62,7 @@ class _Quiet:
     def error(self, m): pass
 
 
-def resolve(url: str) -> dict:
+def resolve(url: str, rewind: bool = False) -> dict:
     """Ask yt-dlp for the stream's playable address. Raises NotLive if the channel is offline."""
     import yt_dlp
     opts = {"quiet": True, "no_warnings": True, "noplaylist": True, "logger": _Quiet(),
@@ -86,6 +86,31 @@ def resolve(url: str) -> dict:
             "uploader": info.get("uploader") or info.get("channel") or ""}
 
 
+def _rewind_index(url, hours, absolute_range=False):
+    """Choose an HLS playlist entry using its actual segment durations."""
+    import yt_dlp
+    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "logger": _Quiet()}) as ydl:
+        with ydl.urlopen(url) as response:
+            playlist = response.read(2_000_000).decode("utf-8", "replace")
+    durations = [float(x) for x in re.findall(r"(?m)^#EXTINF:([0-9.]+)", playlist)]
+    if not durations:
+        raise ValueError("This stream does not provide a usable history playlist. Try its replay after the stream ends.")
+    sequence = re.search(r"(?m)^#EXT-X-MEDIA-SEQUENCE:(\d+)", playlist)
+    if (absolute_range or hours < 0) and sequence and int(sequence.group(1)) > 1:
+        raise ValueError("The beginning of this stream is no longer available. Try its replay after the stream ends.")
+    if absolute_range or hours < 0:
+        return 0
+    needed = hours * 3600
+    total = 0.0
+    for count, duration in enumerate(reversed(durations), 1):
+        total += duration
+        if total >= needed:
+            return -count
+    if sequence and int(sequence.group(1)) <= 1:
+        return 0
+    raise ValueError("That much stream history is not available. Try a shorter period or use the replay after the stream ends.")
+
+
 def active():
     return [s for s in SESSIONS.values() if not s.finished and not s.user_stopped]
 
@@ -105,9 +130,53 @@ def mine(jid):
     return s if s and s.job["user"] == ctx.uid() else None
 
 
+def parse_stream_time(val) -> float | None:
+    """Parse minutes, seconds, hh:mm:ss, or negative offset (-2h) into stream seconds."""
+    if val is None or val == "":
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = str(val).strip().lower()
+    if s in ("start", "0"):
+        return 0.0
+    if s in ("live", "now", "end"):
+        return None
+    neg = s.startswith("-")
+    if neg:
+        s = s[1:]
+    if ":" in s:
+        parts = [float(p) for p in s.split(":")]
+        if len(parts) == 3:
+            sec = parts[0] * 3600 + parts[1] * 60 + parts[2]
+        elif len(parts) == 2:
+            sec = parts[0] * 60 + parts[1]
+        else:
+            sec = float(parts[0])
+        return -sec if neg else sec
+    m = re.match(r"^(\d+(?:\.\d+)?)\s*(h|m|s)?$", s)
+    if m:
+        num, unit = float(m.group(1)), m.group(2)
+        sec = num * 3600 if unit == "h" else num * 60 if unit == "m" else num
+        return -sec if neg else sec
+    try:
+        sec = float(s)
+        return -sec if neg else sec
+    except ValueError:
+        return None
+
+
 class Session:
-    def __init__(self, job, settings):
+    def __init__(self, job, settings, rewind=None, range_start=None, range_end=None):
         self.job, self.settings = job, settings
+        opts = job.get("options") or {}
+        self.rewind = rewind if rewind is not None else opts.get("live_rewind", settings.get("live_rewind", "all"))
+        raw_start = range_start if range_start is not None else opts.get("range_start")
+        raw_end = range_end if range_end is not None else opts.get("range_end")
+        self.range_start = parse_stream_time(raw_start)
+        self.range_end = parse_stream_time(raw_end)
+        if self.range_start is not None and self.range_end is not None and self.range_end <= self.range_start:
+            raise ValueError("The end of the chosen stream range must be after its start.")
+        self.catching_up = bool(self._parse_rewind_hours() != 0.0 or (self.range_start is not None and self.range_start != 0.0))
         self.dir = Path(job["dir"])
         self.buf = self.dir / "buffer"
         self.buf.mkdir(exist_ok=True)
@@ -135,7 +204,7 @@ class Session:
         self.chat_kept = 0                   # the second this was last pruned at
         self.chat_total = 0
         self.chat_on = False
-        self.last_check = 0.0
+        self.last_check = max(0.0, float(self.range_start)) if (self.range_start is not None and self.range_start > 0) else 0.0
         self.words_at_check = 0
         self.checks = 0
         self.rejected = 0
@@ -157,6 +226,15 @@ class Session:
         self.facecam_box = None       # where the webcam is, found once the first clip is made
         self.facecam_checked = False  # the look is made once, even when it finds nothing
         self.ai_busy = 0.0            # when the AI check now running was started, 0 when none is
+
+    def _parse_rewind_hours(self):
+        r = str(self.rewind if self.rewind is not None else "all").lower().strip()
+        if r in ("0", "live", "none", "false"):
+            return 0.0
+        if r in ("all", "start", "true"):
+            return -1.0
+        m = re.search(r"(\d+(?:\.\d+)?)", r)
+        return float(m.group(1)) if m else -1.0
 
     def _ask_ai(self, window=None, why=None):
         """Ask the AI on its own thread, so a slow answer never stops the recording.
@@ -247,7 +325,7 @@ class Session:
         url = self.job["source"]["url"]
         while not self.stop_flag.is_set():
             try:
-                info = resolve(url)
+                info = resolve(url, rewind=bool(self.part == 0 and (self._parse_rewind_hours() != 0.0 or self.range_start is not None)))
             except NotLive as e:
                 fails += 1
                 if self.samples == 0 or fails >= 3:
@@ -264,7 +342,17 @@ class Session:
             p = f"p{self.part:02d}"
             cmd = ["ffmpeg", "-v", "error", "-reconnect", "1", "-reconnect_streamed", "1",
                    "-reconnect_delay_max", "10"]
+            rewind_inputs = False
+            if self.part == 1:
+                rh = self._parse_rewind_hours()
+                if rh != 0 or self.range_start is not None or self.range_end is not None:
+                    if not all(".m3u8" in u or "hls" in u.lower() for u in info["urls"]):
+                        raise ValueError("This stream does not provide a history playlist. Try its replay after the stream ends.")
+                    rewind_inputs = True
             for u in info["urls"]:
+                if rewind_inputs:
+                    start_idx = _rewind_index(u, rh, self.range_start is not None or self.range_end is not None)
+                    cmd += ["-live_start_index", str(start_idx)]
                 cmd += ["-i", u]
             a_in = "1:a:0" if len(info["urls"]) > 1 else "0:a:0"
             cmd += ["-map", "0:v:0", "-map", a_in, "-c", "copy", "-f", "segment", "-segment_time", str(SEG_SEC),
@@ -287,6 +375,10 @@ class Session:
                         self.pending += data
                         self.samples += len(data) // 2
                         self.db.append(level)
+                    if self.range_end and (self.samples / SR) >= self.range_end + 30:
+                        if self.proc and self.proc.poll() is None:
+                            self.proc.terminate()
+                        break
                 self.proc.wait()
             fails = 0 if got > SR * 2 * 20 else fails + 1
             if fails >= 3:
@@ -310,7 +402,9 @@ class Session:
                     self.segments.append((self.buf / name, self.seg_clock, self.seg_clock + dur))
                     self.seg_clock += dur
                 self.csv_seen[i] = len(rows)
-            keep_from = self.seg_clock - self.settings["buffer_min"] * 60
+            buf_keep = self.seg_clock - self.settings["buffer_min"] * 60
+            analyzed_keep = max(0.0, self.last_check - 90)
+            keep_from = min(buf_keep, analyzed_keep) if (self.catching_up or self.range_start is not None) else buf_keep
             while self.segments and self.segments[0][2] < keep_from:
                 self.segments.pop(0)[0].unlink(missing_ok=True)
 
@@ -449,14 +543,19 @@ class Session:
         for the same stretch, without seeing the words. A clip is made when both say yes (or as set in Setup)."""
         st = self.settings
         every = int(st.get("ai_every_min", 3)) or 3
-        if window:                    # just the stretch around a jump, or around someone saying "clip"
+        if window:                    # just the stretch around a jump, or catch-up window
             ws, now = max(0.0, window[0]), window[1]
+            if why == "Tracking stream range":
+                self.last_check = max(self.last_check, now)
         else:
             now = self.t_done
             ws = max(0.0, now - max(every, 3) * 60 - 90)  # each check overlaps the last by 90 s, so nothing falls between
-        self.last_check = self.t_done
+            self.last_check = self.t_done
         win = [w for w in self.words if ws <= w["s"] <= now]
-        recent = [c for c in self.job["clips"] if c.get("score", 0) > 0 and time.time() - c.get("made_at", 0) < 3600]
+        stream_hour = int(now / 3600)
+        recent = [c for c in self.job["clips"] if c.get("score", 0) > 0 and (
+            int(c.get("start", 0) / 3600) == stream_hour if self.catching_up else time.time() - c.get("made_at", 0) < 3600
+        )]
         last_clip = max((c.get("made_at", 0) for c in self.job["clips"]), default=self.started_at)
         must = st["must_clip_min"] > 0 and time.time() - last_clip >= st["must_clip_min"] * 60
         verdict = {"t": round(now), "transcript": None, "reaction": None, "trigger": why}
@@ -649,11 +748,36 @@ class Session:
             pass
         return guess
 
-    def clip_last(self, seconds):
-        end = self.samples / SR
-        if end < 5:
+    def clip_range(self, start_offset=None, end_offset=0.0, seconds=None, start=None, end=None):
+        total = self.samples / SR
+        if total < 5:
             raise ValueError("Nothing has been recorded yet.")
-        self.manual.append({"start": max(0.0, end - seconds), "end": end})
+        if seconds is not None:
+            c_end = total
+            c_start = max(0.0, total - float(seconds))
+        elif start_offset is not None:
+            s_off = float(start_offset)
+            e_off = float(end_offset or 0.0)
+            c_start = max(0.0, total - s_off)
+            c_end = min(total, total - e_off)
+        elif start is not None:
+            c_start = max(0.0, float(start))
+            c_end = min(total, float(end)) if end is not None else total
+        else:
+            c_end = total
+            c_start = max(0.0, total - 30.0)
+
+        if c_end <= c_start:
+            raise ValueError("End of clip must be after start.")
+        dur = c_end - c_start
+        if dur > 300:
+            raise ValueError("Clips cannot be longer than 5 minutes.")
+        if dur < 5:
+            raise ValueError("Clips must be at least 5 seconds long.")
+        self.manual.append({"start": c_start, "end": c_end})
+
+    def clip_last(self, seconds):
+        self.clip_range(seconds=seconds)
 
     def _publish(self):
         elapsed = self.samples / SR
@@ -685,8 +809,8 @@ class Session:
                 busy = self._transcribe_step()
                 if not started and self.samples:
                     started = True
-                    self.job.update(status="live", stage="Recording")
-                    creators.log(cid, f"Recording started: {self.job['title']}")
+                    self.job.update(status="live", stage="Recording" if not self.catching_up else "Catching up on past stream")
+                    creators.log(cid, f"Recording started: {self.job['title']}" + (" (analyzing past stream)" if self.catching_up else ""))
                 self._manual_step()
                 # Three ways the AI is asked: on the creator's schedule (every N minutes), and always, when the
                 # stream suddenly gets louder or chat busier, or when someone says "clip".
@@ -695,14 +819,39 @@ class Session:
                 sp, said = self.spike, self.said
                 if self.user_stopped:
                     pass
-                elif said and (self.t_done >= said["t"] + self.SAID_AFTER or (self.ended and not busy)):
+                elif not self.catching_up and said and (self.t_done >= said["t"] + self.SAID_AFTER or (self.ended and not busy)):
                     self.said = None
                     self._ask_ai((said["t"] - self.SAID_BEFORE, said["t"] + self.SAID_AFTER), said["why"])
-                elif sp and (self.t_done >= sp["t"] + self.AUTO_AFTER or (self.ended and not busy)):
+                elif not self.catching_up and sp and (self.t_done >= sp["t"] + self.AUTO_AFTER or (self.ended and not busy)):
                     self.spike = None
                     self._ask_ai((sp["t"] - self.AUTO_BEFORE, sp["t"] + self.AUTO_AFTER), "Jump: " + sp["why"])
                 elif self.t_done - self.last_check >= every * 60 or (self.ended and not busy and self.t_done > self.last_check):
-                    self._ask_ai()
+                    step_sec = every * 60
+                    if self.range_end and self.last_check >= self.range_end:
+                        if not self.ai_busy and not self.manual:
+                            self.stop(f"Finished tracking range ({int((self.range_start or 0)/60)}m to {int(self.range_end/60)}m)")
+                            break
+                    elif self.t_done - self.last_check > step_sec + 60 or (self.range_end and self.last_check < self.range_end):
+                        self.catching_up = True
+                        win_end = min(self.t_done, self.last_check + step_sec)
+                        if self.range_end:
+                            win_end = min(win_end, self.range_end)
+                        win_start = max(self.range_start or 0.0, win_end - step_sec - 90)
+                        lag_min = max(0, int((self.seg_clock - win_end) / 60))
+                        analyzed_min = int(win_end / 60)
+                        if self.range_end:
+                            self.job["stage"] = f"Tracking range {int((self.range_start or 0)/60)}m–{int(self.range_end)/60}m ({analyzed_min}m analyzed)"
+                        elif lag_min > 3:
+                            self.job["stage"] = f"Catching up: {analyzed_min}m analyzed ({lag_min}m to live)"
+                        else:
+                            self.catching_up = False
+                            self.job["stage"] = "Recording live"
+                        self._ask_ai((win_start, win_end), why="Tracking stream range")
+                    else:
+                        if self.catching_up:
+                            self.catching_up = False
+                            self.job["stage"] = "Recording live"
+                        self._ask_ai()
                 self._publish()
             except Exception as e:  # noqa: BLE001
                 self.job["ai"]["last_error"] = str(e)[-200:]
@@ -712,7 +861,8 @@ class Session:
             # stop() has already written the status.
             if ((self.user_stopped and not self.manual and not self.ai_busy)
                     or (self.ended and not busy and not self.ai_busy
-                        and len(self.pending) < SR * 2 and not self.manual)):
+                        and len(self.pending) < SR * 2 and not self.manual
+                        and self.last_check >= min(self.t_done, self.range_end or self.t_done))):
                 break
             if not busy:
                 time.sleep(2)
@@ -776,7 +926,7 @@ def recover(job):
     jobs.submit_live(cleanup)
 
 
-def start_session(creator: dict, url=None) -> dict:
+def start_session(creator: dict, url=None, rewind=None, range_start=None, range_end=None) -> dict:
     url = normalize(url or creator.get("channel") or "")
     if not re.match(r"^https?://[^/]+\.[^/]+/", url + "/"):
         raise ValueError("Add this creator's channel link first.")
@@ -795,11 +945,25 @@ def start_session(creator: dict, url=None) -> dict:
     from . import tools
     if tools.missing():
         raise ValueError(tools.HELP)
-    job = jobs.create({"type": "live", "url": url, "name": f"{creator['name']} live"}, {}, enqueue=False,
+    rewind_val = rewind if rewind is not None else creator.get("live_rewind", "all")
+    if rewind_val == "custom" and rewind is None:
+        range_start = float(creator.get("live_from") or 0) * 60
+        range_end = float(creator["live_to"]) * 60 if creator.get("live_to") is not None else None
+    if rewind_val != "custom":
+        range_start = range_end = None
+    jobs.clean_options({"range_start": range_start, "range_end": range_end})
+    opts = {"live_rewind": rewind_val}
+    if range_start is not None:
+        opts["range_start"] = range_start
+    if range_end is not None:
+        opts["range_end"] = range_end
+    job = jobs.create({"type": "live", "url": url, "name": f"{creator['name']} live"},
+                      opts, enqueue=False,
                       creator=creator["id"], kind="live")
+    job["options"].update(range_start=range_start, range_end=range_end)
     job.update(status="live", stage="Connecting to the stream")
     jobs.save(job)
-    Session(job, creator).start()
+    Session(job, creator, rewind=rewind_val, range_start=range_start, range_end=range_end).start()
     return job
 
 
