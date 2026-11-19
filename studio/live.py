@@ -471,7 +471,8 @@ class Session:
         try:
             cands, tok = brain.judge_transcript(win, ws, now, title, up, st["min_len"], st["max_len"], self.job["clips"],
                                                 n=1 if every <= 2 else 2, must=must, game=self._game(),
-                                                timeout=config.LIVE_AI_TIMEOUT)  # Auto (0) asks for one
+                                                timeout=config.LIVE_AI_TIMEOUT,
+                                                caption_language=self.job.get("caption_language", "en"))  # Auto (0) asks for one
         except Exception as e:  # noqa: BLE001
             self.job["ai"]["last_error"] = str(e)[-200:]
             return self._verdict(verdict, "AI error: " + str(e)[-80:])
@@ -557,7 +558,7 @@ class Session:
             usage.set_context(self.job["creator"], self.job["title"] or "Live stream")
             try:
                 c = brain.describe(text, self.job["title"], self.job["uploader"], game=self._game(),
-                                   timeout=config.LIVE_AI_TIMEOUT)
+                                   timeout=config.LIVE_AI_TIMEOUT, caption_language=self.job.get("caption_language", "en"))
             except Exception as e:  # noqa: BLE001
                 # Someone asked for this clip by hand. A slow or broken AI costs it its hook, not the clip.
                 self.job["ai"]["last_error"] = str(e)[-200:]
@@ -572,7 +573,8 @@ class Session:
     def _add_clip(self, c):
         self.n += 1
         c.update(id=f"clip{self.n:03d}", style=self.settings["style"], layout=self.settings["layout"],
-                 captions=self.job["options"].get("captions", True), status="queued", version=0, made_at=time.time())
+                 captions=self.job["options"].get("captions", True), status="queued", version=0, made_at=time.time(),
+                 text_language=self.job.get("caption_language", "en"))
         with self.lock:
             self.job["clips"].append(c)
         jobs.save(self.job)

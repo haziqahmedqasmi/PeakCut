@@ -212,7 +212,7 @@ const peakcutPortuguese = {
   "Brazilian Portuguese": "Português (Brasil)",
   "Choose English or Brazilian Portuguese for captions.": "Escolha inglês ou português (Brasil) para as legendas.",
   "Applies to new videos and live recordings. Translating speech from another language requires an AI service.": "Vale para novos vídeos e gravações ao vivo. Para traduzir falas de outro idioma, configure um serviço de IA.",
-  "Applies to new videos, live recordings and clips you re-make. Changes are saved automatically. Translating speech from another language requires an AI service.": "Vale para novos vídeos, gravações ao vivo e clipes que você refizer. A alteração é salva automaticamente. Para traduzir falas de outro idioma, configure um serviço de IA.",
+  "Choose the language for clip titles, descriptions, opening text and subtitles. Saved automatically for new videos, live recordings and clips you re-make. Translating from another language requires an AI service.": "Escolha o idioma dos títulos, descrições, textos de abertura e legendas dos clipes. A alteração é salva automaticamente para novos vídeos, gravações ao vivo e clipes que você refizer. Para traduzir de outro idioma, configure um serviço de IA.",
   "Choose one of the AI services in the list.": "Escolha um dos serviços de IA na lista.",
   "Choose the accounts this creator's clips go to. One account can be shared by several creators.": "Escolha em quais contas os clipes deste criador serão publicados. Vários criadores podem usar a mesma conta.",
   "Client streams and recordings": "Transmissões e gravações de clientes",

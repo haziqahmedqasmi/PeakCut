@@ -153,8 +153,7 @@ def public(job) -> dict:
     """What the browser may see: no server paths, no owner id."""
     out = {k: v for k, v in job.items() if k not in HIDDEN}
     out["source"] = {k: v for k, v in job["source"].items() if k != "path"}
-    out["clips"] = [{k: v for k, v in c.items() if k not in ("src", "fixed_words", "fixed_for", "fixed_hook", "fixed_hook_for")}
-                    for c in job["clips"]]
+    out["clips"] = [{k: v for k, v in c.items() if k not in ("src", "fixed_words", "fixed_for")} for c in job["clips"]]
     ai = job.get("ai") or {}
     out["ai"] = {"tokens": ai.get("tokens", 0), "note": ai.get("note", ""), "used": bool(ai.get("model"))}   # never the model, never raw errors
     if job.get("status") == "queued":
@@ -385,7 +384,12 @@ def render_one(job, clip, words):
         if not clip.get("src"):
             clip["end"] = min(clip["end"], job["duration"])
         near = _caption_words(job, clip, words, off) if clip.get("captions", True) else []
-        local = dict(clip, start=clip["start"] - off, end=clip["end"] - off, hook=_caption_hook(job, clip))
+        language = clip.get("caption_language", job.get("caption_language", "en"))
+        if clip.get("text_language", "en") != language and config.ai_ready():
+            usage.set_context(job.get("creator"), job.get("title") or "")
+            clip.update(brain.translate_clip_text(clip, language), text_language=language)
+        local = dict(clip, start=clip["start"] - off, end=clip["end"] - off,
+                     hook=roman.to_roman(clip.get("hook") or ""))
         out = render.render_clip(src, d / "clips", clip["id"], local, near, job["width"], job["height"])
         clip.update(out, status="done", version=clip.get("version", 0) + 1, error=None)
         post = {k: clip[k] for k in ("title", "description", "hashtags", "hook", "start", "end", "score")}
@@ -403,23 +407,6 @@ def render_one(job, clip, words):
         clip.update(status="error", error=safe.friendly(e, 400))
         creators.log(job["creator"], f"Clip failed: {safe.friendly(e, 200)}")
     save(job)
-
-
-def _caption_hook(job, clip):
-    hook = clip.get("hook") or ""
-    if hook and clip.get("caption_language", job.get("caption_language")) == "pt-BR":
-        if hook == "WAIT FOR IT":
-            return "ESPERA SÓ"
-        key = [hook, "pt-BR"]
-        if clip.get("fixed_hook_for") != key:
-            if not config.ai_ready():
-                return roman.to_roman(hook)
-            usage.set_context(job.get("creator"), job.get("title") or "")
-            translated = brain.translate_caption_words([{"w": hook, "s": 0, "e": 1}],
-                                                       title=job.get("title") or "", target="Brazilian Portuguese")
-            clip.update(fixed_hook=" ".join(w["w"] for w in translated), fixed_hook_for=key)
-        hook = clip["fixed_hook"]
-    return roman.to_roman(hook)
 
 
 def _caption_words(job, clip, words, off):
@@ -767,7 +754,8 @@ def _run_job(job):
         quota = max(1, math.ceil(left / (len(blocks) - bi)))
         s0 = int((a - lo) / 16000)
         found, ai = brain.find_clips(bw, db[s0: s0 + int((b - a) / 16000) + 1], (b - a) / 16000, job["title"],
-                                     job["uploader"], quota, int(o["min_len"]), int(o["max_len"]), notes.append, game=game)
+                                     job["uploader"], quota, int(o["min_len"]), int(o["max_len"]), notes.append, game=game,
+                                     caption_language=job.get("caption_language", "en"))
         tokens += ai.get("tokens", 0)
         model = ai.get("model") or model
         if ai.get("note"):
@@ -787,7 +775,8 @@ def _run_job(job):
         for c in found:
             c.update(id=f"clip{len(job['clips']) + 1:02d}", start=round(c["start"] + shift, 2),
                      end=round(c["end"] + shift, 2), style=o["style"], layout=o["layout"],
-                     captions=o.get("captions", True), status="queued", version=0)
+                     captions=o.get("captions", True), status="queued", version=0,
+                     text_language=job.get("caption_language", "en"))
             # Only the gameplay layout uses a webcam, so it is only looked for then, and only once: a
             # stream with no webcam is not looked for again on every clip of it.
             if o["layout"] == "gameplay" and face is False:

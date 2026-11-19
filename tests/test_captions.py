@@ -120,20 +120,26 @@ def main(data):
                   response["clips"][0].get("caption_language") == "pt-BR")
             with (patch.object(brain, "portuguese_captions",
                                return_value=[{"w": "Português", "s": 1.0, "e": 1.5}]) as portuguese,
-                  patch.object(brain, "translate_caption_words",
-                               return_value=[{"w": "FIQUE LIGADO", "s": 0, "e": 1}]) as translate_hook,
+                  patch.object(brain, "translate_clip_text",
+                               return_value={"hook": "FIQUE LIGADO", "title": "Título em português",
+                                             "description": "Descrição em português.",
+                                             "hashtags": ["portugues"], "highlight_words": ["Português"]}) as translate_text,
                   patch.object(config, "ai_ready", return_value=True)):
                 jobs.render_one(job, clip, WORDS)
                 check("remaking a clip replaces its English cache with Portuguese",
                       portuguese.called and clip["fixed_for"][-1] == "pt-BR"
                       and has_dialogue(encode.call_args.args[-1], "Cap", "PORTUGUÊS"))
-                check("the opening text follows the caption language",
-                      translate_hook.called and has_dialogue(encode.call_args.args[-1], "Hook", "FIQUE LIGADO"))
+                check("the title, post caption and opening text follow the caption language",
+                      translate_text.called and clip["title"] == "Título em português"
+                      and clip["description"] == "Descrição em português."
+                      and has_dialogue(encode.call_args.args[-1], "Hook", "FIQUE LIGADO"))
                 jobs.render_one(job, clip, WORDS)
-                check("the translated opening text is cached", translate_hook.call_count == 1)
+                check("translated clip text is reused", translate_text.call_count == 1)
             with patch.object(config, "ai_ready", return_value=False):
-                check("Portuguese clips have a Portuguese opening text without AI",
-                      jobs._caption_hook(pt_job, {"hook": "WAIT FOR IT"}) == "ESPERA SÓ")
+                fallback = brain.fallback_by_loudness(transcribe.np.zeros(6), WORDS, 1, 5, 6,
+                                                      caption_language="pt-BR")
+                check("Portuguese clips have a Portuguese title and opening text without AI",
+                      fallback[0]["hook"] == "ESPERA SÓ" and fallback[0]["title"] == "Momento de destaque")
             with patch.object(brain, "portuguese_captions", side_effect=RuntimeError("Translation unavailable")):
                 clip.pop("fixed_for")
                 jobs.render_one(job, clip, WORDS)
@@ -153,6 +159,11 @@ def main(data):
                 check("translation requests Brazilian Portuguese and keeps the original timing",
                       "Brazilian Portuguese" in ask.call_args.args[0] and [w["w"] for w in translated] == ["Olá,", "Brasil!"]
                       and translated[0]["s"] == WORDS[0]["s"] and translated[-1]["e"] == WORDS[0]["e"])
+            with patch.object(brain, "ask_ai", return_value=([dict(clip)], "test", 0)) as ask:
+                brain.describe("This is a spoken moment.", caption_language="pt-BR")
+                check("new clip titles and post captions are requested in Brazilian Portuguese",
+                      "Brazilian Portuguese" in ask.call_args.args[0]
+                      and "write them in English" not in ask.call_args.args[0])
             with (patch.object(transcribe, "_decode_multilingual",
                                return_value=[(["▁Olá", "▁Brasil"], [0.1, 0.5])]) as decode,
                   patch.object(transcribe, "_take_now", side_effect=AssertionError("English model used")),
