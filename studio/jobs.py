@@ -11,7 +11,7 @@ import traceback
 import uuid
 from pathlib import Path
 
-from . import brain, config, creators, ctx, facecam, games, load, media, quality, render, roman, safe, transcribe, usage
+from . import accounts, brain, config, creators, ctx, facecam, games, load, media, quality, render, roman, safe, transcribe, usage
 
 class _FairQueue:
     """Whose video is next. Each person has their own line and the lines take turns, so someone who adds ten
@@ -153,7 +153,8 @@ def public(job) -> dict:
     """What the browser may see: no server paths, no owner id."""
     out = {k: v for k, v in job.items() if k not in HIDDEN}
     out["source"] = {k: v for k, v in job["source"].items() if k != "path"}
-    out["clips"] = [{k: v for k, v in c.items() if k not in ("src", "fixed_words", "fixed_for")} for c in job["clips"]]
+    out["clips"] = [{k: v for k, v in c.items() if k not in ("src", "fixed_words", "fixed_for", "fixed_hook", "fixed_hook_for")}
+                    for c in job["clips"]]
     ai = job.get("ai") or {}
     out["ai"] = {"tokens": ai.get("tokens", 0), "note": ai.get("note", ""), "used": bool(ai.get("model"))}   # never the model, never raw errors
     if job.get("status") == "queued":
@@ -296,6 +297,7 @@ def create(source: dict, options: dict, enqueue=True, creator=None, kind="video"
         opts["min_len"] = max(5, opts["max_len"] - 5)
     job = {"id": jid, "user": ctx.uid(), "kind": kind, "creator": creator, "dir": str(d), "created": time.time(), "source": source,
            "options": opts, "status": "queued", "stage": "Waiting", "progress": 0.0,
+           "caption_language": accounts.settings()["caption_language"],
            "title": source.get("name", ""), "uploader": "", "duration": 0, "clips": [], "error": None, "ai": {}}
     d.mkdir(parents=True)
     with _lock:
@@ -365,6 +367,7 @@ def request_render(jid, cid, changes: dict):
         new["style"] = DEFAULTS["style"]
     if new.get("layout") not in render.LAYOUTS:
         new["layout"] = DEFAULTS["layout"]
+    new["caption_language"] = accounts.settings()["caption_language"]
     clip.update(new, status="queued")
     save(job)
     _q.put(("clip", jid, cid))
@@ -381,8 +384,8 @@ def render_one(job, clip, words):
         src = Path(clip["src"]) if clip.get("src") else Path(job["source_path"])
         if not clip.get("src"):
             clip["end"] = min(clip["end"], job["duration"])
-        local = dict(clip, start=clip["start"] - off, end=clip["end"] - off, hook=roman.to_roman(clip.get("hook") or ""))
         near = _caption_words(job, clip, words, off) if clip.get("captions", True) else []
+        local = dict(clip, start=clip["start"] - off, end=clip["end"] - off, hook=_caption_hook(job, clip))
         out = render.render_clip(src, d / "clips", clip["id"], local, near, job["width"], job["height"])
         clip.update(out, status="done", version=clip.get("version", 0) + 1, error=None)
         post = {k: clip[k] for k in ("title", "description", "hashtags", "hook", "start", "end", "score")}
@@ -402,8 +405,26 @@ def render_one(job, clip, words):
     save(job)
 
 
+def _caption_hook(job, clip):
+    hook = clip.get("hook") or ""
+    if hook and clip.get("caption_language", job.get("caption_language")) == "pt-BR":
+        if hook == "WAIT FOR IT":
+            return "ESPERA SÓ"
+        key = [hook, "pt-BR"]
+        if clip.get("fixed_hook_for") != key:
+            if not config.ai_ready():
+                return roman.to_roman(hook)
+            usage.set_context(job.get("creator"), job.get("title") or "")
+            translated = brain.translate_caption_words([{"w": hook, "s": 0, "e": 1}],
+                                                       title=job.get("title") or "", target="Brazilian Portuguese")
+            clip.update(fixed_hook=" ".join(w["w"] for w in translated), fixed_hook_for=key)
+        hook = clip["fixed_hook"]
+    return roman.to_roman(hook)
+
+
 def _caption_words(job, clip, words, off):
-    span = [round(clip["start"], 2), round(clip["end"], 2), "en2"]      # "en2": captions made always-English
+    portuguese = clip.get("caption_language", job.get("caption_language")) == "pt-BR"
+    span = [round(clip["start"], 2), round(clip["end"], 2), "pt-BR" if portuguese else "en2"]
     if clip.get("fixed_for") == span and clip.get("fixed_words") and not any(
             roman.needs_roman(w.get("w", "")) for w in clip["fixed_words"]):
         raw = clip["fixed_words"]          # already tidied for this exact span: no second AI call
@@ -411,10 +432,15 @@ def _caption_words(job, clip, words, off):
         raw = [w for w in words if clip["start"] - 1 <= w["s"] <= clip["end"] + 1]
         try:
             usage.set_context(job.get("creator"), job.get("title") or "")
-            raw = brain.english_captions(raw, job.get("lang") or "", job.get("title") or "",
-                                         youtube_english=lambda: _english_part(job, clip))
+            lang, title = job.get("lang") or "", job.get("title") or ""
+            if portuguese:
+                raw = brain.portuguese_captions(raw, lang, title)
+            else:
+                raw = brain.english_captions(raw, lang, title, youtube_english=lambda: _english_part(job, clip))
             clip.update(fixed_words=raw, fixed_for=span)
         except Exception:  # noqa: BLE001 - captions still render with the words as heard
+            if portuguese and job.get("lang") and not job["lang"].lower().startswith("pt"):
+                raise
             pass
     # the last word on it: whatever was said, nothing is drawn in Hindi or Urdu script
     return [dict(w, s=w["s"] - off, e=w["e"] - off) for w in roman.words(raw)]
@@ -546,9 +572,12 @@ def _facecam(job) -> list | None:
 def _run_job(job):
     import math
     from concurrent.futures import ThreadPoolExecutor
+    from functools import partial
     d = Path(job["dir"])
     o = job["options"]
     src = job["source"]
+    portuguese = job.get("caption_language") == "pt-BR"
+    transcribe_audio = partial(transcribe.transcribe, multilingual=True) if portuguese else transcribe.transcribe
     # Which game this is: what the creator set, or what the title says. It decides the extra rules the AI
     # reads and the tags every post carries.
     game = job.get("game") or ""
@@ -570,10 +599,12 @@ def _run_job(job):
         _set(job, status="running", stage="Picking up where it stopped", error=None)
     else:
         _set(job, status="running", stage="Getting the audio", progress=0.03, error=None, clips=[], ai={}, done_blocks=0)
-    if not transcribe.model_ready() and not transcribe.REMOTE:
-        from . import fetch_model
-        _set(job, stage="Getting the speech model (one time, about 480 MB)")
-        fetch_model.ensure()
+    from . import fetch_model
+    model_dir = config.ASR_MULTILINGUAL_DIR if portuguese else config.ASR_MODEL_DIR
+    if (portuguese or not transcribe.REMOTE) and not fetch_model.ready(model_dir):
+        stage = "Getting the multilingual speech model (one time)" if portuguese else "Getting the speech model (one time, about 480 MB)"
+        _set(job, stage=stage)
+        fetch_model.ensure(model_dir)
         _set(job, stage="Getting the audio")
     fetch = ThreadPoolExecutor(1)
     video = None
@@ -650,7 +681,7 @@ def _run_job(job):
             # run on just this clip: full punctuation, nothing blanked out, timings to the word.
             a0, b0 = max(lo, int((clip["start"] - 1.5) * 16000)), min(hi, int((clip["end"] + 1.5) * 16000))
             try:
-                tw = [dict(w, s=round(w["s"] + a0 / 16000, 2), e=round(w["e"] + a0 / 16000, 2)) for w in transcribe.transcribe(audio[a0:b0])]
+                tw = [dict(w, s=round(w["s"] + a0 / 16000, 2), e=round(w["e"] + a0 / 16000, 2)) for w in transcribe_audio(audio[a0:b0])]
             except Exception:  # noqa: BLE001 - the clip is still made, with YouTube's words
                 tw = []
             if len(tw) >= 3:
@@ -705,7 +736,7 @@ def _run_job(job):
                 if now_on[0] == i and p - last[0] > 0.05:      # only the part being shown moves the bar
                     last[0] = p
                     _set(job, progress=max(job["progress"], 0.14 + 0.78 * ((a_ - lo) + p * (b_ - a_)) / max(1, hi - lo)))
-            heard[i] = ahead.submit(ctx.bind(transcribe.transcribe), audio[a_:b_], tp)
+            heard[i] = ahead.submit(ctx.bind(transcribe_audio), audio[a_:b_], tp)
 
     # The ad breaks and static screens of the whole video, found once. It reads the video end to end,
     # so it is done here rather than for each clip, and only when asked for.

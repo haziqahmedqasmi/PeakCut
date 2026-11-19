@@ -23,6 +23,8 @@ THREADS = int(os.environ.get("PEAKCUT_ASR_THREADS") or (4 if _CPUS >= 8 else max
 COPIES = int(os.environ.get("PEAKCUT_ASR_COPIES") or (1 if PROVIDER != "cpu" else max(1, _CPUS // THREADS) if _CPUS >= 8 else 1))
 _free: "queue.LifoQueue" = queue.LifoQueue()
 _made = 0
+_multilingual_lock = threading.Lock()
+_multilingual_rec = None
 
 # The machine with the graphics card, if there is one.
 REMOTE = os.environ.get("PEAKCUT_ASR_URL", "").strip().rstrip("/")
@@ -125,11 +127,11 @@ def _load_sherpa():
                        "folder somewhere short, like C:\\peakcut, and start it again.") from first
 
 
-def _new():
+def _new(model_dir=None):
     sherpa_onnx = _sherpa()
     from . import fetch_model
-    fetch_model.ensure()             # downloaded here, once, if it was never fetched
-    d = config.ASR_MODEL_DIR
+    d = model_dir or config.ASR_MODEL_DIR
+    fetch_model.ensure(d)             # downloaded here, once, if it was never fetched
     return sherpa_onnx.OfflineRecognizer.from_transducer(
         **_model_files(d),
         tokens=str(d / "tokens.txt"),
@@ -240,19 +242,32 @@ def _words(tokens, timestamps, a: int, b: int) -> list:
     return out
 
 
+def _decode_local(pieces, rec):
+    streams = []
+    for seg in pieces:
+        st = rec.create_stream()
+        st.accept_waveform(16000, seg)
+        streams.append(st)
+    rec.decode_streams(streams)
+    return [(list(st.result.tokens), [float(t) for t in st.result.timestamps]) for st in streams]
+
+
 def decode_pieces(pieces: list, rec=None) -> list:
     """[(tokens, timestamps), ...] for float32 pieces of audio, done on this machine with one copy of the model."""
-    streams = []
     rec = rec or _take()       # held only for these pieces, so videos transcribing at once take turns fairly
     try:
-        for seg in pieces:
-            st = rec.create_stream()
-            st.accept_waveform(16000, seg)
-            streams.append(st)
-        rec.decode_streams(streams)
+        return _decode_local(pieces, rec)
     finally:
         _free.put(rec)
-    return [(list(st.result.tokens), [float(t) for t in st.result.timestamps]) for st in streams]
+
+
+def _decode_multilingual(pieces):
+    """Keep one local copy. Older remote workers may only support English."""
+    global _multilingual_rec
+    with _multilingual_lock:
+        if _multilingual_rec is None:
+            _multilingual_rec = _new(config.ASR_MULTILINGUAL_DIR)
+        return _decode_local(pieces, _multilingual_rec)
 
 
 def _remote_ok() -> bool:
@@ -273,7 +288,7 @@ def _decode_remote(pieces: list) -> list:
     return [(p["tokens"], p["timestamps"]) for p in got]
 
 
-def transcribe(audio: np.ndarray, on_progress=None) -> list:
+def transcribe(audio: np.ndarray, on_progress=None, *, multilingual=False) -> list:
     """Returns [{'w': word, 's': start_sec, 'e': end_sec}, ...] for the whole audio.
     Speech is cut at quiet moments into 12-24 s pieces; silent pieces are skipped."""
     global _remote_down_until
@@ -284,7 +299,7 @@ def transcribe(audio: np.ndarray, on_progress=None) -> list:
         if len(seg) < 4800 or float(np.sqrt((seg ** 2).mean())) < 0.003:
             continue  # silence: skip, saves time and avoids made-up words
         todo.append((a, b, seg))
-    remote = _remote_ok()
+    remote = not multilingual and _remote_ok()
     size = max(1, REMOTE_BATCH if remote else BATCH)
     groups = [todo[i:i + size] for i in range(0, len(todo), size)]
     done = [0]
@@ -292,7 +307,7 @@ def transcribe(audio: np.ndarray, on_progress=None) -> list:
     def decode(group):
         global _remote_down_until
         segs = [seg for _, _, seg in group]
-        got = None
+        got = _decode_multilingual(segs) if multilingual else None
         while got is None:
             # whichever is free first: a place on the card's machine, or a copy of the model on this one
             if remote and _remote_ok() and REMOTE_SLOTS.acquire(blocking=False):
@@ -326,7 +341,7 @@ def transcribe(audio: np.ndarray, on_progress=None) -> list:
 
     # Pieces are independent, so they go to every copy of the model that is free: a video alone on the server
     # uses all of it, and several videos share it piece by piece. The words come back in order.
-    workers = REMOTE_PARALLEL if remote else COPIES
+    workers = 1 if multilingual else REMOTE_PARALLEL if remote else COPIES
     if workers > 1 and len(groups) > 1:
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(min(workers, len(groups)), thread_name_prefix="asr") as ex:

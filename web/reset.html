@@ -66,6 +66,7 @@ input::placeholder{color:var(--faint)}
 .g{width:20px;height:20px}
 .mobile-logo{display:none}
 @media (max-width:860px){body{grid-template-columns:1fr;background:#fff}.side{display:none}.main{margin:0;border-radius:0;min-height:100vh;align-content:center}.mobile-logo{display:block;height:34px;margin-bottom:28px}}
+[data-language]{font:inherit;color:var(--dim);background:transparent;border:1px solid var(--line);border-radius:6px;padding:7px 9px}
 </style>
 </head>
 <body>
@@ -97,38 +98,41 @@ input::placeholder{color:var(--faint)}
     <button class="btn primary" id="go2">Save new password</button>
   </form>
   <p class="swap"><a href="/login">Back to sign in</a></p>
+  <div class="swap" data-language-picker></div>
 </div></main>
 <style>.okbox{background:#E9F6EE;color:#1F7A4D;padding:14px 16px;border-radius:var(--r);font-size:15px;line-height:1.5}</style>
+<script src="/assets/pt-br.js?v=20261118-2"></script>
+<script src="/assets/i18n.js?v=20261118-2"></script>
 <script>
 document.getElementById("year").textContent = new Date().getFullYear();
 const q = new URLSearchParams(location.search), token = q.get("t");
 const $ = id => document.getElementById(id);
-const fail = (box, m) => { $(box).textContent = m; $(box).classList.add("on"); };
+const fail = (box, m) => { $(box).textContent = i18n.detail(m); $(box).classList.add("on"); };
 if (token) {
   $("ask").hidden = true; $("set").hidden = false;
-  $("h").textContent = "Choose a new password"; $("p").textContent = "You'll be signed in, and signed out everywhere else.";
+  $("h").textContent = i18n.t("Choose a new password"); $("p").textContent = i18n.t("You'll be signed in, and signed out everywhere else.");
 }
 $("ask").addEventListener("submit", async e => {
   e.preventDefault(); $("err").classList.remove("on");
-  const email = $("email").value.trim(); if (!email) return fail("err", "Enter your email.");
+  const email = $("email").value.trim(); if (!email) return fail("err", i18n.t("Enter your email."));
   $("go1").disabled = true;
   try {
     const r = await fetch("/api/auth/forgot", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({email})});
     const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : "Something went wrong. Try again.");
+    if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : i18n.t("Something went wrong. Try again."));
     $("ask").hidden = true; $("sent").hidden = false;
   } catch (err) { fail("err", err.message); $("go1").disabled = false; }
 });
 $("set").addEventListener("submit", async e => {
   e.preventDefault(); $("err2").classList.remove("on");
   const a = $("pw").value, b = $("pw2").value;
-  if (a.length < 8) return fail("err2", "Use at least 8 characters.");
-  if (a !== b) return fail("err2", "The two passwords don't match.");
+  if (a.length < 8) return fail("err2", i18n.t("Use at least 8 characters."));
+  if (a !== b) return fail("err2", i18n.t("The two passwords don't match."));
   $("go2").disabled = true;
   try {
     const r = await fetch("/api/auth/reset", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({token, password:a})});
     const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : "Something went wrong. Try again.");
+    if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : i18n.t("Something went wrong. Try again."));
     location.href = "/app";
   } catch (err) { fail("err2", err.message); $("go2").disabled = false; }
 });

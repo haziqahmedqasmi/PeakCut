@@ -431,7 +431,9 @@ def brand(name: str):
 def asset(name: str):
     if not re.fullmatch(r"[\w\-]+\.js", name) or not (WEB / name).is_file():
         raise HTTPException(404)
-    return FileResponse(WEB / name, media_type="text/javascript", headers={"Cache-Control": "public, max-age=86400, stale-while-revalidate=604800"})
+    # The page and its language helpers need to update together.
+    cache = "public, no-cache" if name in ("i18n.js", "pt-br.js") else "public, max-age=86400, stale-while-revalidate=604800"
+    return FileResponse(WEB / name, media_type="text/javascript", headers={"Cache-Control": cache})
 
 
 @app.get("/favicon.ico")

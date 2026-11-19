@@ -271,6 +271,8 @@ details p{color:var(--dim);margin-top:12px;font-size:16px}
 }
 @media (max-width:560px){.bar{border-radius:var(--r-lg);flex-basis:100%}.bar form{flex-direction:column;align-items:stretch}.bar .btn{width:100%;border-radius:var(--r)}.ask .or{display:none}.ask .up{width:100%;height:50px}header.nav .signin{display:none}.reel figure:not(.mid){display:none}.reel figure.mid{flex-basis:260px}.mock.result{grid-template-columns:110px 1fr}.mock.result video{width:110px}.trio b{font-size:36px}.notes span+span::before{display:none}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}.js .reveal,.js .ledger div{opacity:1;transform:none}.jb .t i{width:var(--v)}.meterbar i{width:70%}}
+[data-language]{font:inherit;color:inherit;background:transparent;border:1px solid currentColor;border-radius:6px;padding:7px 9px}
+[data-language] option{color:#211a17;background:#fff}
 </style>
 </head>
 <body>
@@ -311,9 +313,9 @@ details p{color:var(--dim);margin-top:12px;font-size:16px}
   <h2 class="reveal">Free to use. <span>Runs on your own machine, with your own AI key.</span></h2>
   <p class="sub reveal">PeakCut is free and open source. Install it on your computer or a server, add an API key for the AI you like, and every feature is yours: no plans, no seats and no limits.</p>
   <div class="trio reveal">
-    <div><b>Free<small>and open source</small></b><span>Read the code, change it, host it yourself.</span></div>
-    <div><b>Your key<small>any AI you like</small></b><span>Gemini, OpenAI, Grok, Claude, OpenRouter, or a local model.</span></div>
-    <div><b>Your server<small>your data</small></b><span>Speech is transcribed on your own machine. Videos and clips stay there.</span></div>
+    <div><b>Free <small>and open source</small></b><span>Read the code, change it, host it yourself.</span></div>
+    <div><b>Your key <small>any AI you like</small></b><span>Gemini, OpenAI, Grok, Claude, OpenRouter, or a local model.</span></div>
+    <div><b>Your server <small>your data</small></b><span>Speech is transcribed on your own machine. Videos and clips stay there.</span></div>
   </div>
 </div></section>
 
@@ -393,8 +395,10 @@ details p{color:var(--dim);margin-top:12px;font-size:16px}
     <div><h4>Get started</h4><ul><li><a href="/signup">Create an account</a></li><li><a href="/login">Sign in</a></li><li><a href="/reset">Reset password</a></li></ul></div>
     <div><h4>Legal</h4><ul><li><a href="/terms">Terms of Service</a></li><li><a href="/privacy">Privacy Policy</a></li><li><a href="/acceptable-use">Acceptable Use</a></li></ul></div>
   </div>
-  <div class="fbottom"><span>© <span class="fy"></span> PeakCut</span><span>Free and open source.</span></div>
+  <div class="fbottom"><span data-language-picker></span><span>© <span class="fy"></span> PeakCut</span><span>Free and open source.</span></div>
 </div></footer>
+<script src="/assets/pt-br.js?v=20261118-2"></script>
+<script src="/assets/i18n.js?v=20261118-2"></script>
 <script>document.querySelectorAll(".fy").forEach(e => e.textContent = new Date().getFullYear());</script>
 
 <script>
@@ -423,11 +427,11 @@ check();
 
 // who it's for
 const WHO = [
-  ["Clippers", "A streamer is live for six hours and the campaign pays per view. The clip that wins is the one posted first.", "PeakCut records the stream, checks it as often as every minute and has captioned clips ready while the stream is still going. You pick, post and move to the next creator.", "Six-hour live streams", "Clips ready before it ends"],
-  ["Streamers", "The best moment of a four-hour stream is somewhere in the VOD. Finding it the next morning is the job nobody wants.", "Paste the link. The moments with the strongest hooks and reactions come back cut, captioned and ranked, ready for Shorts and Reels while the stream is still fresh.", "Multi-hour VODs", "Highlights ranked by score"],
-  ["Podcasters", "Ninety minutes recorded, two clips posted. The rest of the episode never leaves the feed it was published in.", "Every episode comes back as a set of captioned vertical clips, each scored, so the week's posts are chosen in a minute instead of an afternoon of scrubbing.", "60 to 120 minute episodes", "A scored set of clips per episode"],
-  ["Agencies", "Ten creators, ten streams a week, one editor. Clipping is what every client asks for and the thing that does not scale.", "Give each creator their own workspace with its own style and posting rules. One server looks after all of them.", "Client streams and recordings", "A workspace of clips per client"],
-  ["Marketing teams", "Webinars and product demos are recorded, filed and forgotten. Turning them into social content never makes it onto a sprint.", "The recording goes in the same afternoon and a set of captioned clips comes out, each with a title and description already written.", "Webinars and demos", "Social clips, the same afternoon"]];
+  [i18n.t("Clippers"), i18n.t("A streamer is live for six hours and the campaign pays per view. The clip that wins is the one posted first."), i18n.t("PeakCut records the stream, checks it as often as every minute and has captioned clips ready while the stream is still going. You pick, post and move to the next creator."), i18n.t("Six-hour live streams"), i18n.t("Clips ready before it ends")],
+  [i18n.t("Streamers"), i18n.t("The best moment of a four-hour stream is somewhere in the VOD. Finding it the next morning is the job nobody wants."), i18n.t("Paste the link. The moments with the strongest hooks and reactions come back cut, captioned and ranked, ready for Shorts and Reels while the stream is still fresh."), i18n.t("Multi-hour VODs"), i18n.t("Highlights ranked by score")],
+  [i18n.t("Podcasters"), i18n.t("Ninety minutes recorded, two clips posted. The rest of the episode never leaves the feed it was published in."), i18n.t("Every episode comes back as a set of captioned vertical clips, each scored, so the week's posts are chosen in a minute instead of an afternoon of scrubbing."), i18n.t("60 to 120 minute episodes"), i18n.t("A scored set of clips per episode")],
+  [i18n.t("Agencies"), i18n.t("Ten creators, ten streams a week, one editor. Clipping is what every client asks for and the thing that does not scale."), i18n.t("Give each creator their own workspace with its own style and posting rules. One server looks after all of them."), i18n.t("Client streams and recordings"), i18n.t("A workspace of clips per client")],
+  [i18n.t("Marketing teams"), i18n.t("Webinars and product demos are recorded, filed and forgotten. Turning them into social content never makes it onto a sprint."), i18n.t("The recording goes in the same afternoon and a set of captioned clips comes out, each with a title and description already written."), i18n.t("Webinars and demos"), i18n.t("Social clips, the same afternoon")]];
 const tabs = document.getElementById("tabs"), panel = document.getElementById("panel");
 const esc = s => s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 function show(i) {
@@ -435,7 +439,7 @@ function show(i) {
   const w = WHO[i];
   panel.style.animation = "none"; panel.offsetWidth; panel.style.animation = "";
   panel.innerHTML = `<div><p class="who">${esc(w[0])}</p><p class="pain">${esc(w[1])}</p><p class="fix">${esc(w[2])}</p></div>
-    <div class="ft"><div><small>From</small><b>${esc(w[3])}</b></div><div class="arrow"><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></div><div><small>To</small><b>${esc(w[4])}</b></div></div>`;
+    <div class="ft"><div><small>${i18n.html("From")}</small><b>${esc(w[3])}</b></div><div class="arrow"><svg viewBox="0 0 256 256" aria-hidden="true"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></div><div><small>${i18n.html("To")}</small><b>${esc(w[4])}</b></div></div>`;
 }
 tabs.addEventListener("click", e => { const b = e.target.closest(".tab"); if (b) show(Number(b.dataset.i)); });
 show(0);
@@ -453,7 +457,7 @@ fetch("/api/auth/me").then(r => r.json()).then(d => {
   if (!d.user) return;
   signedIn = true;
   $$('[data-auth="in"]').forEach(e => e.remove());
-  $$('[data-auth="up"]').forEach(e => { e.href = "/app"; e.textContent = "Open PeakCut"; });
+  $$('[data-auth="up"]').forEach(e => { e.href = "/app"; e.textContent = i18n.t("Open PeakCut"); });
   $$('[data-auth="up2"]').forEach(e => { e.href = "/app"; });
 }).catch(() => {});
 </script>

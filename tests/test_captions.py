@@ -34,7 +34,7 @@ def rejects_caption_value(call):
 
 def main(data):
     os.environ.update(PEAKCUT_DATA=data, DATABASE_URL="", PEAKCUT_ACCOUNTS="0")
-    from studio import auth, brain, creators, ctx, db, jobs, render, roman, server
+    from studio import auth, brain, config, creators, ctx, db, jobs, render, roman, server, transcribe
 
     db.init()
     try:
@@ -101,6 +101,67 @@ def main(data):
             ass = encode.call_args.args[-1]
             check("the renderer honors captions off even when it receives spoken words",
                   not has_dialogue(ass, "Cap") and has_dialogue(ass, "Hook", "KEEP THE HOOK"))
+
+            check("the default caption language is English", server.get_settings()["caption_language"] == "en")
+            check("an unknown caption language is rejected",
+                  rejects_caption_value(lambda: server.put_settings({"caption_language": "unknown"})))
+            check("Brazilian Portuguese is saved for this owner",
+                  server.put_settings({"caption_language": "pt-BR"})["caption_language"] == "pt-BR")
+            pt_job = jobs.create(source, {}, enqueue=False)
+            pt_live = jobs.create(source, {}, enqueue=False, creator=creator["id"], kind="live")
+            check("videos and live recordings save the chosen caption language",
+                  pt_job["caption_language"] == pt_live["caption_language"] == "pt-BR")
+            with ctx.as_user("abcdef0123456789"):
+                check("caption language settings belong to the account", server.get_settings()["caption_language"] == "en")
+
+            job["lang"] = "en"
+            response = server.rerender(job["id"], clip["id"], {})
+            check("remaking an older clip takes the current caption language",
+                  response["clips"][0].get("caption_language") == "pt-BR")
+            with (patch.object(brain, "portuguese_captions",
+                               return_value=[{"w": "Português", "s": 1.0, "e": 1.5}]) as portuguese,
+                  patch.object(brain, "translate_caption_words",
+                               return_value=[{"w": "FIQUE LIGADO", "s": 0, "e": 1}]) as translate_hook,
+                  patch.object(config, "ai_ready", return_value=True)):
+                jobs.render_one(job, clip, WORDS)
+                check("remaking a clip replaces its English cache with Portuguese",
+                      portuguese.called and clip["fixed_for"][-1] == "pt-BR"
+                      and has_dialogue(encode.call_args.args[-1], "Cap", "PORTUGUÊS"))
+                check("the opening text follows the caption language",
+                      translate_hook.called and has_dialogue(encode.call_args.args[-1], "Hook", "FIQUE LIGADO"))
+                jobs.render_one(job, clip, WORDS)
+                check("the translated opening text is cached", translate_hook.call_count == 1)
+            with patch.object(config, "ai_ready", return_value=False):
+                check("Portuguese clips have a Portuguese opening text without AI",
+                      jobs._caption_hook(pt_job, {"hook": "WAIT FOR IT"}) == "ESPERA SÓ")
+            with patch.object(brain, "portuguese_captions", side_effect=RuntimeError("Translation unavailable")):
+                clip.pop("fixed_for")
+                jobs.render_one(job, clip, WORDS)
+                check("a failed Portuguese translation reports an error",
+                      clip["status"] == "error" and clip["error"] == "Translation unavailable")
+
+            pt_job.update(source_path=job["source_path"], width=1920, height=1080, duration=4.0, lang="pt-BR")
+            pt_clip = dict(clip, fixed_for=[0.0, 4.0, "en2"], fixed_words=FIXED)
+            pt_job["clips"] = [pt_clip]
+            render_words = [{"w": "Português", "s": 1.0, "e": 1.5}]
+            jobs.render_one(pt_job, pt_clip, render_words)
+            check("Brazilian Portuguese reaches the on-screen captions even with an old English cache",
+                  pt_clip["status"] == "done" and has_dialogue(encode.call_args.args[-1], "Cap", "PORTUGUÊS"))
+
+            with patch.object(brain, "ask_ai", return_value=(["Olá, Brasil!"], "test", 0)) as ask:
+                translated = brain.portuguese_captions(WORDS, "en")
+                check("translation requests Brazilian Portuguese and keeps the original timing",
+                      "Brazilian Portuguese" in ask.call_args.args[0] and [w["w"] for w in translated] == ["Olá,", "Brasil!"]
+                      and translated[0]["s"] == WORDS[0]["s"] and translated[-1]["e"] == WORDS[0]["e"])
+            with (patch.object(transcribe, "_decode_multilingual",
+                               return_value=[(["▁Olá", "▁Brasil"], [0.1, 0.5])]) as decode,
+                  patch.object(transcribe, "_take_now", side_effect=AssertionError("English model used")),
+                  patch.object(transcribe, "_decode_remote", side_effect=AssertionError("English worker used"))):
+                spoken = transcribe.transcribe(transcribe.np.full(16000, 1000, dtype=transcribe.np.int16),
+                                                multilingual=True)
+                check("Portuguese speech uses the multilingual model and keeps accents and timestamps",
+                      decode.call_count == 1 and [w["w"] for w in spoken] == ["Olá", "Brasil"]
+                      and spoken[0]["s"] == 0.1 and spoken[1]["s"] == 0.5)
     finally:
         db.engine.dispose()
 

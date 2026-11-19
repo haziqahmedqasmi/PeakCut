@@ -27,6 +27,11 @@ def check(name, got, want=True):
 
 
 # ---- no sign-in anywhere
+for script in ("i18n.js", "pt-br.js"):
+    response = c.get("/assets/" + script)
+    check("language files are checked for updates: " + script,
+          (response.status_code, response.headers.get("cache-control")), (200, "public, no-cache"))
+
 check("the dashboard opens with no sign-in", c.get("/app").status_code, 200)
 check("the front page goes straight to the dashboard", (c.get("/").status_code, c.get("/").headers.get("location")), (303, "/app"))
 check("the sign-in page goes to the dashboard", (c.get("/login").status_code, c.get("/signup").status_code, c.get("/reset").status_code), (303, 303, 303))

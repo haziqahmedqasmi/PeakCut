@@ -72,6 +72,7 @@ input::placeholder{color:var(--faint)}
 .g{width:20px;height:20px}
 .mobile-logo{display:none}
 @media (max-width:860px){body{grid-template-columns:1fr;background:#fff}.side{display:none}.main{margin:0;border-radius:0;min-height:100vh;align-content:center}.mobile-logo{display:block;height:34px;margin-bottom:28px}}
+[data-language]{font:inherit;color:var(--dim);background:transparent;border:1px solid var(--line);border-radius:6px;padding:7px 9px}
 </style>
 </head>
 <body>
@@ -103,44 +104,47 @@ input::placeholder{color:var(--faint)}
   </form>
   <p class="legal" id="legal">By continuing you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
   <p class="swap" id="swap"></p>
+  <div class="swap" data-language-picker></div>
 </div></main>
+<script src="/assets/pt-br.js?v=20261118-2"></script>
+<script src="/assets/i18n.js?v=20261118-2"></script>
 <script>
 document.getElementById("year").textContent = new Date().getFullYear();
 const $ = id => document.getElementById(id), up = location.pathname === "/signup";
 const next = new URLSearchParams(location.search).get("next");
 const dest = next && /^\/(?![\/\\])[^\\\t\r\n]*$/.test(next) ? next : "/app";
-document.title = up ? "Create your PeakCut account" : "Sign in to PeakCut";
-$("h").textContent = up ? "Create your account" : "Welcome back";
-$("p").textContent = up ? "Start clipping in a couple of minutes." : "Sign in to get back to your clips.";
-$("go").textContent = up ? "Create account" : "Sign in";
-$("gtext").textContent = up ? "Sign up with Google" : "Sign in with Google";
+document.title = up ? i18n.t("Create your PeakCut account") : i18n.t("Sign in to PeakCut");
+$("h").textContent = up ? i18n.t("Create your account") : i18n.t("Welcome back");
+$("p").textContent = up ? i18n.t("Start clipping in a couple of minutes.") : i18n.t("Sign in to get back to your clips.");
+$("go").textContent = up ? i18n.t("Create account") : i18n.t("Sign in");
+$("gtext").textContent = up ? i18n.t("Sign up with Google") : i18n.t("Sign in with Google");
 $("namebox").hidden = !up; $("pwhint").hidden = !up; $("forgot").hidden = up;
 $("password").autocomplete = up ? "new-password" : "current-password";
-$("password").placeholder = up ? "Choose a password" : "Your password";
+$("password").placeholder = up ? i18n.t("Choose a password") : i18n.t("Your password");
 $("pwshow").addEventListener("click", () => {
   const p = $("password"), on = p.type === "password";
   p.type = on ? "text" : "password";
   $("pwshow").setAttribute("aria-pressed", String(on));
-  $("pwshow").setAttribute("aria-label", on ? "Hide password" : "Show password");
+  $("pwshow").setAttribute("aria-label", on ? i18n.t("Hide password") : i18n.t("Show password"));
   p.focus();
 });
-$("swap").innerHTML = up ? 'Already have an account? <a href="/login">Sign in</a>' : 'New to PeakCut? <a href="/signup">Create an account</a>';
+$("swap").innerHTML = up ? i18n.t("Already have an account? <a href=\"/login\">Sign in</a>") : i18n.t("New to PeakCut? <a href=\"/signup\">Create an account</a>");
 $("google").href = "/auth/google/start?next=" + encodeURIComponent(dest);
-const fail = m => { $("err").textContent = m; $("err").classList.add("on"); };
-if (new URLSearchParams(location.search).get("error") === "google") fail("Google sign-in didn't finish. Try again, or use your email.");
+const fail = m => { $("err").textContent = i18n.detail(m); $("err").classList.add("on"); };
+if (new URLSearchParams(location.search).get("error") === "google") fail(i18n.t("Google sign-in didn't finish. Try again, or use your email."));
 fetch("/api/public").then(r => r.json()).then(p => {
   if (p.google) { $("google").hidden = false; $("or").hidden = false; }
 }).catch(() => {});
 $("f").addEventListener("submit", async e => {
   e.preventDefault(); $("err").classList.remove("on");
   const email = $("email").value.trim(), password = $("password").value;
-  if (!email || !password) return fail("Enter your email and password.");
+  if (!email || !password) return fail(i18n.t("Enter your email and password."));
   $("go").disabled = true;
   try {
     const r = await fetch(up ? "/api/auth/signup" : "/api/auth/login", {method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({email, password, name:$("name").value.trim()})});
     const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : "Something went wrong. Try again.");
+    if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : i18n.t("Something went wrong. Try again."));
     location.href = dest;
   } catch (err) { fail(err.message); $("go").disabled = false; }
 });
