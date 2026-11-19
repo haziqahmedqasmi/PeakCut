@@ -110,5 +110,29 @@ a2 = client()
 a2.post("/api/auth/login", json={"email": "alice@example.com", "password": "test-pass-123"}, headers=ORIGIN)
 check("alice signed in again is a user", a2.get("/admin").status_code, 404)
 
+# ---- clip templates are saved to the signed-in account
+templates = "/api/clip-templates"
+b.post("/api/auth/login", json={"email": "bob@example.com", "password": "test-pass-123"}, headers=ORIGIN)
+before = a2.get("/api/sync").json()
+check("an account starts without custom clip templates", before.get("clip_templates"), [])
+options = {"max_clips": 3, "min_len": 20, "max_len": 45, "style": "clean", "layout": "crop",
+           "quality": 1080, "captions": False, "range_start": 60, "range_end": 180}
+r = a2.post(templates, json={"name": "  Entrevista  ", "options": options, "user": ub["id"]}, headers=ORIGIN)
+check("alice can save a clip template", r.status_code, 200)
+if r.is_success:
+    saved = r.json()
+    path = f"{templates}/{saved['id']}"
+    check("the template keeps its name and clip options", (saved["name"], saved["options"]), ("Entrevista", options))
+    check("saving invalidates the sync response", a2.get("/api/sync", params={"v": before["v"]}).json().get("clip_templates"), [saved])
+    check("bob cannot see alice's templates", b.get("/api/sync").json().get("clip_templates"), [])
+    check("bob cannot overwrite alice's template", b.put(path, json=saved, headers=ORIGIN).status_code, 404)
+    check("bob cannot remove alice's template", b.delete(path, headers=ORIGIN).status_code, 404)
+    check("a template rejects an inverted video range", a2.put(path, json={**saved, "options": {**options, "range_end": 30}}, headers=ORIGIN).status_code, 400)
+    check("an invalid update leaves the saved template intact", a2.get("/api/sync").json().get("clip_templates"), [saved])
+    a2.put(path, json={**saved, "options": {**options, "captions": True}}, headers=ORIGIN)
+    check("updating replaces the same template", a2.get("/api/sync").json().get("clip_templates"), [{**saved, "options": {**options, "captions": True}}])
+    check("alice can remove her template", a2.delete(path, headers=ORIGIN).status_code, 200)
+    check("a removed template no longer appears", a2.get("/api/sync").json().get("clip_templates"), [])
+
 print("\n%d failed" % len(fails) if fails else "\nALL PASSED")
 sys.exit(1 if fails else 0)

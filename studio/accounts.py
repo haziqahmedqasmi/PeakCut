@@ -24,7 +24,8 @@ _states: dict = {}   # one-time values for the connect redirects: state -> (user
 
 SECRET_KEYS = ("discord_webhook", "telegram_token")
 SETTING_DEFAULTS = {"discord_webhook": "", "telegram_token": "", "telegram_chat": "", "paused": False,
-                    "digest_hour": 8, "last_digest": "", "tour_done": False, "caption_language": "en"}
+                    "digest_hour": 8, "last_digest": "", "tour_done": False, "caption_language": "en",
+                    "clip_templates": {}}
 
 YT_SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly"
 IG = "https://graph.instagram.com"
@@ -240,7 +241,7 @@ _settings_mem: dict = {}
 def settings() -> dict:
     u = ctx.uid()
     if u not in _settings_mem:
-        _settings_mem[u] = {**SETTING_DEFAULTS, **_read("settings.json", {})}
+        _settings_mem.setdefault(u, {**SETTING_DEFAULTS, **_read("settings.json", {})})
     return dict(_settings_mem[u])
 
 
@@ -248,7 +249,7 @@ def save_settings(patch: dict) -> dict:
     with _lock:
         s = settings()
         for k, v in patch.items():
-            if k not in SETTING_DEFAULTS:
+            if k not in SETTING_DEFAULTS or k == "clip_templates":
                 continue
             if k in ("paused", "tour_done"):
                 v = bool(v)
@@ -270,7 +271,39 @@ def save_settings(patch: dict) -> dict:
 
 def public_settings() -> dict:
     s = settings()
-    return {k: (bool(v) if k in SECRET_KEYS else v) for k, v in s.items()}
+    return {k: (bool(v) if k in SECRET_KEYS else v) for k, v in s.items() if k != "clip_templates"}
+
+
+def clip_templates() -> list:
+    return list(settings()["clip_templates"].values())
+
+
+def save_clip_template(name: str, options: dict, template_id: str | None = None) -> dict:
+    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 60:
+        raise ValueError("Enter a template name of 1 to 60 characters.")
+    name = name.strip()
+    name.encode("utf-8")
+    with _lock:
+        s = settings()
+        templates = dict(s["clip_templates"])
+        if template_id is None:
+            if len(templates) >= 30:
+                raise ValueError("You can save up to 30 clip templates.")
+            template_id = secrets.token_hex(8)
+        elif template_id not in templates:
+            raise KeyError(template_id)
+        template = {"id": template_id, "name": name, "options": options}
+        templates[template_id] = template
+        _write("settings.json", {**s, "clip_templates": templates})
+        return template
+
+
+def delete_clip_template(template_id: str):
+    with _lock:
+        s = settings()
+        templates = dict(s["clip_templates"])
+        del templates[template_id]
+        _write("settings.json", {**s, "clip_templates": templates})
 
 
 # ------------------------------------------------------------------ accounts

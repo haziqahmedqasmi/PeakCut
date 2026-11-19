@@ -679,7 +679,41 @@ def sync(v: str = ""):
         return _sync_unchanged(v) or {"v": token}
     from . import notices
     return {"v": token, "jobs": [jobs.public(j) for j in jobs.list_jobs()], "creators": _creator_rows(),
-            "accounts": accounts.list_accounts(), "ai": usage.brief(), "unread": notices.unread()}
+            "accounts": accounts.list_accounts(), "ai": usage.brief(), "unread": notices.unread(),
+            "clip_templates": accounts.clip_templates()}
+
+
+def _save_clip_template(body: dict, template_id: str | None = None):
+    try:
+        if not isinstance(body.get("options"), dict):
+            raise ValueError("Those options aren't valid.")
+        options = {**jobs.DEFAULTS, **jobs.clean_options(body["options"])}
+        if options["min_len"] >= options["max_len"]:
+            raise ValueError("The maximum clip length must be greater than the minimum.")
+        return accounts.save_clip_template(body.get("name"), options, template_id)
+    except KeyError:
+        raise HTTPException(404, "No such clip template.")
+    except (ValueError, TypeError, OverflowError) as e:
+        raise HTTPException(400, str(e) if isinstance(e, ValueError) else "Those options aren't valid.")
+
+
+@app.post("/api/clip-templates")
+def add_clip_template(body: dict = Body(...)):
+    return _save_clip_template(body)
+
+
+@app.put("/api/clip-templates/{template_id}")
+def update_clip_template(template_id: str, body: dict = Body(...)):
+    return _save_clip_template(body, template_id)
+
+
+@app.delete("/api/clip-templates/{template_id}")
+def remove_clip_template(template_id: str):
+    try:
+        accounts.delete_clip_template(template_id)
+    except KeyError:
+        raise HTTPException(404, "No such clip template.")
+    return {"ok": True}
 
 
 @app.get("/api/jobs")
