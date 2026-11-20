@@ -197,9 +197,28 @@ class AIError(RuntimeError):
 problem = {"text": "", "at": 0.0}       # why the AI last failed, for the dashboard; cleared when it answers again
 
 
+class Busy(RuntimeError):
+    """The AI on this machine was answering other streams the whole time this one waited. Not a fault: the check is
+    skipped and that moment is judged by loudness, so it does not raise the dashboard warning."""
+
+
+# Ollama answers only as many questions at once as it has slots (OLLAMA_NUM_PARALLEL). Sending more just makes them
+# wait inside Ollama until the caller gives up, and every give-up looked like "couldn't reach Ollama". So PeakCut
+# waits for a slot itself, and a question that cannot get one in time is skipped instead of failing.
+LOCAL_SLOTS = max(1, int(os.environ.get("PEAKCUT_LOCAL_AI_SLOTS") or os.environ.get("OLLAMA_NUM_PARALLEL") or 4))
+_local_gate = threading.BoundedSemaphore(LOCAL_SLOTS)
+LOCAL_ANSWER_SECS = float(os.environ.get("PEAKCUT_LOCAL_AI_ANSWER_SECS") or 35)
+
+
 def explain(e) -> str:
     """What went wrong with an AI call, in words the owner can act on."""
+    if isinstance(e, Busy):
+        return ""
     text, low = str(e), str(e).lower()
+    if provider() == "ollama" and isinstance(e, httpx.ReadTimeout):
+        # it was reached and started; it is just too slow for the work given to it
+        return (f"Ollama is running but answers too slowly for this many recordings at once. Record fewer streams, "
+                f"pick a smaller model under Settings, AI, or allow a longer wait (PEAKCUT_LIVE_AI_TIMEOUT).")
     name = (models() or ["?"])[0]
     m = re.match(r"HTTP (\d{3})\b", text)
     status = m.group(1) if m else ""
@@ -466,10 +485,26 @@ def _openai(model, prompt, schema, timeout=None):
     # Most services accept these two extras; a few models refuse one of them, so they are dropped on a refusal.
     extras = [{"temperature": 0.4, "response_format": {"type": "json_object"}}, {"response_format": {"type": "json_object"}}, {}]
     r = None
-    for extra in extras:
-        r = httpx.post(f"{base_url()}/chat/completions", json={**body, **extra}, headers=headers, timeout=timeout or 180)
-        if r.status_code not in (400, 422):
-            break
+    local = provider() == "ollama"
+    budget = timeout or 180
+    if local:
+        import time
+        # An answer from a local model takes 20-35 s, so a question may wait for a slot only as long as still leaves it
+        # that much. Starting one with less time just gets it cut off half-way (27 of 92 on 2026-11-19), and the
+        # half-answer slows every other stream while it runs.
+        reserve = min(budget, LOCAL_ANSWER_SECS)
+        start = time.monotonic()
+        if not _local_gate.acquire(timeout=max(budget - reserve, 0.01)):
+            raise Busy(f"The AI on this machine was busy with other streams; this check was skipped.")
+        budget = max(budget - (time.monotonic() - start), reserve)
+    try:
+        for extra in extras:
+            r = httpx.post(f"{base_url()}/chat/completions", json={**body, **extra}, headers=headers, timeout=budget)
+            if r.status_code not in (400, 422):
+                break
+    finally:
+        if local:
+            _local_gate.release()
     if r.status_code != 200:
         _fail(r, model)
     data = _openai_body(r)
