@@ -12,6 +12,7 @@ import re
 import shutil
 import threading
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import quote, urlparse
 
@@ -36,7 +37,6 @@ def _quiet(fn):
         print(f"  {e}", flush=True)
 
 
-app = FastAPI(title="PeakCut", docs_url=None, redoc_url=None, openapi_url=None)
 WEB = config.ROOT / "web"
 OPEN = ("/api/auth/", "/pub/", "/api/public", "/auth/google/", "/auth/verify", "/brand/", "/assets/", "/healthz", "/favicon.ico", "/robots.txt", "/sitemap.xml")
 PAGES = {"/": "landing.html", "/login": "auth.html", "/signup": "auth.html", "/reset": "reset.html",
@@ -51,13 +51,6 @@ CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 
 BOOT = f"{int(time.time()) % 100000:x}"     # part of every sync token, so pages reload their data after a restart
 
 
-@app.on_event("startup")
-async def _more_threads():
-    import anyio.to_thread
-    anyio.to_thread.current_default_thread_limiter().total_tokens = int(config.env("PEAKCUT_REQUEST_THREADS", "64"))
-
-
-@app.on_event("startup")
 def _startup():
     db.init()
     for f in (config.TMP_DIR / "uploads").glob("*"):      # uploads cut short by a restart
@@ -76,6 +69,17 @@ def _startup():
     posting.start()
     from . import updates
     updates.start()                  # looks for a newer PeakCut every minute, in the background
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    import anyio.to_thread
+    anyio.to_thread.current_default_thread_limiter().total_tokens = int(config.env("PEAKCUT_REQUEST_THREADS", "64"))
+    _startup()
+    yield
+
+
+app = FastAPI(title="PeakCut", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 
 # ================================================================ the gate: who is asking, and are they allowed

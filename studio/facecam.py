@@ -43,6 +43,7 @@ STILL_SHARE = 0.30         # at most this much of a webcam picture may be moving
 EDGE_FLUSH = 0.02          # a side this close to the frame's own edge is the edge
 MATCH = 0.35               # how much a box the AI points at must cover a measured box to be that box
 EDGE = 2.2                 # how much brighter than the average line a border must be
+LINE_MIN = 20.0            # a border line across the small frame must measure at least this much change
 
 
 def _frames(path: str | Path, count: int = MAX_FRAMES) -> np.ndarray:
@@ -92,9 +93,10 @@ def _peaks(profile: np.ndarray, limit: int) -> list[tuple[int, float]]:
     if len(profile) < 3:
         return []
     med = float(np.median(profile)) or 1.0
+    thresh = max(LINE_MIN, EDGE * med)
     out = []
     for i in range(1, len(profile) - 1):
-        if profile[i] >= profile[i - 1] and profile[i] > profile[i + 1] and profile[i] > EDGE * med:
+        if profile[i] >= profile[i - 1] and profile[i] > profile[i + 1] and profile[i] > thresh:
             out.append((i, float(profile[i] / med)))
     return sorted(out, key=lambda p: -p[1])[:limit]
 
