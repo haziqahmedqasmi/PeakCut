@@ -20,16 +20,19 @@ import httpx
 from . import config, ctx
 
 _lock = threading.RLock()
-_states: dict = {}   # one-time values for the connect redirects: state -> (user id, when, platform)
+_states: dict = {}   # one-time values for the connect redirects: state -> (user id, when, platform, mode)
 
 SECRET_KEYS = ("discord_webhook", "telegram_token")
 SETTING_DEFAULTS = {"discord_webhook": "", "telegram_token": "", "telegram_chat": "", "paused": False,
                     "digest_hour": 8, "last_digest": "", "tour_done": False}
 
 YT_SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly"
-IG = "https://graph.instagram.com"
+META_GRAPH = "https://graph.facebook.com/v21.0"
+META_AUTH = "https://www.facebook.com/v21.0/dialog/oauth"
+LEGACY_IG = "https://graph.instagram.com"
 IG_UPLOAD = "https://rupload.facebook.com/ig-api-upload/v21.0"
-IG_SCOPES = "instagram_business_basic,instagram_business_content_publish"
+# The older "Instagram Login" sign-in is used automatically when no Login configuration ID is set.
+IG_LOGIN_SCOPES = "instagram_business_basic,instagram_business_content_publish"
 TT = "https://open.tiktokapis.com/v2"
 TT_SCOPES = "user.info.basic,video.publish"
 PLATFORM_NAMES = {"youtube": "YouTube", "instagram": "Instagram", "tiktok": "TikTok"}
@@ -101,8 +104,21 @@ def app_keys(name: str) -> tuple:
         return saved["id"], saved["secret"]
     if name == "google":
         return config.google_client()
+    if name == "instagram":
+        cid = (config.env("PEAKCUT_IG_APP_ID") or config.env("PEAKCUT_META_APP_ID") or "").strip()
+        secret = (config.env("PEAKCUT_IG_APP_SECRET") or config.env("PEAKCUT_META_APP_SECRET") or "").strip()
+        if cid and secret:
+            return cid, secret
     _l1, _l2, id_env, secret_env = APPS[name]
     return (config.env(id_env) or "").strip(), (config.env(secret_env) or "").strip()
+
+
+def app_config_id(name: str = "instagram") -> str:
+    """Optional Meta Login configuration ID for Unified Login / Facebook Login for Business."""
+    saved = _apps_saved().get(name) or {}
+    if saved.get("id") and saved.get("secret"):
+        return str(saved.get("config_id") or "").strip()
+    return (config.env("PEAKCUT_IG_CONFIG_ID") or config.env("PEAKCUT_META_CONFIG_ID") or "").strip()
 
 
 def can_connect(platform: str) -> bool:
@@ -118,31 +134,55 @@ def apps_public() -> dict:
     out = {}
     for platform, name in APP_FOR.items():
         cid, secret = app_keys(name)
-        out[platform] = {"ready": bool(cid and secret), "id_label": APPS[name][0], "secret_label": APPS[name][1],
-                         "id_hint": cid[:6] + "…" if len(cid) > 10 else cid, "redirect": redirect_for(platform),
-                         "https": config.PUBLIC_URL.startswith("https://"),
-                         "from_dashboard": bool((_apps_saved().get(name) or {}).get("id"))}
+        saved = _apps_saved().get(name) or {}
+        entry = {"ready": bool(cid and secret), "id_label": APPS[name][0], "secret_label": APPS[name][1],
+                 "id_hint": cid[:6] + "…" if len(cid) > 10 else cid, "redirect": redirect_for(platform),
+                 "https": config.PUBLIC_URL.startswith("https://"),
+                 "from_dashboard": bool(saved.get("id"))}
+        if platform == "instagram":
+            cfg = app_config_id("instagram")
+            if cfg:
+                entry["id_label"] = "Meta App ID"
+                entry["secret_label"] = "Meta App Secret"
+            entry["config_id_label"] = "Login configuration ID"
+            entry["config_id_hint"] = cfg[:6] + "…" if len(cfg) > 10 else cfg
+            entry["config_id"] = cfg
+        out[platform] = entry
     return out
 
 
-def save_app(platform: str, cid: str, secret: str) -> dict:
+def save_app(platform: str, cid: str, secret: str, config_id=None) -> dict:
     """Save the server's app for a platform, from the dashboard. An empty secret keeps the saved one."""
     if platform not in APP_FOR:
         raise ValueError("Unknown platform.")
     name = APP_FOR[platform]
     cid, secret = str(cid or "").strip()[:200], str(secret or "").strip()[:300]
+    cfg_given = platform == "instagram" and config_id is not None
+    cfg = str(config_id or "").strip()[:100] if cfg_given else ""   # only Unified Login has one
     old = _apps_saved().get(name) or {}
-    if not cid and not secret:
-        raise ValueError(f"Paste the {APPS[name][0]} and {APPS[name][1]}.")
-    cid = cid or old.get("id", "")                # only a new secret typed: keep the saved id
+    clearing_cfg = cfg_given and not cfg and bool(old.get("config_id"))
+    id_label, secret_label = ("Meta App ID", "Meta App Secret") if (
+        platform == "instagram" and (cfg or (not cfg_given and old.get("config_id")))
+    ) else APPS[name][:2]
+    if not cid and not secret and not cfg and not clearing_cfg:
+        raise ValueError(f"Paste the {id_label} and {secret_label}.")
+    cid = cid or old.get("id", "")                # only a new secret or config_id typed: keep the saved id
+    if not cid:
+        raise ValueError(f"Paste the {id_label} and {secret_label}.")
     if not re.fullmatch(r"[\w.\-]{4,200}", cid):
-        raise ValueError(f"Paste the {APPS[name][0]} exactly as the platform shows it.")
+        raise ValueError(f"Paste the {id_label} exactly as the platform shows it.")
     secret = secret or (old.get("secret") if old.get("id") == cid else "")
     if not secret:
-        raise ValueError(f"Paste the {APPS[name][1]} too.")
+        raise ValueError(f"Paste the {secret_label} too.")
+    if cfg and not re.fullmatch(r"[\w.\-]{4,100}", cfg):
+        raise ValueError("Paste the Login configuration ID exactly as Meta shows it.")
+    final_cfg = cfg if cfg_given else (old.get("config_id", "") if platform == "instagram" and old.get("id") == cid else "")
     with _lock:
         data = dict(_apps_saved())
-        data[name] = {"id": cid, "secret": secret}
+        item = {"id": cid, "secret": secret}
+        if final_cfg:
+            item["config_id"] = final_cfg
+        data[name] = item
         tmp = _apps_file().with_suffix(".tmp")
         tmp.write_text(json.dumps(data), encoding="utf-8")
         try:
@@ -154,18 +194,19 @@ def save_app(platform: str, cid: str, secret: str) -> dict:
     return apps_public()
 
 
-def _new_state(platform: str) -> str:
+def _new_state(platform: str, mode: str = "") -> str:
     state = secrets.token_urlsafe(16)
     for k in [k for k, v in list(_states.items()) if time.time() - v[1] > 900]:
         _states.pop(k, None)
-    _states[state] = (ctx.uid(), time.time(), platform)
+    _states[state] = (ctx.uid(), time.time(), platform, mode)
     return state
 
 
-def _take_state(state: str, platform: str):
+def _take_state(state: str, platform: str) -> str:
     got = _states.pop(state or "", None)
     if not got or got[0] != ctx.uid() or got[2] != platform or time.time() - got[1] > 900:
         raise ValueError("This sign-in has expired. Press Connect again.")
+    return got[3] if len(got) > 3 else ""
 
 
 def connect_url(platform: str) -> str:
@@ -175,24 +216,36 @@ def connect_url(platform: str) -> str:
     if not can_connect(platform):
         raise ValueError(f"Connecting {PLATFORM_NAMES[platform]} isn't set up on this server yet.")
     cid, _ = app_keys(APP_FOR[platform])
-    state, redirect = _new_state(platform), redirect_for(platform)
+    redirect = redirect_for(platform)
     if platform == "youtube":
+        state = _new_state(platform)
         return "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode({
             "client_id": cid, "redirect_uri": redirect, "response_type": "code", "scope": YT_SCOPES,
             "access_type": "offline", "prompt": "consent", "state": state})
     if platform == "instagram":
+        cfg = app_config_id("instagram")
+        if cfg:
+            state = _new_state(platform, "unified")
+            return f"{META_AUTH}?" + urlencode({
+                "client_id": cid, "redirect_uri": redirect, "response_type": "code",
+                "config_id": cfg, "state": state})
+        state = _new_state(platform, "legacy")
         return "https://www.instagram.com/oauth/authorize?" + urlencode({
-            "client_id": cid, "redirect_uri": redirect, "response_type": "code", "scope": IG_SCOPES, "state": state})
+            "client_id": cid, "redirect_uri": redirect, "response_type": "code",
+            "scope": IG_LOGIN_SCOPES, "state": state})
+    state = _new_state(platform)
     return "https://www.tiktok.com/v2/auth/authorize/?" + urlencode({
         "client_key": cid, "redirect_uri": redirect, "response_type": "code", "scope": TT_SCOPES, "state": state})
 
 
 def connect_finish(platform: str, code: str, state: str) -> dict:
-    _take_state(state, platform)
+    mode = _take_state(state, platform)
     code = (code or "").split("#")[0]           # Instagram adds "#_" to the code
     if not code:
         raise ValueError("The platform did not send a sign-in code. Try again.")
-    return {"youtube": _youtube_finish, "instagram": _instagram_finish, "tiktok": _tiktok_finish}[platform](code)
+    if platform == "instagram":
+        return _instagram_finish(code) if mode == "unified" else _instagram_login_finish(code)
+    return {"youtube": _youtube_finish, "tiktok": _tiktok_finish}[platform](code)
 
 
 # ------------------------------------------------------------------ links the platforms can fetch a clip from
@@ -297,7 +350,21 @@ def remove(aid):
 
 def _check(r, what):
     if r.status_code >= 400:
-        raise RuntimeError(f"{what} failed ({r.status_code}): {r.text[:300]}")
+        msg = ""
+        try:
+            d = r.json()
+            if isinstance(d, dict):
+                err = d.get("error")
+                if isinstance(err, dict):
+                    msg = err.get("message") or err.get("error_user_msg") or ""
+                elif isinstance(err, str):
+                    msg = err
+                elif "error_message" in d:
+                    msg = d["error_message"]
+        except ValueError:
+            pass
+        detail = f": {msg}" if msg else f": {r.text[:300]}"
+        raise RuntimeError(f"{what} failed ({r.status_code}){detail}")
     return r
 
 
@@ -366,8 +433,177 @@ def youtube_views(acc, ids: list) -> dict:
     return out
 
 
-# ------------------------------------------------------------------ Instagram (Instagram Login, professional accounts)
+# ------------------------------------------------------------------ Instagram (Meta Unified Login / Professional accounts)
+def _meta_err(r, step: str) -> str:
+    try:
+        d = r.json()
+        err = d.get("error") if isinstance(d, dict) else None
+        msg = err.get("message") if isinstance(err, dict) else ""
+    except ValueError:
+        msg = ""
+    return f"{step} ({r.status_code}): {msg or r.text[:160]}"
+
+
 def _instagram_finish(code: str) -> dict:
+    cid, secret = app_keys("instagram")
+    redirect = redirect_for("instagram")
+    tok_res = _check(httpx.get(f"{META_GRAPH}/oauth/access_token", params={
+        "client_id": cid, "client_secret": secret, "redirect_uri": redirect, "code": code}, timeout=30),
+        "Meta sign-in").json()
+    token = tok_res.get("access_token")
+    if not token:
+        raise ValueError("Meta did not return an access token.")
+
+    # Default to a short-lived user token unless debug_token confirms SYSTEM_USER / SUAT,
+    # so a failed debug_token never skips the long-lived exchange.
+    token_type = "USER"
+    expires_at = int(time.time() + int(tok_res["expires_in"]) - 120) if "expires_in" in tok_res else 0
+    target_ids = []
+    debug_err = ""
+    try:
+        dr = httpx.get(f"{META_GRAPH}/debug_token", params={
+            "input_token": token, "access_token": f"{cid}|{secret}"}, timeout=15)
+        if dr.status_code < 400:
+            dbg = dr.json().get("data", {})
+            if dbg.get("type"):
+                token_type = dbg["type"]
+            if "expires_at" in dbg:
+                expires_at = int(dbg["expires_at"])
+            for g in dbg.get("granular_scopes", []):
+                if g.get("scope") in ("instagram_content_publish", "instagram_basic"):
+                    for tid in g.get("target_ids", []):
+                        if tid and str(tid) not in target_ids:
+                            target_ids.append(str(tid))
+        else:
+            debug_err = _meta_err(dr, "debug_token")
+    except Exception as e:
+        debug_err = f"debug_token: {e}"
+
+    if token_type == "USER":
+        ex = _check(httpx.get(f"{META_GRAPH}/oauth/access_token", params={
+            "grant_type": "fb_exchange_token", "client_id": cid, "client_secret": secret,
+            "fb_exchange_token": token}, timeout=30), "Keeping the Meta sign-in").json()
+        if not ex.get("access_token"):
+            raise ValueError("Meta did not return a long-lived access token.")
+        token = ex["access_token"]
+        expires_at = int(time.time() + int(ex["expires_in"]) - 120) if "expires_in" in ex else 0
+
+    return _instagram_save(token, token_type=token_type, expires=expires_at, target_ids=target_ids,
+                           init_errs=[debug_err] if debug_err else None)
+
+
+def _instagram_save(token: str, token_type: str = "SUAT", expires: int = 0, target_ids: list = None, init_errs: list = None) -> dict:
+    headers = {"Authorization": f"Bearer {token}"}
+    ig_id = ""
+    username = ""
+    account_detail = "Professional account"
+    errs = list(init_errs or [])
+
+    # 1. Inspect granular asset target IDs discovered via debug_token
+    if target_ids:
+        for tid in target_ids:
+            try:
+                r = httpx.get(f"{META_GRAPH}/{tid}", params={"fields": "id,username,name"}, headers=headers, timeout=30)
+                if r.status_code == 200:
+                    d = r.json()
+                    if d.get("id"):
+                        ig_id = str(d["id"])
+                        username = d.get("username", "")
+                        account_detail = "Professional account (Unified Login)"
+                        break
+                else:
+                    errs.append(_meta_err(r, f"target {tid}"))
+            except Exception as e:
+                errs.append(f"target {tid}: {e}")
+
+    # 2. Query assigned Instagram accounts (System User / Business Portfolio assets)
+    if not ig_id:
+        try:
+            r = httpx.get(f"{META_GRAPH}/me/assigned_instagram_accounts",
+                          params={"fields": "id,username,name"}, headers=headers, timeout=30)
+            if r.status_code == 200:
+                data = r.json().get("data", [])
+                if data:
+                    item = data[0]
+                    ig_id = str(item.get("id", ""))
+                    username = item.get("username", "")
+                    account_detail = "Professional account (Unified Login)"
+            else:
+                errs.append(_meta_err(r, "assigned_instagram_accounts"))
+        except Exception as e:
+            errs.append(f"assigned_instagram_accounts: {e}")
+
+    # 3. Fallback: Facebook Pages linked to Instagram accounts
+    if not ig_id:
+        try:
+            r = httpx.get(f"{META_GRAPH}/me/accounts",
+                          params={"fields": "id,name,instagram_business_account{id,username,name}"},
+                          headers=headers, timeout=30)
+            if r.status_code == 200:
+                for page in r.json().get("data", []):
+                    iba = page.get("instagram_business_account")
+                    if not iba and page.get("id"):
+                        try:
+                            pr = httpx.get(f"{META_GRAPH}/{page['id']}",
+                                           params={"fields": "instagram_business_account{id,username,name}"},
+                                           headers=headers, timeout=15)
+                            if pr.status_code == 200:
+                                iba = pr.json().get("instagram_business_account")
+                            else:
+                                errs.append(_meta_err(pr, f"page {page['id']}"))
+                        except Exception as e:
+                            errs.append(f"page {page['id']}: {e}")
+                    if iba and iba.get("id"):
+                        ig_id = str(iba["id"])
+                        username = iba.get("username", "")
+                        account_detail = f"Page: {page.get('name', 'Facebook Page')}"
+                        break
+            else:
+                errs.append(_meta_err(r, "me/accounts"))
+        except Exception as e:
+            errs.append(f"me/accounts: {e}")
+
+    if not ig_id:
+        why = f" ({'; '.join(errs)[:125]})" if errs else ""
+        raise ValueError(
+            "No Instagram Professional account was found. Select your Instagram Business or Creator account in Meta login."
+            + why
+        )
+
+    # If username wasn't returned in collection, look up the node
+    if not username:
+        try:
+            info = httpx.get(f"{META_GRAPH}/{ig_id}", params={"fields": "id,username,name"},
+                             headers=headers, timeout=30).json()
+            username = info.get("username", ig_id)
+        except Exception:
+            username = ig_id
+
+    display_name = "@" + username if username else f"Instagram ({ig_id})"
+    acc = {
+        "id": f"ig_{ig_id}",
+        "platform": "instagram",
+        "name": display_name,
+        "added": time.time(),
+        "user_id": str(ig_id),
+        "token": token,
+        "token_time": time.time(),
+        "token_type": token_type,
+        "expires": expires,
+        "api_host": META_GRAPH,
+        "detail": account_detail,
+    }
+    _put(acc)
+    return acc
+
+
+def instagram_add(token: str) -> dict:
+    """An account added with a token pasted from the Meta app dashboard or Business Suite."""
+    return _instagram_save(token.strip())
+
+
+# ------------------------------------------------------------------ Instagram (the older Instagram Login)
+def _instagram_login_finish(code: str) -> dict:
     cid, secret = app_keys("instagram")
     short = _check(httpx.post("https://api.instagram.com/oauth/access_token", data={
         "client_id": cid, "client_secret": secret, "grant_type": "authorization_code",
@@ -376,37 +612,46 @@ def _instagram_finish(code: str) -> dict:
         short = short["data"][0]
     if "instagram_business_content_publish" not in str(short.get("permissions", "instagram_business_content_publish")):
         raise ValueError("PeakCut needs permission to publish. Connect again and leave every box ticked.")
-    long = _check(httpx.get(f"{IG}/access_token", params={"grant_type": "ig_exchange_token", "client_secret": secret,
-                                                         "access_token": short["access_token"]}, timeout=30),
+    long = _check(httpx.get(f"{LEGACY_IG}/access_token", params={"grant_type": "ig_exchange_token", "client_secret": secret,
+                                                                 "access_token": short["access_token"]}, timeout=30),
                   "Keeping the Instagram sign-in").json()
-    return _instagram_save(long["access_token"])
+    return _instagram_login_save(long["access_token"])
 
 
-def _instagram_save(token: str) -> dict:
-    me = _check(httpx.get(f"{IG}/me", params={"fields": "user_id,username,account_type"},
+def _instagram_login_save(token: str) -> dict:
+    me = _check(httpx.get(f"{LEGACY_IG}/me", params={"fields": "user_id,username,account_type"},
                           headers={"Authorization": f"Bearer {token}"}, timeout=30), "Reading the Instagram account").json()
     kind = str(me.get("account_type") or "")
     acc = {"id": f"ig_{me['user_id']}", "platform": "instagram", "name": "@" + me["username"], "added": time.time(),
-           "user_id": str(me["user_id"]), "token": token, "token_time": time.time(),
+           "user_id": str(me["user_id"]), "token": token, "token_time": time.time(), "api_host": LEGACY_IG,
            "detail": {"BUSINESS": "Business account", "MEDIA_CREATOR": "Creator account"}.get(kind.upper(), "")}
     _put(acc)
     return acc
 
 
-def instagram_add(token: str) -> dict:
-    """An account added with a token pasted from the Meta app dashboard (older way; Connect is the normal one)."""
-    return _instagram_save(token.strip())
+def _ig_host(acc) -> str:
+    """Which Instagram API an account talks to. Accounts saved before Unified Login carry no api_host and stay on graph.instagram.com."""
+    return acc.get("api_host") or LEGACY_IG
 
 
 def _ig_token(acc) -> str:
-    if time.time() - acc.get("token_time", 0) > 7 * 86400:  # tokens last 60 days; refresh weekly
-        try:
-            r = _check(httpx.get(f"{IG}/refresh_access_token", params={"grant_type": "ig_refresh_token"},
-                                 headers={"Authorization": f"Bearer {acc['token']}"}, timeout=30), "Refreshing").json()
-            acc.update(token=r["access_token"], token_time=time.time())
-            _put(acc)
-        except Exception:  # noqa: BLE001 - keep using the current token until it truly expires
-            pass
+    # Instagram Login tokens (graph.instagram.com) last 60 days and are renewed weekly
+    if _ig_host(acc) == LEGACY_IG:
+        if time.time() - acc.get("token_time", 0) > 7 * 86400:  # tokens last 60 days; refresh weekly
+            try:
+                r = _check(httpx.get(f"{LEGACY_IG}/refresh_access_token", params={"grant_type": "ig_refresh_token"},
+                                     headers={"Authorization": f"Bearer {acc['token']}"}, timeout=30), "Refreshing").json()
+                acc.update(token=r["access_token"], token_time=time.time())
+                _put(acc)
+            except Exception:  # noqa: BLE001
+                pass
+        return acc["token"]
+
+    # Meta Graph / Unified Login:
+    # SUATs or permanent tokens have expires == 0
+    exp = acc.get("expires", 0)
+    if exp and exp > 0 and time.time() > exp:
+        raise RuntimeError("Instagram sign-in has expired. Connect again in Settings → Connected apps.")
     return acc["token"]
 
 
@@ -415,13 +660,14 @@ def instagram_upload(acc, path: Path, caption: str, job_id: str = ""):
     reach, the file is sent instead (only possible for some app types)."""
     token = _ig_token(acc)
     auth = {"Authorization": f"Bearer {token}"}
+    host = _ig_host(acc)
     uid = acc["user_id"]
     if config.PUBLIC_URL.startswith("https://") and job_id:
-        box = _check(httpx.post(f"{IG}/{uid}/media", data={"media_type": "REELS", "video_url": clip_link(job_id, path.name),
+        box = _check(httpx.post(f"{host}/{uid}/media", data={"media_type": "REELS", "video_url": clip_link(job_id, path.name),
                                                            "caption": caption[:2200], "share_to_feed": "true"},
                                 headers=auth, timeout=60), "Starting the Instagram post").json()
     else:
-        box = _check(httpx.post(f"{IG}/{uid}/media", data={"media_type": "REELS", "upload_type": "resumable",
+        box = _check(httpx.post(f"{host}/{uid}/media", data={"media_type": "REELS", "upload_type": "resumable",
                                                            "caption": caption[:2200], "share_to_feed": "true"},
                                 headers=auth, timeout=60), "Starting the Instagram upload").json()
         with path.open("rb") as f:
@@ -430,7 +676,7 @@ def instagram_upload(acc, path: Path, caption: str, job_id: str = ""):
                                        "file_size": str(path.stat().st_size)}, timeout=900),
                    "Uploading to Instagram (posting from a computer needs a public https address)")
     for _ in range(90):
-        st = _check(httpx.get(f"{IG}/{box['id']}", params={"fields": "status_code,status"}, headers=auth, timeout=30),
+        st = _check(httpx.get(f"{host}/{box['id']}", params={"fields": "status_code,status"}, headers=auth, timeout=30),
                     "Checking the Instagram upload").json()
         if st.get("status_code") in ("FINISHED", "PUBLISHED"):
             break
@@ -439,23 +685,44 @@ def instagram_upload(acc, path: Path, caption: str, job_id: str = ""):
         time.sleep(6)
     else:
         raise RuntimeError("Instagram took too long to process the video.")
-    pub = _check(httpx.post(f"{IG}/{uid}/media_publish", data={"creation_id": box["id"]}, headers=auth, timeout=60),
+    pub = _check(httpx.post(f"{host}/{uid}/media_publish", data={"creation_id": box["id"]}, headers=auth, timeout=60),
                  "Publishing on Instagram").json()
     link = ""
     try:
-        link = httpx.get(f"{IG}/{pub['id']}", params={"fields": "permalink"}, headers=auth, timeout=30).json().get("permalink", "")
+        link = httpx.get(f"{host}/{pub['id']}", params={"fields": "permalink"}, headers=auth, timeout=30).json().get("permalink", "")
     except Exception:  # noqa: BLE001
         pass
     return pub["id"], link
 
 
-def instagram_views(acc, media_id: str):
-    r = httpx.get(f"{IG}/{media_id}/insights", params={"metric": "views"},
-                  headers={"Authorization": f"Bearer {_ig_token(acc)}"}, timeout=30)
-    if r.status_code != 200:
+def _extract_metric_value(item: dict):
+    if not isinstance(item, dict):
         return None
-    data = r.json().get("data", [])
-    return int(data[0]["values"][0]["value"]) if data else None
+    if "values" in item and item["values"]:
+        v = item["values"][0]
+        if isinstance(v, dict) and "value" in v:
+            return v["value"]
+    if "total_value" in item and isinstance(item["total_value"], dict) and "value" in item["total_value"]:
+        return item["total_value"]["value"]
+    return None
+
+
+def instagram_views(acc, media_id: str):
+    host = _ig_host(acc)
+    token = _ig_token(acc)
+    headers = {"Authorization": f"Bearer {token}"}
+    for metric in ("views", "plays"):
+        try:
+            r = httpx.get(f"{host}/{media_id}/insights", params={"metric": metric}, headers=headers, timeout=30)
+            if r.status_code == 200:
+                data = r.json().get("data", [])
+                if data:
+                    val = _extract_metric_value(data[0])
+                    if val is not None:
+                        return int(val)
+        except Exception:  # noqa: BLE001
+            pass
+    return None
 
 
 # ------------------------------------------------------------------ TikTok (Login Kit + Content Posting API)

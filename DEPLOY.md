@@ -33,14 +33,47 @@ them in `.env`, see `.env.example`). The redirect address to register is shown i
 
 - **YouTube** (Google Cloud): an OAuth client of type Web application, with YouTube Data API v3 turned on. Until
   Google verifies the app, people see a warning screen and uploads stay private.
-- **Instagram** (Meta for Developers): a Business app with Instagram (API setup with Instagram login). Works with
-  Creator and Business accounts. Until Meta reviews the app, only accounts added as testers can connect. Instagram
-  fetches each clip from a one-hour signed link on your site, so the site needs a public https address.
+- **Instagram** (Meta for Developers): a Business app using **Instagram API with Unified Login** (powered by
+  Facebook Login for Business). Works with Creator and Business accounts. Until Meta approves your App Review,
+  only accounts added as testers or business assets can connect. Instagram fetches each clip from a one-hour
+  signed link on your site, so the site needs a public https address.
 - **TikTok** (TikTok for Developers): an app with Login Kit and the Content Posting API (Direct Post), scopes
   `user.info.basic` and `video.publish`. Until TikTok audits the app, clips are posted as private (PeakCut does
   this by itself and says so on the account).
 
 Instagram and TikTok only accept https redirect addresses.
+
+## Meta / Instagram setup (Unified Login)
+
+Meta requires new apps to use **Instagram API with Unified Login** via **Facebook Login for Business**:
+
+1. In [Meta for Developers](https://developers.facebook.com/apps), create an app of type **Business**.
+2. Under **Use cases**, choose **Manage messaging & content on Instagram**, click **Customize**, and select **API setup with Unified login**.
+3. Under **Facebook Login for Business**, click **Configurations** and create or edit your configuration:
+   - Name your configuration.
+   - Under **Permissions**, select:
+     - `instagram_content_publish` (required for posting Reels)
+     - `instagram_manage_insights` (required for fetching Reel views and analytics)
+     - `pages_show_list` (required for discovering connected Page and Instagram assets)
+     - `business_management` (optional/recommended if managing business portfolio assets)
+     - If available in your app's use case permissions, also select `instagram_basic` and `pages_read_engagement`.
+   - Under **Allowed Redirect URIs**, enter your callback URL:
+     `https://your-domain/oauth/instagram/callback`.
+   - Copy the generated **Configuration ID**.
+4. In Meta App Dashboard -> **App settings -> Basic**:
+   - Copy the **App ID** (Meta App ID) and **App secret** (Meta App Secret).
+5. In PeakCut, go to **Settings -> Connected apps -> Instagram -> Set up**:
+   - Paste the **Meta App ID**, **Meta App Secret**, and **Login configuration ID** (or set `PEAKCUT_IG_APP_ID`, `PEAKCUT_IG_APP_SECRET`, and `PEAKCUT_IG_CONFIG_ID` in `.env`).
+6. **Testing & App Review**:
+   - While in **Development Mode**, add your Meta/Instagram account under **App roles** or assign the Instagram professional asset to your Business Portfolio.
+   - For public production use by external creators, submit `instagram_basic` and `instagram_content_publish` for **App Review**.
+
+### Keeping the older Instagram Login working
+
+If your Meta app already uses **API setup with Instagram login**, leave **Login configuration ID** (`PEAKCUT_IG_CONFIG_ID`)
+empty and keep `PEAKCUT_IG_APP_ID` / `PEAKCUT_IG_APP_SECRET` as your Instagram app ID and secret. PeakCut uses the
+existing Instagram Login flow when no configuration ID is set, and Facebook Login for Business (Unified Login) when
+one is configured. Accounts saved before Unified Login keep using `graph.instagram.com` automatically.
 
 ## Google setup (sign-in and YouTube)
 

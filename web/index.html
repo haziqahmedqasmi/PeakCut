@@ -2152,9 +2152,9 @@ async function drawSettings() {
            "Add the address below under <b>Authorised redirect URIs</b>.", "Paste its Client ID and Client secret here."],
           "Until Google verifies your app, people see a warning when they connect, and uploads stay private."],
         instagram: ["https://developers.facebook.com/apps", "Meta for Developers",
-          ["Create a <b>Business</b> app and add <b>Instagram</b> (API setup with Instagram login).",
-           "Under <b>Business login settings</b>, add the address below as a redirect URL.", "Paste the <b>Instagram app ID</b> and <b>Instagram app secret</b> here."],
-          "Works with Creator and Business Instagram accounts. Until Meta reviews your app, only accounts you add as testers can connect."],
+          ["<b>New Meta apps (Facebook Login for Business):</b> create a <b>Business</b> app, add <b>Manage messaging &amp; content on Instagram</b> (Unified login), create a configuration with the redirect address below, and paste the <b>Meta App ID</b>, <b>Meta App Secret</b> and <b>Login configuration ID</b>.",
+           "<b>Existing Instagram Login apps:</b> under <b>Business login settings</b>, add the redirect address below, paste the <b>Instagram app ID</b> and <b>Instagram app secret</b>, and leave <b>Login configuration ID</b> empty."],
+          "Works with Instagram Creator and Business accounts. Leave Login configuration ID empty to use the existing Instagram Login flow; set it to use Facebook Login for Business."],
         tiktok: ["https://developers.tiktok.com/apps", "TikTok for Developers",
           ["Create an app and add <b>Login Kit</b> and <b>Content Posting API</b> with Direct Post turned on.",
            "Add the address below as a redirect URI, with the scopes <b>user.info.basic</b> and <b>video.publish</b>.", "Paste the Client key and Client secret here."],
@@ -2170,7 +2170,8 @@ async function drawSettings() {
             <div class="copyrow"><code>${esc(st.redirect)}</code><button class="btn sm" data-act="copytext" data-t="${esc(st.redirect)}">${ic("copy")}Copy</button></div>
             ${!st.https && pf !== "youtube" ? `<p class="warnline">${name} only accepts https addresses. Put PeakCut on a domain with https (or a tunnel) and set PEAKCUT_PUBLIC_URL to it first.</p>` : ""}
             <div class="fields"><label class="f">${esc(st.id_label)}<input id="app_id" placeholder="${st.ready ? "Saved: " + esc(st.id_hint) + ". Paste a new one to replace it" : ""}" autocomplete="off" spellcheck="false"></label>
-              <label class="f">${esc(st.secret_label)}<input id="app_secret" type="password" placeholder="${st.ready ? "Saved. Paste a new one to replace it" : ""}" autocomplete="off"></label></div>
+              <label class="f">${esc(st.secret_label)}<input id="app_secret" type="password" placeholder="${st.ready ? "Saved. Paste a new one to replace it" : ""}" autocomplete="off"></label>
+              ${pf === "instagram" ? `<label class="f">${esc(st.config_id_label || "Login configuration ID")}<input id="app_config_id" value="${esc(st.config_id || "")}" placeholder="Optional (leave empty for Instagram Login)" autocomplete="off" spellcheck="false"></label>` : ""}</div>
             <p class="sub">${g[3]}</p>
             <div class="row"><button class="btn primary" data-act="appsave" data-p="${pf}">Save</button><button class="btn ghost" data-act="appsetup" data-p="">Close</button></div></div>` : "";
         return `<div class="appcard"><span class="applogo" style="background:${bg}">${logo}</span>
@@ -2544,7 +2545,10 @@ document.addEventListener("click", async e => {
       S.setupOpen = ""; toast(d.remove ? "YouTube cookies removed." : "Saved. YouTube links will use them now.", "ok"); return drawSettings();
     }
     if (a === "appsave") {
-      await send("/api/apps", {platform: d.p, client_id: $("#app_id").value, client_secret: $("#app_secret").value}, "PUT");
+      const payload = {platform: d.p, client_id: $("#app_id").value, client_secret: $("#app_secret").value};
+      const cfgEl = $("#app_config_id");
+      if (cfgEl) payload.config_id = cfgEl.value;
+      await send("/api/apps", payload, "PUT");
       S.setupOpen = ""; S.status = await api("/api/status"); toast("Saved. People can connect now.", "ok"); return drawSettings();
     }
     if (a === "bell") return openBell();
