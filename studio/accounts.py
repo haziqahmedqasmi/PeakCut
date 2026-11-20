@@ -20,7 +20,7 @@ import httpx
 from . import config, ctx
 
 _lock = threading.RLock()
-_states: dict = {}   # one-time values for the connect redirects: state -> (user id, when, platform)
+_states: dict = {}   # one-time values for the connect redirects: state -> (user id, when, platform, mode)
 
 SECRET_KEYS = ("discord_webhook", "telegram_token")
 SETTING_DEFAULTS = {"discord_webhook": "", "telegram_token": "", "telegram_chat": "", "paused": False,
@@ -31,7 +31,6 @@ META_GRAPH = "https://graph.facebook.com/v21.0"
 META_AUTH = "https://www.facebook.com/v21.0/dialog/oauth"
 LEGACY_IG = "https://graph.instagram.com"
 IG_UPLOAD = "https://rupload.facebook.com/ig-api-upload/v21.0"
-IG_SCOPES = "instagram_basic,instagram_content_publish,instagram_manage_insights"
 # The older "Instagram Login" sign-in is used automatically when no Login configuration ID is set.
 IG_LOGIN_SCOPES = "instagram_business_basic,instagram_business_content_publish"
 TT = "https://open.tiktokapis.com/v2"
@@ -117,8 +116,8 @@ def app_keys(name: str) -> tuple:
 def app_config_id(name: str = "instagram") -> str:
     """Optional Meta Login configuration ID for Unified Login / Facebook Login for Business."""
     saved = _apps_saved().get(name) or {}
-    if saved.get("config_id"):
-        return str(saved["config_id"]).strip()
+    if saved.get("id") and saved.get("secret"):
+        return str(saved.get("config_id") or "").strip()
     return (config.env("PEAKCUT_IG_CONFIG_ID") or config.env("PEAKCUT_META_CONFIG_ID") or "").strip()
 
 
@@ -152,31 +151,37 @@ def apps_public() -> dict:
     return out
 
 
-def save_app(platform: str, cid: str, secret: str, config_id: str = "") -> dict:
+def save_app(platform: str, cid: str, secret: str, config_id=None) -> dict:
     """Save the server's app for a platform, from the dashboard. An empty secret keeps the saved one."""
     if platform not in APP_FOR:
         raise ValueError("Unknown platform.")
     name = APP_FOR[platform]
     cid, secret = str(cid or "").strip()[:200], str(secret or "").strip()[:300]
-    config_id = str(config_id or "").strip()[:100] if platform == "instagram" else ""   # only Unified Login has one
+    cfg_given = platform == "instagram" and config_id is not None
+    cfg = str(config_id or "").strip()[:100] if cfg_given else ""   # only Unified Login has one
     old = _apps_saved().get(name) or {}
-    if not cid and not secret:
-        raise ValueError(f"Paste the {APPS[name][0]} and {APPS[name][1]}.")
-    cid = cid or old.get("id", "")                # only a new secret typed: keep the saved id
+    clearing_cfg = cfg_given and not cfg and bool(old.get("config_id"))
+    id_label, secret_label = ("Meta App ID", "Meta App Secret") if (
+        platform == "instagram" and (cfg or (not cfg_given and old.get("config_id")))
+    ) else APPS[name][:2]
+    if not cid and not secret and not cfg and not clearing_cfg:
+        raise ValueError(f"Paste the {id_label} and {secret_label}.")
+    cid = cid or old.get("id", "")                # only a new secret or config_id typed: keep the saved id
+    if not cid:
+        raise ValueError(f"Paste the {id_label} and {secret_label}.")
     if not re.fullmatch(r"[\w.\-]{4,200}", cid):
-        raise ValueError(f"Paste the {APPS[name][0]} exactly as the platform shows it.")
+        raise ValueError(f"Paste the {id_label} exactly as the platform shows it.")
     secret = secret or (old.get("secret") if old.get("id") == cid else "")
     if not secret:
-        raise ValueError(f"Paste the {APPS[name][1]} too.")
-    if config_id and not re.fullmatch(r"[\w.\-]{4,100}", config_id):
+        raise ValueError(f"Paste the {secret_label} too.")
+    if cfg and not re.fullmatch(r"[\w.\-]{4,100}", cfg):
         raise ValueError("Paste the Login configuration ID exactly as Meta shows it.")
-    if not config_id and old.get("id") == cid:
-        config_id = old.get("config_id", "")
+    final_cfg = cfg if cfg_given else (old.get("config_id", "") if platform == "instagram" and old.get("id") == cid else "")
     with _lock:
         data = dict(_apps_saved())
         item = {"id": cid, "secret": secret}
-        if config_id:
-            item["config_id"] = config_id
+        if final_cfg:
+            item["config_id"] = final_cfg
         data[name] = item
         tmp = _apps_file().with_suffix(".tmp")
         tmp.write_text(json.dumps(data), encoding="utf-8")
@@ -356,7 +361,7 @@ def _check(r, what):
                     msg = err
                 elif "error_message" in d:
                     msg = d["error_message"]
-        except Exception:
+        except ValueError:
             pass
         detail = f": {msg}" if msg else f": {r.text[:300]}"
         raise RuntimeError(f"{what} failed ({r.status_code}){detail}")
@@ -434,7 +439,7 @@ def _meta_err(r, step: str) -> str:
         d = r.json()
         err = d.get("error") if isinstance(d, dict) else None
         msg = err.get("message") if isinstance(err, dict) else ""
-    except Exception:
+    except ValueError:
         msg = ""
     return f"{step} ({r.status_code}): {msg or r.text[:160]}"
 
@@ -454,6 +459,7 @@ def _instagram_finish(code: str) -> dict:
     token_type = "USER"
     expires_at = int(time.time() + int(tok_res["expires_in"]) - 120) if "expires_in" in tok_res else 0
     target_ids = []
+    debug_err = ""
     try:
         dr = httpx.get(f"{META_GRAPH}/debug_token", params={
             "input_token": token, "access_token": f"{cid}|{secret}"}, timeout=15)
@@ -468,8 +474,10 @@ def _instagram_finish(code: str) -> dict:
                     for tid in g.get("target_ids", []):
                         if tid and str(tid) not in target_ids:
                             target_ids.append(str(tid))
-    except Exception:
-        pass
+        else:
+            debug_err = _meta_err(dr, "debug_token")
+    except Exception as e:
+        debug_err = f"debug_token: {e}"
 
     if token_type == "USER":
         ex = _check(httpx.get(f"{META_GRAPH}/oauth/access_token", params={
@@ -478,18 +486,18 @@ def _instagram_finish(code: str) -> dict:
         if not ex.get("access_token"):
             raise ValueError("Meta did not return a long-lived access token.")
         token = ex["access_token"]
-        if "expires_in" in ex:
-            expires_at = int(time.time() + int(ex["expires_in"]) - 120)
+        expires_at = int(time.time() + int(ex["expires_in"]) - 120) if "expires_in" in ex else 0
 
-    return _instagram_save(token, token_type=token_type, expires=expires_at, target_ids=target_ids)
+    return _instagram_save(token, token_type=token_type, expires=expires_at, target_ids=target_ids,
+                           init_errs=[debug_err] if debug_err else None)
 
 
-def _instagram_save(token: str, token_type: str = "SUAT", expires: int = 0, target_ids: list = None) -> dict:
+def _instagram_save(token: str, token_type: str = "SUAT", expires: int = 0, target_ids: list = None, init_errs: list = None) -> dict:
     headers = {"Authorization": f"Bearer {token}"}
     ig_id = ""
     username = ""
     account_detail = "Professional account"
-    errs = []
+    errs = list(init_errs or [])
 
     # 1. Inspect granular asset target IDs discovered via debug_token
     if target_ids:
@@ -556,8 +564,11 @@ def _instagram_save(token: str, token_type: str = "SUAT", expires: int = 0, targ
             errs.append(f"me/accounts: {e}")
 
     if not ig_id:
-        why = f" ({'; '.join(errs)})" if errs else ""
-        raise ValueError(f"No Instagram Professional account was found{why}. In the Meta login dialog, make sure you selected your Instagram Business or Creator account and granted access.")
+        why = f" ({'; '.join(errs)[:125]})" if errs else ""
+        raise ValueError(
+            "No Instagram Professional account was found. Select your Instagram Business or Creator account in Meta login."
+            + why
+        )
 
     # If username wasn't returned in collection, look up the node
     if not username:

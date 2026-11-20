@@ -5,6 +5,7 @@ from urllib.parse import parse_qs, urlparse
 os.environ["PEAKCUT_DATA"] = tempfile.mkdtemp(prefix="pc-connect-")
 os.environ.update(DATABASE_URL="", PEAKCUT_ACCOUNTS="1", PEAKCUT_PUBLIC_URL="https://clips.example.com", PEAKCUT_VERIFY_EMAIL="0",
                   GOOGLE_CLIENT_ID="", GOOGLE_CLIENT_SECRET="", GOOGLE_CLIENT_FILE="", PEAKCUT_IG_APP_ID="", PEAKCUT_IG_APP_SECRET="",
+                  PEAKCUT_IG_CONFIG_ID="", PEAKCUT_META_APP_ID="", PEAKCUT_META_APP_SECRET="", PEAKCUT_META_CONFIG_ID="",
                   PEAKCUT_TIKTOK_CLIENT_KEY="", PEAKCUT_TIKTOK_CLIENT_SECRET="")
 sys.path.insert(0, ".")
 from pathlib import Path
@@ -130,11 +131,15 @@ def get(url, params=None, headers=None, timeout=None):
         return R(200, {"data": {"type": "SYSTEM_USER", "is_valid": True, "expires_at": 0}})
     if url.endswith("/me/assigned_instagram_accounts"):
         auth_hdr = (headers or {}).get("Authorization", "")
+        if "token_err" in auth_hdr:
+            return R(403, {"error": {"message": "missing permission"}})
         if "token_page_fallback" in auth_hdr or "token_none" in auth_hdr:
             return R(200, {"data": []})
         return R(200, {"data": [{"id": "17841", "username": "clipper", "name": "Clipper Studio"}]})
     if url.endswith("/me/accounts"):
         auth_hdr = (headers or {}).get("Authorization", "")
+        if "token_err" in auth_hdr:
+            return R(403, {"error": {"message": "missing permission"}})
         if "token_none" in auth_hdr:
             return R(200, {"data": []})
         return R(200, {"data": [{"id": "page1", "name": "Creator Page", "instagram_business_account": {"id": "987654", "username": "page_ig"}}]})
@@ -142,6 +147,10 @@ def get(url, params=None, headers=None, timeout=None):
         return R(200, {"id": "17841", "username": "clipper", "name": "Clipper Studio"})
     if url == "https://graph.instagram.com/access_token":
         return R(200, {"access_token": "ig-long", "token_type": "bearer", "expires_in": 5183944})
+    if url == "https://graph.instagram.com/refresh_access_token":
+        return R(200, {"access_token": "old-tok-refreshed"})
+    if url == "https://graph.instagram.com/media1/insights":
+        return R(200, {"data": [{"name": "views", "values": [{"value": 42}]}]})
     if url.endswith("/me"):
         return R(200, {"id": "17841", "user_id": "17841", "username": "clipper", "account_type": "MEDIA_CREATOR"})
     if url.endswith("/container1"):
@@ -189,24 +198,37 @@ r = b.get("/oauth/tiktok/callback", params={"error": "access_denied"})
 check("cancelling on the platform says so", "cancelled" in r.headers["location"])
 r_ig_cancel = b.get("/oauth/instagram/callback", params={"error": "access_denied", "error_reason": "user_denied"})
 check("cancelling on Meta says so", "cancelled" in r_ig_cancel.headers["location"])
-r = a.put("/api/apps", json={"platform": "instagram", "client_id": "1234567890", "client_secret": "instagram-secret-value", "config_id": "cfg12345"}, headers=ORIGIN)
-check("instagram config_id saved, labels switch to Meta App ID",
-      (r.status_code, accounts.app_config_id("instagram"), r.json()["instagram"]["id_label"]),
-      (200, "cfg12345", "Meta App ID"))
+r = a.put("/api/apps", json={"platform": "instagram", "client_id": "", "client_secret": "", "config_id": "cfg12345"}, headers=ORIGIN)
+check("instagram config_id saved without retyping keys, labels switch to Meta App ID",
+      (r.status_code, accounts.app_keys("instagram"), accounts.app_config_id("instagram"), r.json()["instagram"]["id_label"]),
+      (200, ("1234567890", "instagram-secret-value"), "cfg12345", "Meta App ID"))
 loc_cfg, back_cfg = connect(b, "instagram", "igcode#_")
 q_cfg = parse_qs(loc_cfg.query)
 check("Meta OAuth dialog passes config_id when configured", (loc_cfg.netloc, q_cfg.get("config_id", [""])[0], "scope" in q_cfg),
       ("www.facebook.com", "cfg12345", False))
+with ctx.as_user(user.id):
+    saved_unified = accounts.get("ig_17841")
 check("Facebook Login for Business finishes and saves Meta Graph account",
-      ("connected=instagram" in back_cfg.headers["location"], accounts._ig_host({"api_host": accounts.META_GRAPH})),
-      (True, accounts.META_GRAPH))
+      ("connected=instagram" in back_cfg.headers["location"], saved_unified["api_host"], saved_unified["token"]),
+      (True, accounts.META_GRAPH, "ig-suat"))
+calls.clear()
 loc_u, back_u = connect(b, "instagram", "igcode-user")
+with ctx.as_user(user.id):
+    saved_user = accounts.get("ig_17841")
 check("short-lived USER token exchanges for long-lived token",
-      ("connected=instagram" in back_u.headers["location"], any(c[2] and c[2].get("grant_type") == "fb_exchange_token" for c in calls if c[0] == "GET")),
-      (True, True))
+      ("connected=instagram" in back_u.headers["location"],
+       any(c[2] and c[2].get("grant_type") == "fb_exchange_token" and c[2].get("fb_exchange_token") == "ig-short-user" for c in calls if c[0] == "GET"),
+       saved_user["token"], saved_user.get("expires", 0) > time.time() + 5_000_000),
+      (True, True, "ig-long-fb", True))
+calls.clear()
 loc_df, back_df = connect(b, "instagram", "igcode-dbg-fail")
+with ctx.as_user(user.id):
+    saved_df = accounts.get("ig_17841")
 check("failed debug_token defaults to USER and still exchanges for long-lived token",
-      ("connected=instagram" in back_df.headers["location"], ), (True,))
+      ("connected=instagram" in back_df.headers["location"],
+       any(c[2] and c[2].get("grant_type") == "fb_exchange_token" and c[2].get("fb_exchange_token") == "ig-dbg-fail" for c in calls if c[0] == "GET"),
+       saved_df["token"]),
+      (True, True, "ig-long-fb"))
 loc_ef, back_ef = connect(b, "instagram", "igcode-ex-fail")
 check("failed long-lived exchange raises real error instead of saving short-lived token",
       "connect_error" in back_ef.headers["location"] and "Keeping+the+Meta+sign-in+failed" in back_ef.headers["location"], True)
@@ -219,6 +241,24 @@ with ctx.as_user(user.id):
         check("missing professional account raises instead of falling back to /me", False)
     except ValueError as e:
         check("missing professional account raises instead of falling back to /me", "No Instagram Professional account was found" in str(e))
+    try:
+        accounts._instagram_save("token_err")
+        check("failed discovery steps surface step names in final error", False)
+    except ValueError as e:
+        msg = str(e)
+        check("failed discovery steps surface step names in final error",
+              "No Instagram Professional account was found" in msg and "assigned_instagram_accounts" in msg and "me/accounts" in msg)
+prev_env_cfg = os.environ.get("PEAKCUT_IG_CONFIG_ID", "")
+os.environ["PEAKCUT_IG_CONFIG_ID"] = "envcfg999"
+try:
+    r_clr = a.put("/api/apps", json={"platform": "instagram", "client_id": "", "client_secret": "", "config_id": ""}, headers=ORIGIN)
+    with ctx.as_user(user.id):
+        back_legacy_url = urlparse(accounts.connect_url("instagram"))
+    check("clearing config_id restores Instagram app ID labels and Instagram Login even with env fallback set",
+          (r_clr.status_code, accounts.app_config_id("instagram"), r_clr.json()["instagram"]["id_label"], back_legacy_url.netloc),
+          (200, "", "Instagram app ID", "www.instagram.com"))
+finally:
+    os.environ["PEAKCUT_IG_CONFIG_ID"] = prev_env_cfg
 check("instagram_add supports direct SUAT", (suat_acc["name"], suat_acc["token_type"]), ("@clipper", "SUAT"))
 check("fallback to Facebook Page Instagram account works", (fb_page_acc["id"], fb_page_acc["name"]), ("ig_987654", "@page_ig"))
 check("granular_scopes target_ids discovery works", (granular_acc["id"], granular_acc["name"]), ("ig_17841", "@clipper"))
@@ -267,12 +307,28 @@ with ctx.as_user(user.id):
     check("Instagram: a Reel from the signed link", (made[2]["media_type"], made[2]["video_url"].startswith(BASE + "/pub/")), ("REELS", True))
     check("Instagram: published, with its link", (rid, url), ("media1", "https://www.instagram.com/reel/abc/"))
 
-    old_saved = {"id": "ig_old123", "platform": "instagram", "name": "@oldacc", "user_id": "old123",
-                 "token": "old-tok", "token_time": time.time()}
+    old_saved = {"id": "ig_old123", "platform": "instagram", "name": "@oldacc", "added": time.time(),
+                 "user_id": "old123", "token": "old-tok", "token_time": time.time()}
     calls.clear()
     rid_old, _ = accounts.instagram_upload(old_saved, jd / "clip01.mp4", "Old caption", "job-12345678")
     check("old saved Instagram account posts through graph.instagram.com",
-          any(c[1] == "https://graph.instagram.com/old123/media" for c in calls) and rid_old == "media1", True)
+          (any(c[1] == "https://graph.instagram.com/old123/media" for c in calls),
+           any(c[1] == "https://graph.instagram.com/old123/media_publish" for c in calls),
+           rid_old),
+          (True, True, "media1"))
+    calls.clear()
+    old_stale = dict(old_saved, token_time=time.time() - 8 * 86400)
+    accounts._put(old_stale)
+    refreshed_tok = accounts._ig_token(old_stale)
+    check("old saved Instagram account refreshes weekly via graph.instagram.com",
+          (refreshed_tok, accounts.get("ig_old123")["token"],
+           any(c[1] == "https://graph.instagram.com/refresh_access_token" for c in calls)),
+          ("old-tok-refreshed", "old-tok-refreshed", True))
+    calls.clear()
+    old_views = accounts.instagram_views(old_saved, "media1")
+    check("old saved Instagram account reads views via graph.instagram.com",
+          (old_views, any(c[1] == "https://graph.instagram.com/media1/insights" for c in calls)),
+          (42, True))
 
     uploads.clear(); tt.update(audited=False, status=0)
     rid, url = accounts.tiktok_upload(ttacc, jd / "clip01.mp4", "My caption #fyp", "public")

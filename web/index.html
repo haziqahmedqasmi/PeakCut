@@ -2124,7 +2124,7 @@ async function drawSettings() {
             ${!st.https && pf !== "youtube" ? `<p class="warnline">${name} only accepts https addresses. Put PeakCut on a domain with https (or a tunnel) and set PEAKCUT_PUBLIC_URL to it first.</p>` : ""}
             <div class="fields"><label class="f">${esc(st.id_label)}<input id="app_id" placeholder="${st.ready ? "Saved: " + esc(st.id_hint) + ". Paste a new one to replace it" : ""}" autocomplete="off" spellcheck="false"></label>
               <label class="f">${esc(st.secret_label)}<input id="app_secret" type="password" placeholder="${st.ready ? "Saved. Paste a new one to replace it" : ""}" autocomplete="off"></label>
-              ${pf === "instagram" ? `<label class="f">${esc(st.config_id_label || "Login configuration ID")}<input id="app_config_id" placeholder="${st.config_id ? "Saved: " + esc(st.config_id_hint) + ". Paste a new one to replace it" : "Optional (from Meta configuration)"}" autocomplete="off" spellcheck="false"></label>` : ""}</div>
+              ${pf === "instagram" ? `<label class="f">${esc(st.config_id_label || "Login configuration ID")}<input id="app_config_id" value="${esc(st.config_id || "")}" placeholder="Optional (leave empty for Instagram Login)" autocomplete="off" spellcheck="false"></label>` : ""}</div>
             <p class="sub">${g[3]}</p>
             <div class="row"><button class="btn primary" data-act="appsave" data-p="${pf}">Save</button><button class="btn ghost" data-act="appsetup" data-p="">Close</button></div></div>` : "";
         return `<div class="appcard"><span class="applogo" style="background:${bg}">${logo}</span>
