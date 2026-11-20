@@ -4,6 +4,8 @@ import json
 import re
 import subprocess
 import time
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +14,8 @@ import soundfile as sf
 from . import config
 
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+       "Chrome/149.0.0.0 Safari/537.36")
 
 # ---------------------------------------------------------------- when YouTube refuses this server
 # YouTube sometimes refuses a server's downloads altogether ("sign in to confirm you're not a bot"). It is a
@@ -272,11 +276,124 @@ def download(url: str, job_dir: Path, height=720) -> Path:
     return _biggest(job_dir, "source")
 
 
+def _hls_playlist(url: str, height: int) -> str:
+    """The playlist address for this video, or "" when it is not an HLS stream. Twitch VODs are HLS: one init
+    piece plus thousands of ten-second pieces. ffmpeg cannot be asked to seek into that from the outside; it
+    starts somewhere else entirely and hands back a file with no picture in it."""
+    opts = {"quiet": True, "no_warnings": True, "noplaylist": True, "socket_timeout": 20}
+    with _youtube_guard(url), _ydl({**opts, **cookie_opts()}) as ydl:
+        data = ydl.extract_info(url, download=False) or {}
+        choose = ydl.build_format_selector(_video_format(height))
+        try:
+            picked = list(choose({"formats": data.get("formats") or []}, data))
+        except TypeError:            # this call has changed shape between yt-dlp releases
+            picked = list(choose(data))
+    best = picked[0] if picked else None
+    if not best or "m3u8" not in str(best.get("protocol") or ""):
+        return ""
+    return str(best.get("url") or "")
+
+
+def _read_playlist(text: str):
+    """Every piece in a playlist as (seconds into the video, length, address), plus the init piece if the
+    playlist has one. None when this is not the kind of playlist the shortcut below understands."""
+    if "#EXT-X-BYTERANGE" in text:
+        return None                  # pieces addressed by byte ranges: leave this one to yt-dlp
+    pieces, init, at = [], "", 0.0
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    n = 0
+    while n < len(lines):
+        line = lines[n]
+        if line.startswith("#EXT-X-MAP:"):
+            found = re.search(r'URI="([^"]+)"', line)
+            if found:
+                init = found.group(1)
+        elif line.startswith("#EXTINF:"):
+            try:
+                length = float(line.split(":", 1)[1].split(",")[0])
+            except ValueError:
+                return None
+            n += 1
+            while n < len(lines) and lines[n].startswith("#"):
+                n += 1
+            if n < len(lines):
+                pieces.append((at, length, lines[n]))
+                at += length
+        n += 1
+    return (pieces, init) if pieces else None
+
+
+def _small_playlist(m3u8: str, start: float, end: float, where: Path, pad: float = 20.0):
+    """A playlist of only the pieces one clip needs, written to disk. Returns (file, where it really starts),
+    or (None, 0) when the playlist is not one this shortcut understands."""
+    try:
+        asked = urllib.request.Request(m3u8, headers={"User-Agent": _UA})
+        text = urllib.request.urlopen(asked, timeout=30).read().decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 - no playlist read, no shortcut: yt-dlp takes over
+        return None, 0.0
+    read = _read_playlist(text)
+    if not read:
+        return None, 0.0
+    pieces, init = read
+    base = m3u8.split("?")[0].rsplit("/", 1)[0] + "/"
+    low, high = max(0.0, start - pad), end + pad
+    keep = [piece for piece in pieces if piece[0] + piece[1] > low and piece[0] < high]
+    if not keep:
+        return None, 0.0
+    out = ["#EXTM3U", "#EXT-X-VERSION:6", f"#EXT-X-TARGETDURATION:{max(int(p[1]) for p in keep) + 1}",
+           f"#EXT-X-MEDIA-SEQUENCE:{pieces.index(keep[0])}", "#EXT-X-PLAYLIST-TYPE:VOD"]
+    if init:
+        out.append(f'#EXT-X-MAP:URI="{urllib.parse.urljoin(base, init)}"')
+    for _, length, address in keep:
+        out.append(f"#EXTINF:{length:.3f},")
+        out.append(urllib.parse.urljoin(base, address))
+    out.append("#EXT-X-ENDLIST")
+    where.parent.mkdir(parents=True, exist_ok=True)
+    where.write_text("\n".join(out) + "\n", encoding="utf-8")
+    return where, keep[0][0]
+
+
+def _fetch_hls_part(m3u8: str, out_dir: Path, stem: str, start: float, end: float, exact: bool):
+    """One stretch of an HLS video, by giving ffmpeg a playlist that holds only that stretch. The seek is made
+    inside those few pieces, so the init piece is never lost."""
+    small, began = _small_playlist(m3u8, start, end, out_dir / ("_pieces_" + stem + ".m3u8"))
+    if not small:
+        return None
+    target = out_dir / (stem + ".mp4")
+    seek, span = max(0.0, start - began), max(0.2, end - start)
+    cmd = ["ffmpeg", "-y", "-v", "error", "-protocol_whitelist", "file,http,https,tcp,tls,crypto,data",
+           "-i", str(small), "-ss", f"{seek:.3f}", "-t", f"{span:.3f}"]
+    if exact:
+        # a cut at exactly the asked second: the picture has to be made again for that
+        cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac"]
+    else:
+        cmd += ["-c", "copy", "-avoid_negative_ts", "make_zero"]
+    cmd += ["-f", "mp4", str(target)]
+    try:
+        run(cmd)
+    finally:
+        small.unlink(missing_ok=True)
+    if not target.is_file() or target.stat().st_size < 4096:
+        raise RuntimeError("The video service sent no picture for this part of the video. Try it again, or "
+                           "upload the video file and clip that instead.")
+    return target
+
+
 def download_section(url: str, out_dir: Path, stem: str, start: float, end: float, height=720, exact=False) -> Path:
     """Just one stretch of the video. The cut lands on a keyframe, so find_offset() pins the true start; with
     exact=True the cut is made at exactly `start` instead (slower), for when there is nothing to match against."""
-    from yt_dlp.utils import download_range_func
     out_dir.mkdir(parents=True, exist_ok=True)
+    # An HLS video, as Twitch VODs are: fetch only the pieces this clip needs. Asking ffmpeg to seek into the
+    # whole playlist is what used to come back as a file with no streams in it ("This file has no video track").
+    try:
+        m3u8 = _hls_playlist(url, height)
+    except Exception:  # noqa: BLE001 - not HLS, or the service would not say: the usual way may still work
+        m3u8 = ""
+    if m3u8:
+        piece = _fetch_hls_part(m3u8, out_dir, stem, start, end, exact)
+        if piece is not None:
+            return piece
+    from yt_dlp.utils import download_range_func
     opts = {"format": _video_format(height), "merge_output_format": "mp4", "outtmpl": str(out_dir / (stem + ".%(ext)s")),
             "download_ranges": download_range_func(None, [(max(0.0, start), end)])}
     if exact:
