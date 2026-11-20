@@ -2103,7 +2103,7 @@ async function saveChannels(chs, main) {
 function drawCreatorForm() {
   const c = creator(), box = $("#cform"); if (!c || !box) return;
   const A = S.accounts;
-  const postIntervals = [15, 30, 45, 60, 90, 120];
+  const postIntervals = [5, 10, 15, 30, 45, 60, 90, 120];
   const customPostInterval = !postIntervals.includes(Number(c.post_gap_min));
   box.innerHTML = `<div class="card"><h2>${i18n.html("Their stream")}</h2><p class="help">${i18n.html("Where to record from, and whether to start by itself.")}</p>
       <div class="chans">${channelRows(c)}</div>
