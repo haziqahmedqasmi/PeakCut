@@ -26,7 +26,7 @@ PeakCut runs as three containers on one Linux server: the app, PostgreSQL, and C
 
 ## Connecting YouTube, Instagram and TikTok
 
-People connect their accounts with one click in **Settings, Connected apps**: they press Connect, sign in on the
+People connect their accounts with one click in **Social networks**: they press Connect, sign in on the
 platform's own page, and come back. For that, the server needs one app registered with each platform. An admin can
 do it right there: press **Set up** on a platform, follow the steps shown, and paste the app's id and secret (or put
 them in `.env`, see `.env.example`). The redirect address to register is shown in the panel, with a Copy button.

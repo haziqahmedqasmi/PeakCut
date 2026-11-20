@@ -612,11 +612,38 @@ dialog::backdrop{background:rgba(14,12,11,.42);animation:fadein .16s ease}
 .dlg{padding:24px;width:450px;max-width:100%;display:flex;flex-direction:column;gap:14px}
 .dlg h2{font-size:18px;font-weight:600;color:var(--brand-ink)}
 .dlg-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
-.editor{display:grid;grid-template-columns:minmax(240px,340px) minmax(300px,450px);max-height:calc(100vh - 48px)}
-.editor .stage{background:#17110E;display:grid;place-items:center;position:relative;min-height:320px}
-.editor video,.editor .stage img{width:100%;max-height:calc(100vh - 48px);aspect-ratio:9/16;object-fit:contain;display:block}
-.editor .panel{padding:22px;overflow:auto;display:flex;flex-direction:column;gap:14px}
-.editor h3{font-size:13px;font-weight:600;color:var(--dim);margin-top:6px}
+#clipdlg{width:1024px;max-height:calc(100dvh - 32px);overscroll-behavior:contain}
+.editor [hidden]{display:none!important}
+.editor-picker{display:flex;align-items:end;flex-wrap:wrap;gap:10px;margin-bottom:18px}
+.editor-picker .f{flex:1;min-width:0;max-width:520px}
+.editor-picker select{width:100%;text-overflow:ellipsis}
+#editor-panel:has(.editor){background:#fff;border:1px solid var(--line);border-radius:var(--r-lg)}
+.editor-empty .btn{margin-top:12px}
+.edit-head{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
+.edit-head .grow{min-width:0}
+.edit-head h2{font-size:18px;color:var(--brand-ink)}
+.edit-head .help{overflow-wrap:anywhere}
+.edit-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,340px);gap:20px;padding:20px}
+.edit-player,.edit-tools{display:flex;flex-direction:column;min-width:0;gap:12px}
+.edit-player .row,.edit-tools .row,.edit-sequence .row{flex-wrap:wrap}
+.edit-stage{display:grid;place-items:center;background:var(--frame);color:var(--frame-text);border-radius:var(--r);overflow:hidden;height:clamp(200px,44vh,390px);text-align:center}
+.edit-stage>div{display:grid;place-items:center;min-width:0}
+.edit-stage>div>p,.edit-stage>div:not(:has(video)){padding:16px}
+.edit-stage video{width:100%;height:100%;min-height:0;object-fit:contain;display:block}
+.edit-stage>div:has(video){width:100%;height:100%;min-height:0}
+.edit-switch .btn[aria-pressed=true],.edit-part[aria-pressed=true]{background:var(--brand-soft);border-color:var(--brand);color:var(--brand-ink)}
+.edit-tools h3,.edit-sequence h3{color:var(--brand-ink);font-size:15px}
+.edit-tools details{border-top:1px solid var(--line);padding-top:10px}
+.edit-tools summary{color:var(--brand-ink);font-weight:600;cursor:pointer}
+.edit-options{display:grid;gap:10px;padding-top:12px}
+.edit-mark{width:100%;margin-top:6px}
+.edit-sequence{display:grid;gap:10px;padding:16px 20px 20px;border-top:1px solid var(--line)}
+.edit-parts{display:flex;gap:6px;overflow:auto;padding:4px 3px 6px}
+.edit-part{flex:var(--part-length) 0 116px;display:grid;gap:3px;min-width:116px;max-width:310px;min-height:52px;padding:7px 10px;text-align:left;background:var(--muted);border:1px solid var(--line);border-radius:var(--r);color:var(--text);font:inherit;cursor:pointer;white-space:nowrap}
+.edit-part:hover{background:var(--brand-soft)}
+.edit-part small{font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
+.edit-feedback{font-size:12px;color:var(--bad)}
+.edit-feedback:empty{display:none}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 #toasts{position:fixed;right:20px;bottom:20px;display:flex;flex-direction:column;gap:8px;z-index:50}
 .toast{background:var(--frame);color:var(--frame-text);border:1px solid var(--frame-2);border-radius:var(--r);padding:12px 16px;max-width:380px;animation:rise .2s ease;display:flex;gap:10px;align-items:center;font-weight:500}
@@ -764,7 +791,15 @@ dialog[open]{animation:fadein .16s ease}
   .topbar{padding:10px 16px;min-height:52px}
   .hero{padding:32px 16px 40px}
   .content{padding:20px 16px 56px}
-  .editor{grid-template-columns:1fr;overflow:auto}.editor video{max-height:52vh}
+  .edit-body{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:560px){
+  #clipdlg{max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px)}
+  .edit-head,.edit-body,.edit-sequence{padding:12px}
+  .edit-head{flex-wrap:wrap}.edit-head .grow{min-width:50%}.edit-head .btn.primary{order:1}
+  .editor-picker .f{flex-basis:100%;max-width:none}
+  .edit-stage{height:clamp(180px,26dvh,240px)}
+  .edit-tools .two{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media (max-width:560px){.composer-bar .btn.primary{width:100%;height:42px}.topbar #actions .btn{height:34px;padding:0 10px;font-size:13px}.topbar h1{font-size:17px}.hero{padding:40px 14px 28px}.hero h2{font-size:26px}.hint{display:none}.tiles{gap:10px}.tile{padding:14px}.two{grid-template-columns:1fr}}
 /* ---------- guided tour: dims the page, cuts a soft-moving hole around what each step talks about */
@@ -845,7 +880,7 @@ dialog[open]{animation:fadein .16s ease}
     <div class="content" id="view"></div>
   </main>
 </div>
-<dialog id="clipdlg"></dialog>
+<dialog id="clipdlg" aria-labelledby="edit-title"></dialog>
 <dialog id="formdlg"></dialog>
 <input type="file" id="file" accept="video/*" multiple hidden>
 <div id="toasts" role="status" aria-live="polite"></div>
@@ -1072,7 +1107,7 @@ function startTour() {
 /* ============================================================ state */
 const S = {status:{styles:{}, layouts:{}}, jobs:[], creators:[], accounts:[], overview:null, settings:null,
            view:"overview", ctab:"clips"};
-const D = {jid:null, cid:null, sig:""};
+let D = {};
 const creatorId = () => S.view.startsWith("c:") ? S.view.slice(2) : null;
 const creator = () => S.creators.find(c => c.id === creatorId());
 const jobOf = id => S.jobs.find(j => j.id === id);
@@ -1268,6 +1303,8 @@ function drawShell() {  const nav = (v, icon, label, extra = "") => `<button cla
   put($("#nav"), nav("overview", navIc("home", "overview"), i18n.t("Home")) +
     nav("library", navIc("film", "library"), i18n.t("All videos"), (() => { const w = S.jobs.filter(j => ["queued", "running"].includes(j.status)).length;
       return w ? `<span class="working" title="${i18n.html("{0} working now", w)}"><i></i>${i18n.html("{0} working", w)}</span>` : S.jobs.length ? `<span class="count">${S.jobs.length}</span>` : ""; })()) +
+    nav("editor", navIc("scissors", "editor"), i18n.t("Clip editor")) +
+    nav("social", navIc("plug", "social"), i18n.t("Social networks")) +
     `<h4><span>${i18n.html("Creators")}</span></h4>` +
     S.creators.map(c => nav("c:" + c.id, cav(c), c.name,
       c.live_job ? `<span class="sb-tag rec" title="${i18n.html("Recording now")}"><i></i>${i18n.html("Rec")}</span>`
@@ -1279,11 +1316,12 @@ function drawShell() {  const nav = (v, icon, label, extra = "") => `<button cla
   put($("#foot"), (k ? `<button class="ai-card ${S.view === "usage" ? "on" : ""}" data-act="go" data-v="usage" title="${k.ready ? i18n.t("AI: {0}, {1} calls today", esc(k.provider || "ready"), k.today_calls || 0) : i18n.t("The AI is not set up")}">
       <span class="ai-ic">${ic("bolt")}</span><span class="ai-tx"><small>${i18n.html("AI")}</small><b>${k.ready ? esc(k.provider ? i18n.t(k.provider) : i18n.t("Ready")) : i18n.t("Not set up")}</b></span>${k.ready ? `<span class="ai-n">${i18n.html("{0} today", (k.today_calls || 0).toLocaleString(i18n.formatLocale))}</span>` : ""}</button>` : "") +
     (S.status.user ? `<div class="me"><button class="me-btn" data-act="acctmenu" aria-haspopup="menu" aria-expanded="false">${meAvatar(S.status.user)}
-      <span class="who">${S.status.accounts === false ? `<b>${i18n.html("Settings")}</b><span>${i18n.html("AI key, connected apps")}</span>` : `<b>${esc(S.status.user.name)}</b><span>${esc(S.status.user.email)}</span>`}</span></button>
+      <span class="who">${S.status.accounts === false ? `<b>${i18n.html("Settings")}</b><span>${i18n.html("AI, language and storage")}</span>` : `<b>${esc(S.status.user.name)}</b><span>${esc(S.status.user.email)}</span>`}</span></button>
       <button class="icon-btn bell" data-act="bell" title="${i18n.html("Notifications")}" aria-label="${i18n.html("Notifications{0}", S.status.unread ? i18n.t(", {0} new", S.status.unread) : "")}" aria-haspopup="dialog">${ic("bell")}${S.status.unread ? `<span class="dotn">${S.status.unread > 9 ? "9+" : S.status.unread}</span>` : ""}</button></div>` : ""));
   const c = creator();
   const recording = S.creators.filter(x => x.live_job).length;
-  let title = {overview:i18n.t("Home"), library:i18n.t("All videos"), settings:i18n.t("Settings"), usage:i18n.t("AI usage")}[S.view] || "", sub = "", act = "";
+  let title = {overview:i18n.t("Home"), library:i18n.t("All videos"), editor:i18n.t("Clip editor"), social:i18n.t("Social networks"), settings:i18n.t("Settings"), usage:i18n.t("AI usage")}[S.view] || "", sub = "", act = "";
+  if (S.view === "social") sub = i18n.t("Connect your accounts to publish clips.");
   if (S.view === "usage") sub = i18n.t("What the AI has been used for.");
   if (S.view === "overview") {
     const count = S.creators.length;
@@ -1291,7 +1329,7 @@ function drawShell() {  const nav = (v, icon, label, extra = "") => `<button cla
     sub = i18n.t("{0}. {1}{2}.", greeting(), creators, recording ? i18n.t(", {0} recording now", recording) : "");
   }
   if (S.view === "library") sub = i18n.t("Every video and recording, across all creators.");
-  if (S.view === "settings") sub = (S.status.accounts === false ? i18n.t("Your AI key and connected apps.") : i18n.t("Your profile, security and connected apps."));
+  if (S.view === "settings") sub = (S.status.accounts === false ? i18n.t("Your AI, language and storage settings.") : i18n.t("Your profile, security and preferences."));
   let pic = "", subHtml = null, tabs = "";
   if (c) {
     title = c.name;
@@ -1319,23 +1357,26 @@ function drawShell() {  const nav = (v, icon, label, extra = "") => `<button cla
   const aiBar = !toolBar && S.status.ai?.problem && me?.is_admin && S.view !== "settings" ? `<div class="vb" role="status">${ic("warn")}<span><b>${i18n.html("The AI isn't answering.")}</b> ${i18n.html("{0} Until then, clips are picked by loudness.", esc(i18n.detail(S.status.ai.problem)))}</span><button class="btn sm primary" data-act="go" data-v="settings" data-tab="ai">${i18n.html("Open AI settings")}</button></div>` : "";
   const diskBar = !toolBar && S.status.disk_full && S.view !== "settings" ? `<div class="vb" role="alert">${ic("warn")}<span><b>${i18n.html("The drive PeakCut saves to is almost full, so it can't take new videos.")}</b> ${i18n.html("Free up space on it, or move PeakCut's folder to a bigger drive.")}</span>${me?.is_admin ? `<button class="btn sm primary" data-act="go" data-v="settings" data-tab="storage">${i18n.html("Open Storage")}</button>` : ""}</div>` : "";
   put($("#vbanner"), toolBar ? toolBar : diskBar ? diskBar : aiBar ? aiBar : upBar ? upBar : me && me.verified === false ? `<div class="vb" role="status">${ic("warn")}<span>${i18n.html("Confirm your email to start clipping. We sent a link to")} <b>${esc(me.email)}</b>.</span><button class="btn sm" data-act="resendverify">${i18n.html("Send a new link")}</button></div>`
-    : kk && kk.ready === false && S.view !== "usage" ? `<div class="vb" role="status">${ic("bolt")}<span>${me?.is_admin ? i18n.t("Add your AI key to let the AI pick clips and write titles. Until then, clips are picked by loudness.") : i18n.t("The AI isn't set up on this server yet, so clips are picked by loudness.")}</span>${me?.is_admin && S.view !== "settings" ? `<button class="btn sm primary" data-act="go" data-v="settings" data-tab="ai">${ic("plus")}${i18n.html("Add AI key")}</button>` : ""}</div>` : "");
+    : kk && kk.ready === false && S.view !== "usage" && S.view !== "editor" ? `<div class="vb" role="status">${ic("bolt")}<span>${me?.is_admin ? i18n.t("Add your AI key to let the AI pick clips and write titles. Until then, clips are picked by loudness.") : i18n.t("The AI isn't set up on this server yet, so clips are picked by loudness.")}</span>${me?.is_admin && S.view !== "settings" ? `<button class="btn sm primary" data-act="go" data-v="settings" data-tab="ai">${ic("plus")}${i18n.html("Add AI key")}</button>` : ""}</div>` : "");
   put($("#tpic"), pic); $("#tpic").classList.toggle("live", !!(c && (c.live_job || liveOn(c).length)));
   put($("#utabs"), tabs); moveInd(); $(".topbar").classList.toggle("tabbed", !!tabs);
   put($("#title"), `<span>${esc(title)}</span>`); put($("#subtitle"), subHtml ?? esc(sub)); put($("#actions"), act + i18n.toggleButton(true));
 }
 
-const ROUTES = {overview: "", library: "videos", settings: "settings", usage: "usage"};
+const ROUTES = {overview: "", library: "videos", editor: "editor", social: "social", settings: "settings", usage: "usage"};
 function pathFor(v, tab) {
   if (v.startsWith("c:")) return `/app/creators/${encodeURIComponent(v.slice(2))}${tab && tab !== "clips" ? "/" + tab : ""}`;
   if (v === "settings") return "/app/settings" + (tab ? "/" + tab : "");
+  if (v === "editor" && tab) return "/app/editor/" + tab.map(encodeURIComponent).join("/");
   return "/app" + (ROUTES[v] ? "/" + ROUTES[v] : "");
 }
 function fromPath(path) {
   const m = path.match(/^\/app\/creators\/([^/]+)(?:\/(setup|activity|clips))?\/?$/);
   if (m) return ["c:" + decodeURIComponent(m[1]), m[2] || "clips"];
   const st = path.match(/^\/app\/settings(?:\/(ai|subscription|profile|security|apps|storage|language))?\/?$/);
-  if (st) return ["settings", st[1] || null];
+  if (st) return st[1] === "apps" ? ["social", null] : ["settings", st[1] || null];
+  const ed = path.match(/^\/app\/editor(?:\/([\w-]+)\/([\w-]+))?\/?$/);
+  if (ed) return ["editor", ed[1] ? ed.slice(1) : null];
   const k = Object.keys(ROUTES).find(x => ROUTES[x] && path.replace(/\/$/, "") === "/app/" + ROUTES[x]);
   return [k || "overview", "clips"];
 }
@@ -1344,13 +1385,24 @@ function remember(v, tab, how = "push") {
   if (location.pathname !== url) history[how === "replace" ? "replaceState" : "pushState"]({v, tab}, "", url);
 }
 addEventListener("popstate", () => { const [v, tab] = fromPath(location.pathname); go(v, tab, true); });
+function viewTab() {
+  if (S.view === "editor") return S.editTarget;
+  if (S.view === "settings") return S.stab;
+  return creatorId() ? S.ctab : null;
+}
 function go(v, tab, fromHistory) {
+  if (v === "settings" && tab === "apps") { v = "social"; tab = null; }
   stopSubscriptionPoll();
+  resetClipEditor();
+  const dialog = $("#clipdlg");
+  if (dialog.open) { dialog.close(); dialog.replaceChildren(); }
   if (v !== "settings" || tab !== "subscription") S.subscriptionDraft = null;
   if (v.startsWith("c:") && !S.creators.some(c => "c:" + c.id === v)) v = "overview";
-  S.view = v; if (tab) S.ctab = tab; else if (!v.startsWith("c:")) S.ctab = "clips";
+  S.view = v;
+  S.ctab = v.startsWith("c:") ? tab || S.ctab : "clips";
+  S.editTarget = v === "editor" ? tab : null;
   if (v === "settings") S.stab = setTabs().some(x => x[0] === tab) ? tab : setTabs()[0][0];
-  if (!fromHistory) remember(v, v.startsWith("c:") ? S.ctab : v === "settings" ? S.stab : null);
+  if (!fromHistory) remember(v, viewTab());
   localStorage.setItem("view", v);
   $("#app").classList.remove("open");
   const view = $("#view");
@@ -1359,12 +1411,15 @@ function go(v, tab, fromHistory) {
       <p>${i18n.html("Paste a link or drop in videos. You get captioned shorts back.")}</p><div id="add"></div></section>` : "";
   if (v === "overview") view.innerHTML = `<div id="ov"></div>`;
   else if (v === "library") view.innerHTML = `<div id="add"></div><div id="jobs"></div>`;
+  else if (v === "editor") view.innerHTML = `<div id="editor-picker"></div><div id="editor-panel"></div>`;
+  else if (v === "social") view.innerHTML = `<div id="social" class="set-body"></div>`;
   else if (v === "settings") view.innerHTML = `<div id="sform"></div>`;
   else if (v === "usage") { view.innerHTML = `<div id="usage"></div>`; loadUsage(); }
   else view.innerHTML = `<div id="stream"></div><div id="cbody"></div>`;   // the live player stays put across tabs: no restart, no rebuffer
   if ($("#add")) drawAdd(v === "overview" ? "hero" : "compact");
   if (v === "overview" && window.GradientASCII) { try { window._gaStop = GradientASCII($("#appAscii"), {colors: ["#ffb27a", "#ffffff", "#ffd2ae", "#ffe0c2", "#fff1e6"], shape: "horizon", lightMode: true, cellSize: 16, density: 0.8, glyphOpacity: 0.26, gradientOpacity: 0.32, glow: 0.06, grain: 0.06, mouseInteraction: false, clickEffect: "none"}); } catch {} }
   if (v === "settings") drawSettings();
+  if (v === "social") drawSocialAccounts();
   if (v.startsWith("c:")) setTab(S.ctab);
   $("#main").scrollTo(0, 0); render();
   if (v === "overview") loadOverview();
@@ -1804,6 +1859,8 @@ async function makeClips() {
 
 /* ============================================================ clips + jobs */
 function scoreCls(s) { return s >= 80 ? "s-hi" : s >= 60 ? "s-mid" : ""; }
+const clipSegments = c => c.segments || [[c.start, c.end]];
+const segmentsLength = segments => Math.round(100 * segments.reduce((total, [start, end]) => total + end - start, 0)) / 100;
 function postPills(c) {
   return Object.values(c.posts || {}).filter(p => p.status !== "cancelled").map(p => {
     const cls = p.status === "posted" ? "ok" : p.status === "failed" ? "bad" : "warn";
@@ -1819,7 +1876,7 @@ function clipHtml(j, c) {
   const key = `c:${j.id}:${c.id}`, busyClip = c.status === "queued" || c.status === "rendering";
   return `<article class="clip ${sel().has(key) ? "picked" : ""}">
     <button class="shot" data-act="openclip" ${a} aria-label="${i18n.html("Open clip: {0}", esc(c.title || c.hook))}">${body}
-      <span class="badge l ${scoreCls(c.score)}" title="${i18n.html("AI score")}">${c.score || i18n.t("Hand")}</span><span class="badge r">${fmt(c.end - c.start)}</span></button>
+      <span class="badge l ${scoreCls(c.score)}" title="${i18n.html("AI score")}">${c.score || i18n.t("Hand")}</span><span class="badge r">${fmt(segmentsLength(clipSegments(c)))}</span></button>
     <div class="clip-body">
       <div class="hook">${esc(c.hook || i18n.t("Untitled clip"))}</div>
       <div class="ttl">${esc(c.title)}</div>
@@ -1830,7 +1887,8 @@ function clipHtml(j, c) {
         <button class="btn sm icon ghost" data-act="copy" ${a} title="${i18n.html("Copy post text")}" aria-label="${i18n.html("Copy post text")}">${ic("copy")}</button>
         ${busyClip ? "" : `<button class="btn sm icon ghost" data-act="delclip" ${a} title="${i18n.html("Delete this clip")}" aria-label="${i18n.html("Delete this clip")}">${ic("trash")}</button>`}
         <span class="grow"></span>
-        ${c.status === "done" ? `<button class="btn sm" data-act="openclip" ${a}>${ic("send")}${i18n.html("Post")}</button>` : ""}
+        ${busyClip ? "" : `<a class="btn sm" href="${pathFor("editor", [j.id, c.id])}" data-act="editclip" ${a}>${ic("scissors")}${i18n.html("Edit")}</a>`}
+        ${c.status === "done" ? `<button class="btn sm icon ghost" data-act="openclip" data-mode="post" ${a} title="${i18n.html("Post")}" aria-label="${i18n.html("Post")}">${ic("send")}</button>` : ""}
       </div>
     </div></article>`;
 }
@@ -1999,8 +2057,8 @@ function drawCreatorForm() {
         <label class="f">${i18n.html("Longest clip (seconds)")}<input data-k="max_len" type="number" value="${c.max_len}"></label>
         <label class="f">${i18n.html("Clips per video")}<input data-k="max_clips" type="number" value="${c.max_clips}"></label>
         <label class="f">${i18n.html("Minutes of live stream to keep")}<input data-k="buffer_min" type="number" value="${c.buffer_min}"></label></div></div>
-    <div class="card"><h2>${i18n.html("Posting")}</h2><p class="help">${A.length ? i18n.t("Choose the accounts this creator's clips go to. One account can be shared by several creators.") : i18n.t("No accounts are connected yet. Connect one in Settings, then come back.")}</p>
-      ${A.length ? `<div class="row" style="margin-bottom:16px">${A.map(a => `<label class="ck"><input type="checkbox" data-acc value="${esc(a.id)}" ${c.accounts.includes(a.id) ? "checked" : ""}>${esc(a.label)} · ${esc(a.name)}</label>`).join("")}</div>` : `<button class="btn" data-act="go" data-v="settings" style="margin-bottom:16px">${ic("cog")}${i18n.html("Open Settings")}</button>`}
+    <div class="card"><h2>${i18n.html("Posting")}</h2><p class="help">${A.length ? i18n.t("Choose the accounts this creator's clips go to. One account can be shared by several creators.") : i18n.t("No accounts are connected yet. Connect one in Social networks, then come back.")}</p>
+      ${A.length ? `<div class="row" style="margin-bottom:16px">${A.map(a => `<label class="ck"><input type="checkbox" data-acc value="${esc(a.id)}" ${c.accounts.includes(a.id) ? "checked" : ""}>${esc(a.label)} · ${esc(a.name)}</label>`).join("")}</div>` : `<button class="btn" data-act="go" data-v="social" style="margin-bottom:16px">${ic("plug")}${i18n.html("Open Social networks")}</button>`}
       <div class="fields"><label class="sw span"><input type="checkbox" data-k="autopost" ${c.autopost ? "checked" : ""}><span>${i18n.html("Post new clips automatically")}<small>${i18n.html("Clips that score high enough go out without you approving them.")}</small></span></label>
         <label class="f">${i18n.html("Only auto-post clips scoring at least")}<input data-k="post_min_score" type="number" min="0" max="100" value="${c.post_min_score}"></label>
         <label class="f">${i18n.html("Minutes between posts on one account")}<input data-k="post_gap_min" type="number" value="${c.post_gap_min}"></label>
@@ -2048,7 +2106,7 @@ function nextSteps(o) {
   const st = [];
   if (!S.creators.length) st.push([i18n.t("Add your first creator"), i18n.t("Give each streamer their own workspace, settings and folder."), "newcreator"]);
   if (!S.jobs.length) st.push([i18n.t("Make your first clips"), i18n.t("Paste a video link in the box above."), "focusurl"]);
-  if (!S.accounts.length) st.push([i18n.t("Connect a posting account"), i18n.t("YouTube, Instagram or TikTok, in one click."), "go:settings"]);
+  if (!S.accounts.length) st.push([i18n.t("Connect a posting account"), i18n.t("YouTube, Instagram or TikTok, in one click."), "go:social"]);
   if (S.creators.length && !S.creators.some(c => c.auto_watch)) st.push([i18n.t("Turn on auto-record"), i18n.t("Record by itself whenever a creator goes live."), "go:c:" + S.creators[0].id + ":setup"]);
   return st;
 }
@@ -2135,10 +2193,9 @@ function drawUsage() {
 // With sign-in off there is no profile or password to manage. The AI section is for whoever runs the server.
 const setTabs = () => [
   ...(S.status.user?.is_admin ? [["ai", i18n.t("AI"), "bolt", i18n.t("Your AI service, model and key")],
-                               ["subscription", i18n.t("AI subscription"), "user", i18n.t("Connect your ChatGPT account")]] : []),
+                               ["subscription", i18n.t("AI subscription"), "user", i18n.t("ChatGPT and Claude plans")]] : []),
   ...(S.status.accounts === false ? [] : [["profile", i18n.t("Profile"), "user", i18n.t("Your name, email and how you sign in")],
                                           ["security", i18n.t("Security"), "lock", i18n.t("Password and signing out")]]),
-  ["apps", i18n.t("Connected apps"), "plug", i18n.t("Where your clips get posted")],
   ["language", i18n.t("Language"), "language", i18n.t("Change the interface and caption languages")],
   ...(S.status.user?.is_admin ? [["storage", i18n.t("Storage"), "folder", i18n.t("Where videos and clips are kept")]] : [])];
 function aiHints() {
@@ -2149,6 +2206,8 @@ function aiHints() {
   $("#ai_model").disabled = subscription;
   $('[data-act="aimodels"]').disabled = subscription;
   $('[data-act="aisave"]').disabled = subscription;
+  const test = $('[data-act="aitest"]');
+  if (test) test.hidden = !same;
   $("#ai_codexhelp").hidden = !subscription;
   $("#ai_codexhelp").textContent = same && k.codex?.subscription
     ? i18n.t("Your ChatGPT account is connected through Codex. Requests use your subscription limits.")
@@ -2219,9 +2278,9 @@ async function drawSubscription(body, refresh = false, provided = null) {
   const draft = connected && account.email === S.subscriptionDraft?.email ? S.subscriptionDraft : null;
   if (!draft) S.subscriptionDraft = null;
   S.subscription = k;
-  body.innerHTML = `<section class="set-sec"><h2>${i18n.html("AI subscription")}</h2>
+  body.innerHTML = `<h2>ChatGPT / Codex</h2>
     <p class="help">${i18n.html("Connect your ChatGPT account to use its Codex allowance for clip selection, titles and captions. Sign-in happens on the official ChatGPT page.")}</p>
-    <div class="ai-state" role="status"><span class="pill ${connected ? "ok" : "warn"}">${connected ? i18n.t("Account connected") : pending ? i18n.t("Waiting for sign-in") : k.installed ? i18n.t("Not connected") : i18n.t("Codex not found")}</span><span class="sub">ChatGPT / Codex</span></div>
+    <div class="ai-state" role="status"><span class="pill ${connected ? "ok" : "warn"}">${connected ? i18n.t("Account connected") : pending ? i18n.t("Waiting for sign-in") : k.installed ? i18n.t("Not connected") : i18n.t("Codex not found")}</span></div>
     ${k.error ? `<p class="help" role="alert">${esc(i18n.detail(k.error))}</p>` : ""}
     ${connected ? `<dl class="kv"><div><dt>${i18n.html("Account")}</dt><dd>${esc(account.email || i18n.t("ChatGPT account"))}</dd></div><div><dt>${i18n.html("Plan")}</dt><dd>${esc(account.plan || "ChatGPT")}</dd></div><div><dt>${i18n.html("Used by PeakCut")}</dt><dd>${k.active ? i18n.t("Yes") : i18n.t("Not yet")}</dd></div></dl>
       <div class="ai-form"><label class="f">${i18n.html("Codex model")}<select id="sub_model" disabled><option value="">${i18n.html("Loading available models…")}</option></select><span class="hint">${i18n.html("Models available on your account. Automatic lets Codex choose.{0}", (k.models || []).length > 1 ? i18n.t(" Save to replace the current list and use only this model.") : "")}</span></label>
@@ -2230,7 +2289,7 @@ async function drawSubscription(body, refresh = false, provided = null) {
       : pending ? `<p class="help">${i18n.html("Finish signing in on the ChatGPT page. PeakCut checks the connection automatically.")}</p><div class="row"><a class="btn primary" href="${esc(k.auth_url || "")}" target="_blank" rel="noopener noreferrer">${i18n.html("Continue sign-in")}</a><button class="btn" data-act="subrefresh">${i18n.html("Check connection")}</button><button class="btn" data-act="subcancel">${i18n.html("Cancel connection")}</button></div>`
       : `<div class="row"><button class="btn primary" data-act="subconnect" ${k.installed ? "" : "disabled"}>${i18n.html("Connect ChatGPT")}</button><button class="btn" data-act="subrefresh">${i18n.html("Check connection")}</button></div>`}
     <p class="help" style="margin-top:20px">${i18n.html("This is the account used by Codex on this computer. PeakCut never asks for your ChatGPT password or an API key.")}</p>
-    <p class="help" id="sub_result" role="status"></p></section>`;
+    <p class="help" id="sub_result" role="status"></p>`;
   if (connected) await loadSubscriptionCatalog(k, version, refresh, draft);
   if (pending) subscriptionTimer = setTimeout(() => {
     if (S.view === "settings" && S.stab === "subscription") drawSubscription(body).catch(err => {
@@ -2259,17 +2318,34 @@ async function drawSettings() {
           ${opts({en:"English", "pt-BR":"Brazilian Portuguese"}, caption_language)}
         </select></div></section>`;
     }
-    if (tab === "subscription") await drawSubscription(body);
+    if (tab === "subscription") {
+      body.innerHTML = `<section class="set-sec" id="codex-subscription"><h2>ChatGPT / Codex</h2><p class="help" role="status">${i18n.html("Loading…")}</p></section>
+        <section class="set-sec"><h2>Claude</h2>
+          <p class="help">${i18n.html("Use Claude for clips and captions with a Claude Console API key. Eligible Max, Ultra and Team plans can use monthly API credits after linking a Console organization.")}</p>
+          <div class="row"><a class="btn" href="/app/settings/ai?provider=anthropic">${i18n.html("Set up Claude")}</a>
+            <a class="btn ghost" href="https://support.claude.com/en/articles/17154008-monthly-api-credits-for-max-ultra-and-team-plans" target="_blank" rel="noopener noreferrer">${i18n.html("How to claim API credits")}</a></div>
+        </section>`;
+      const codexSection = $("#codex-subscription");
+      try { await drawSubscription(codexSection); }
+      catch (err) {
+        codexSection.innerHTML = `<h2>ChatGPT / Codex</h2><p class="help" role="alert">${esc(i18n.detail(err.message))}</p>
+          <button class="btn" data-act="subrefresh">${i18n.html("Check connection")}</button>`;
+      }
+    }
     if (tab === "ai") {
-      const k = S.ai = await api("/api/ai");
+      const k = await api("/api/ai");
+      if (!body.isConnected) return;
+      S.ai = k;
+      const provider = new URLSearchParams(location.search).get("provider") === "anthropic" ? "anthropic" : k.provider;
+      const same = provider === k.provider;
       body.innerHTML = `<section class="set-sec"><h2>${i18n.html("AI")}</h2><p class="help">${i18n.html("PeakCut uses an AI model to pick the moments worth clipping and to write hooks, titles and captions. Choose a service with your own key, your Codex subscription, or a local model. Without AI, clips are picked by loudness.")}</p><p class="help">${i18n.html("For ChatGPT account sign-in, open")} <a href="/app/settings/subscription" data-act="settab" data-k="subscription">${i18n.html("AI subscription")}</a>.</p>
           <div class="ai-state">${k.ready ? `<span class="pill ok">${ic("check")}${i18n.html("Ready")}</span><span class="sub">${esc(i18n.t(k.label))} · ${esc(k.models[0] || "")}</span>` : `<span class="pill warn">${i18n.html("Not set up")}</span><span class="sub">${i18n.html("Choose a service and a model, then Save and test.")}</span>`}</div>
           <div class="ai-form">
-            <label class="f">${i18n.html("AI service")}<select id="ai_provider">${k.providers.map(x => `<option value="${esc(x.id)}" ${x.id === k.provider ? "selected" : ""}>${esc(i18n.t(x.label))}</option>`).join("")}</select></label>
+            <label class="f">${i18n.html("AI service")}<select id="ai_provider">${k.providers.map(x => `<option value="${esc(x.id)}" ${x.id === provider ? "selected" : ""}>${esc(i18n.t(x.label))}</option>`).join("")}</select></label>
             <p class="help" id="ai_codexhelp" hidden></p>
             <label class="f" id="ai_keywrap">${i18n.html("Key")}<input id="ai_key" type="password" autocomplete="off" spellcheck="false"><span class="hint" id="ai_keyhint"></span></label>
-            <label class="f" id="ai_basewrap">${i18n.html("Address")}<input id="ai_base" value="${esc(k.base_url || "")}" spellcheck="false"><span class="hint">${i18n.html("Where the service answers. Only needed for a custom service.")}</span></label>
-            <label class="f">${i18n.html("Model")}<span class="with"><input id="ai_model" list="ai_models" value="${esc(k.models.join(", "))}" spellcheck="false"><button class="btn" type="button" data-act="aimodels">${i18n.html("Find models")}</button></span>
+            <label class="f" id="ai_basewrap">${i18n.html("Address")}<input id="ai_base" value="${esc(same ? k.base_url || "" : "")}" spellcheck="false"><span class="hint">${i18n.html("Where the service answers. Only needed for a custom service.")}</span></label>
+            <label class="f">${i18n.html("Model")}<span class="with"><input id="ai_model" list="ai_models" value="${esc(same ? k.models.join(", ") : "")}" spellcheck="false"><button class="btn" type="button" data-act="aimodels">${i18n.html("Find models")}</button></span>
               <datalist id="ai_models"></datalist><span class="hint" id="ai_modelhint">${i18n.html("A fast, inexpensive model is the right choice. Add a second one after a comma to fall back on.")}</span></label>
           </div>
           <div class="row" style="margin-top:20px"><button class="btn primary" data-act="aisave">${i18n.html("Save and test")}</button>${k.ready ? `<button class="btn" data-act="aitest">${i18n.html("Test again")}</button>` : ""}</div></section>`;
@@ -2313,98 +2389,404 @@ async function drawSettings() {
                 <div class="row"><button class="btn primary" data-act="storsave">${i18n.html("Use this folder")}</button><button class="btn ghost" data-act="storchange">${i18n.html("Cancel")}</button></div></div>`
             : `<div class="row" style="margin-top:16px"><button class="btn" data-act="storchange">${i18n.html("Change folder")}</button></div>`}</section>`;
     }
-    if (tab === "apps") {
-      const conn = S.accounts || [];
-      const app = (key, name, logo, bg, desc, action, list) => `<div class="appcard"><span class="applogo" style="background:${bg}">${logo}</span>
-          <div class="apptx"><b>${name}</b><span>${desc}</span>${list}</div><div class="appact">${action}</div></div>`;
-      const mine = plat => conn.filter(a => (a.platform || a.label || "").toLowerCase().includes(plat));
-      const listOf = arr => arr.length ? `<div class="applist">${arr.map(a => `<div><span class="pill ok">${i18n.html("Connected")}</span><b>${esc(a.name)}</b><span class="sub">${esc(a.detail || "")}</span>
-          <button class="btn sm ghost" data-act="accremove" data-id="${esc(a.id)}">${i18n.html("Disconnect")}</button></div>`).join("")}</div>` : "";
-      const yt = '<svg viewBox="0 0 24 24"><path fill="#fff" d="M23.5 6.19a3.02 3.02 0 0 0-2.12-2.14C19.5 3.55 12 3.55 12 3.55s-7.5 0-9.38.5A3.02 3.02 0 0 0 .5 6.19C0 8.07 0 12 0 12s0 3.93.5 5.81a3.02 3.02 0 0 0 2.12 2.14c1.88.5 9.38.5 9.38.5s7.5 0 9.38-.5a3.02 3.02 0 0 0 2.12-2.14C24 15.93 24 12 24 12s0-3.93-.5-5.81zM9.55 15.57V8.43L15.82 12l-6.27 3.57z"/></svg>';
-      const ig = '<svg viewBox="0 0 24 24"><path fill="#fff" d="M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.8.25 2.23.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.06.41 2.23.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.25 1.8-.41 2.23a3.7 3.7 0 0 1-.9 1.38c-.42.42-.82.68-1.38.9-.42.16-1.06.36-2.23.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.8-.25-2.23-.41a3.7 3.7 0 0 1-1.38-.9 3.7 3.7 0 0 1-.9-1.38c-.16-.42-.36-1.06-.41-2.23C2.17 15.58 2.16 15.2 2.16 12s.01-3.58.07-4.85c.05-1.17.25-1.8.41-2.23.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.16 1.06-.36 2.23-.41C8.42 2.17 8.8 2.16 12 2.16zM12 5.84a6.16 6.16 0 1 0 0 12.32 6.16 6.16 0 0 0 0-12.32zm0 10.16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.4-11.85a1.44 1.44 0 1 0 0 2.88 1.44 1.44 0 0 0 0-2.88z"/></svg>';
-      const tt = '<svg viewBox="0 0 24 24"><path fill="#fff" d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64c.3 0 .59.04.86.13v-3.5a6.37 6.37 0 0 0-.86-.05A6.34 6.34 0 0 0 3.15 15.7a6.34 6.34 0 0 0 10.86 4.43 6.3 6.3 0 0 0 1.81-4.43V8.73a8.2 8.2 0 0 0 4.77 1.52V6.8a4.85 4.85 0 0 1-1-.11z"/></svg>';
-      const ok = S.status.connect || {}, admin = me.is_admin;
-      const setup = admin ? await api("/api/apps").catch(() => null) : null;
-      const GUIDE = {
-        youtube: ["https://console.cloud.google.com/apis/credentials", "Google Cloud",
-          [i18n.t("Create a project and turn on <b>YouTube Data API v3</b>."), i18n.t("Create an <b>OAuth client ID</b> of type <b>Web application</b>."),
-           i18n.t("Add the address below under <b>Authorised redirect URIs</b>."), i18n.t("Paste its Client ID and Client secret here.")],
-          i18n.t("Until Google verifies your app, people see a warning when they connect, and uploads stay private.")],
-        instagram: ["https://developers.facebook.com/apps", i18n.t("Meta for Developers"),
-          [i18n.t("Create a <b>Business</b> app and add <b>Instagram</b> (API setup with Instagram login)."),
-           i18n.t("Under <b>Business login settings</b>, add the address below as a redirect URL."), i18n.t("Paste the <b>Instagram app ID</b> and <b>Instagram app secret</b> here.")],
-          i18n.t("Works with Creator and Business Instagram accounts. Until Meta reviews your app, only accounts you add as testers can connect.")],
-        tiktok: ["https://developers.tiktok.com/apps", i18n.t("TikTok for Developers"),
-          [i18n.t("Create an app and add <b>Login Kit</b> and <b>Content Posting API</b> with Direct Post turned on."),
-           i18n.t("Add the address below as a redirect URI, with the scopes <b>user.info.basic</b> and <b>video.publish</b>."), i18n.t("Paste the Client key and Client secret here.")],
-          i18n.t("Until TikTok reviews your app, clips are posted as private: only the account owner sees them.")]};
-      const card = (pf, name, logo, bg, desc) => {
-        const accs = mine(pf), st = setup?.[pf], open = S.setupOpen === pf, g = GUIDE[pf];
-        const act = (ok[pf] ? `<a class="btn sm primary" href="/oauth/${pf}/start">${ic("plus")}${accs.length ? i18n.t("Add another") : i18n.t("Connect")}</a>`
-            : admin ? `<button class="btn sm primary" data-act="appsetup" data-p="${pf}">${ic("cog")}${i18n.html("Set up")}</button>` : `<span class="pill">${i18n.html("Not set up on this server")}</span>`)
-          + (ok[pf] && admin ? `<button class="btn sm ghost" data-act="appsetup" data-p="${pf}" title="${i18n.html("Change this server's {0} app", name)}">${ic("cog")}</button>` : "");
-        const panel = open && st ? `<div class="appsetup">
-            <p class="sub">${i18n.html("To let people connect {0}, register this server once with", name)} <a href="${g[0]}" target="_blank" rel="noopener">${g[1]}</a>${i18n.html(". It takes about five minutes.")}</p>
-            <ol>${g[2].map(x => `<li>${x}</li>`).join("")}</ol>
-            <div class="copyrow"><code>${esc(st.redirect)}</code><button class="btn sm" data-act="copytext" data-t="${esc(st.redirect)}">${ic("copy")}${i18n.html("Copy")}</button></div>
-            ${!st.https && pf !== "youtube" ? `<p class="warnline">${i18n.html("{0} only accepts https addresses. Put PeakCut on a domain with https (or a tunnel) and set PEAKCUT_PUBLIC_URL to it first.", name)}</p>` : ""}
-            <div class="fields"><label class="f">${esc(i18n.t(st.id_label))}<input id="app_id" placeholder="${st.ready ? i18n.t("Saved: ") + esc(st.id_hint) + i18n.t(". Paste a new one to replace it") : ""}" autocomplete="off" spellcheck="false"></label>
-              <label class="f">${esc(i18n.t(st.secret_label))}<input id="app_secret" type="password" placeholder="${st.ready ? i18n.t("Saved. Paste a new one to replace it") : ""}" autocomplete="off"></label></div>
-            <p class="sub">${g[3]}</p>
-            <div class="row"><button class="btn primary" data-act="appsave" data-p="${pf}">${i18n.html("Save")}</button><button class="btn ghost" data-act="appsetup" data-p="">${i18n.html("Close")}</button></div></div>` : "";
-        return `<div class="appcard"><span class="applogo" style="background:${bg}">${logo}</span>
-          <div class="apptx"><b>${name}</b><span>${desc}</span>${listOf(accs)}</div><div class="appact">${act}</div>${panel}</div>`;
-      };
-      body.innerHTML = `<section class="set-sec"><h2>${i18n.html("Connected apps")}</h2><p class="help">${i18n.html("Connect the accounts PeakCut posts clips to: press Connect, sign in on the platform's own page, and you're back here. PeakCut never sees your passwords. Then pick which accounts each creator posts to, in that creator's Setup.")}</p>
-        <div class="apps">
-          ${card("youtube", "YouTube", yt, "#FF0000", i18n.t("Post clips to your channel as Shorts."))}
-          ${card("instagram", "Instagram", ig, "linear-gradient(45deg,#F58529,#DD2A7B,#8134AF)", i18n.t("Post clips as Reels. Needs a Creator or Business account."))}
-          ${card("tiktok", "TikTok", tt, "#000", i18n.t("Post clips straight to your TikTok."))}
-        </div></section>`;
-    }
+
   } catch (e) { body.innerHTML = `<div class="set-load">${esc(i18n.detail(e.message))}</div>`; }
 }
+async function drawSocialAccounts() {
+  const body = $("#social"); if (!body) return;
+  body.innerHTML = `<div class="set-load" role="status">${i18n.html("Loading…")}</div>`;
+  try {
+    const conn = S.accounts || [];
+    const mine = plat => conn.filter(a => (a.platform || a.label || "").toLowerCase().includes(plat));
+    const listOf = arr => arr.length ? `<div class="applist">${arr.map(a => `<div><span class="pill ok">${i18n.html("Connected")}</span><b>${esc(a.name)}</b><span class="sub">${esc(a.detail || "")}</span>
+        <button class="btn sm ghost" data-act="accremove" data-id="${esc(a.id)}">${i18n.html("Disconnect")}</button></div>`).join("")}</div>` : "";
+    const yt = '<svg viewBox="0 0 24 24"><path fill="#fff" d="M23.5 6.19a3.02 3.02 0 0 0-2.12-2.14C19.5 3.55 12 3.55 12 3.55s-7.5 0-9.38.5A3.02 3.02 0 0 0 .5 6.19C0 8.07 0 12 0 12s0 3.93.5 5.81a3.02 3.02 0 0 0 2.12 2.14c1.88.5 9.38.5 9.38.5s7.5 0 9.38-.5a3.02 3.02 0 0 0 2.12-2.14C24 15.93 24 12 24 12s0-3.93-.5-5.81zM9.55 15.57V8.43L15.82 12l-6.27 3.57z"/></svg>';
+    const ig = '<svg viewBox="0 0 24 24"><path fill="#fff" d="M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.8.25 2.23.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.06.41 2.23.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.25 1.8-.41 2.23a3.7 3.7 0 0 1-.9 1.38c-.42.42-.82.68-1.38.9-.42.16-1.06.36-2.23.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.8-.25-2.23-.41a3.7 3.7 0 0 1-1.38-.9 3.7 3.7 0 0 1-.9-1.38c-.16-.42-.36-1.06-.41-2.23C2.17 15.58 2.16 15.2 2.16 12s.01-3.58.07-4.85c.05-1.17.25-1.8.41-2.23.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.16 1.06-.36 2.23-.41C8.42 2.17 8.8 2.16 12 2.16zM12 5.84a6.16 6.16 0 1 0 0 12.32 6.16 6.16 0 0 0 0-12.32zm0 10.16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.4-11.85a1.44 1.44 0 1 0 0 2.88 1.44 1.44 0 0 0 0-2.88z"/></svg>';
+    const tt = '<svg viewBox="0 0 24 24"><path fill="#fff" d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64c.3 0 .59.04.86.13v-3.5a6.37 6.37 0 0 0-.86-.05A6.34 6.34 0 0 0 3.15 15.7a6.34 6.34 0 0 0 10.86 4.43 6.3 6.3 0 0 0 1.81-4.43V8.73a8.2 8.2 0 0 0 4.77 1.52V6.8a4.85 4.85 0 0 1-1-.11z"/></svg>';
+    const ok = S.status.connect || {}, admin = !!S.status.user?.is_admin;
+    const setup = admin ? await api("/api/apps") : null;
+    if (!body.isConnected) return;
+    const GUIDE = {
+      youtube: ["https://console.cloud.google.com/apis/credentials", "Google Cloud",
+        [i18n.t("Create a project and turn on <b>YouTube Data API v3</b>."), i18n.t("Create an <b>OAuth client ID</b> of type <b>Web application</b>."),
+         i18n.t("Add the address below under <b>Authorised redirect URIs</b>."), i18n.t("Paste its Client ID and Client secret here.")],
+        i18n.t("Until Google verifies your app, people see a warning when they connect, and uploads stay private.")],
+      instagram: ["https://developers.facebook.com/apps", i18n.t("Meta for Developers"),
+        [i18n.t("Create a <b>Business</b> app and add <b>Instagram</b> (API setup with Instagram login)."),
+         i18n.t("Under <b>Business login settings</b>, add the address below as a redirect URL."), i18n.t("Paste the <b>Instagram app ID</b> and <b>Instagram app secret</b> here.")],
+        i18n.t("Works with Creator and Business Instagram accounts. Until Meta reviews your app, only accounts you add as testers can connect.")],
+      tiktok: ["https://developers.tiktok.com/apps", i18n.t("TikTok for Developers"),
+        [i18n.t("Create an app and add <b>Login Kit</b> and <b>Content Posting API</b> with Direct Post turned on."),
+         i18n.t("Add the address below as a redirect URI, with the scopes <b>user.info.basic</b> and <b>video.publish</b>."), i18n.t("Paste the Client key and Client secret here.")],
+        i18n.t("Until TikTok reviews your app, clips are posted as private: only the account owner sees them.")]};
+    const card = (pf, name, logo, bg, desc) => {
+      const accs = mine(pf), st = setup?.[pf], open = S.setupOpen === pf, g = GUIDE[pf];
+      const act = (ok[pf] ? `<a class="btn sm primary" href="/oauth/${pf}/start">${ic("plus")}${accs.length ? i18n.t("Add another") : i18n.t("Connect")}</a>`
+          : admin ? `<button class="btn sm primary" data-act="appsetup" data-p="${pf}">${ic("cog")}${i18n.html("Set up")}</button>` : `<span class="pill">${i18n.html("Not set up on this server")}</span>`)
+        + (ok[pf] && admin ? `<button class="btn sm ghost" data-act="appsetup" data-p="${pf}" title="${i18n.html("Change this server's {0} app", name)}">${ic("cog")}</button>` : "");
+      const panel = open && st ? `<div class="appsetup">
+          <p class="sub">${i18n.html("To let people connect {0}, register this server once with", name)} <a href="${g[0]}" target="_blank" rel="noopener">${g[1]}</a>${i18n.html(". It takes about five minutes.")}</p>
+          <ol>${g[2].map(x => `<li>${x}</li>`).join("")}</ol>
+          <div class="copyrow"><code>${esc(st.redirect)}</code><button class="btn sm" data-act="copytext" data-t="${esc(st.redirect)}">${ic("copy")}${i18n.html("Copy")}</button></div>
+          ${!st.https && pf !== "youtube" ? `<p class="warnline">${i18n.html("{0} only accepts https addresses. Put PeakCut on a domain with https (or a tunnel) and set PEAKCUT_PUBLIC_URL to it first.", name)}</p>` : ""}
+          <div class="fields"><label class="f">${esc(i18n.t(st.id_label))}<input id="app_id" placeholder="${st.ready ? i18n.t("Saved: ") + esc(st.id_hint) + i18n.t(". Paste a new one to replace it") : ""}" autocomplete="off" spellcheck="false"></label>
+            <label class="f">${esc(i18n.t(st.secret_label))}<input id="app_secret" type="password" placeholder="${st.ready ? i18n.t("Saved. Paste a new one to replace it") : ""}" autocomplete="off"></label></div>
+          <p class="sub">${g[3]}</p>
+          <div class="row"><button class="btn primary" data-act="appsave" data-p="${pf}">${i18n.html("Save")}</button><button class="btn ghost" data-act="appsetup" data-p="">${i18n.html("Close")}</button></div></div>` : "";
+      return `<div class="appcard" data-platform="${pf}"><span class="applogo" style="background:${bg}">${logo}</span>
+        <div class="apptx"><b>${name}</b><span>${desc}</span>${listOf(accs)}</div><div class="appact">${act}</div>${panel}</div>`;
+    };
+    body.innerHTML = `<section class="set-sec"><h2>${i18n.html("Connected accounts")}</h2><p class="help">${i18n.html("Connect the accounts PeakCut posts clips to: press Connect, sign in on the platform's own page, and you're back here. PeakCut never sees your passwords. Then pick which accounts each creator posts to, in that creator's Setup.")}</p>
+      <div class="apps">
+        ${card("youtube", "YouTube", yt, "#FF0000", i18n.t("Post clips to your channel as Shorts."))}
+        ${card("tiktok", "TikTok", tt, "#000", i18n.t("Post clips straight to your TikTok."))}
+        ${card("instagram", "Instagram", ig, "linear-gradient(45deg,#F58529,#DD2A7B,#8134AF)", i18n.t("Post clips as Reels. Needs a Creator or Business account."))}
+      </div></section>`;
+  } catch (e) { if (body.isConnected) body.innerHTML = `<div class="set-load" role="alert">${esc(i18n.detail(e.message))}</div>`; }
+}
+
 async function saveSettings() { const d = {}; $$("#sform [data-s]").forEach(i => d[i.dataset.s] = i.value); await send("/api/settings", d, "PUT"); }
 
 /* ============================================================ clip editor */
-function openClip(jid, cid) { D.jid = jid; D.cid = cid; D.sig = ""; drawClipDlg(true); $("#clipdlg").showModal(); }
-function drawClipDlg(full) {
-  const j = jobOf(D.jid), c = j?.clips.find(x => x.id === D.cid), dlg = $("#clipdlg");
-  if (!c) { if (dlg.open) dlg.close(); return; }
+function drawEditorPage() {
+  const root = $("#editor-panel");
+  if (!root) return;
+  const [jid, cid] = S.editTarget || [], job = jobOf(jid), clip = job?.clips.find(c => c.id === cid);
+  const groups = S.jobs.map(j => {
+    const clips = j.clips.filter(c => c.status === "done" || c.status === "error" || (j === job && c === clip));
+    if (!clips.length) return "";
+    const options = clips.map(c => `<option value="${esc(j.id)}/${esc(c.id)}"${c === clip ? " selected" : ""}>
+      ${esc(c.title || c.hook || i18n.t("Untitled clip"))} · ${fmt(segmentsLength(clipSegments(c)))}</option>`).join("");
+    return `<optgroup label="${esc(j.title || j.source?.name || i18n.t("Video"))}">${options}</optgroup>`;
+  }).join("");
+  put($("#editor-picker"), groups ? `<div class="editor-picker"><label class="f">${i18n.html("Clip")}
+    <select id="editor-clip-select"><option value="" disabled${clip ? "" : " selected"}>${i18n.html("Choose a clip")}</option>${groups}</select>
+    </label></div>` : "");
+  if (clip) {
+    if (D.root === root && D.jid === jid && D.cid === cid) drawClipEditor(false);
+    else mountClipEditor(jid, clip, "edit", root);
+    return;
+  }
+  resetClipEditor(root);
+  const message = jid ? "This clip is no longer available." : groups ? "Choose a clip to edit." : "No clips to edit yet.";
+  put(root, `<div class="empty editor-empty"><b>${i18n.html(message)}</b>
+    ${groups && !jid ? "" : `<button class="btn" data-act="go" data-v="library">${i18n.html("All videos")}</button>`}</div>`);
+}
+function resetClipEditor(root = D.root) {
+  if (!root || D.root !== root) return;
+  stopEditPlayback();
+  $$("video", root).forEach(video => video.pause());
+  D = {};
+}
+function mountClipEditor(jid, clip, mode, root) {
+  resetClipEditor();
+  D = {jid, cid:clip.id, mode, root, sig:"", segments:clipSegments(clip).map(part => [...part]), selected:0};
+  cache.delete(root);
+  drawClipEditor(true);
+  loadEditSource(D);
+}
+function openClip(jid, cid, mode) {
+  const clip = jobOf(jid)?.clips.find(c => c.id === cid);
+  if (!clip) return;
+  const dialog = $("#clipdlg");
+  mountClipEditor(jid, clip, mode, dialog);
+  dialog.showModal();
+  if (!mode) $("#stage video")?.play().catch(() => {});
+}
+async function loadEditSource(editor) {
+  const request = editor.sourceRequest = Symbol();
+  const current = () => D === editor && editor.sourceRequest === request;
+  try {
+    const {jid, cid} = editor;
+    const source = await api("/api/jobs/" + jid + "/clips/" + encodeURIComponent(cid) + "/source");
+    if (!current()) return;
+    D.source = source;
+    const [lo, hi] = source.preview || [0, 0];
+    $("#edit-source-note").textContent = i18n.t(!source.preview ? "The original is unavailable in the player." :
+      lo > source.start || hi < source.end ? "Only the locally saved part is shown here." : "");
+    if (source.url) {
+      $("#edit-source-link").href = source.url;
+      $("#edit-source-link").hidden = false;
+    }
+    if (!source.preview) $("#edit-source-empty").textContent = i18n.t("No original preview available");
+    if (!$("#edit-source").hidden) prepareEditVideo(editor);
+    for (const input of $$("#edit-marks input")) {
+      input.min = source.start;
+      input.max = Math.round(source.end * 100) / 100;
+    }
+  } catch (err) {
+    if (current()) $("#edit-source-empty").textContent = err.message;
+  }
+  if (current()) updateEditButtons();
+}
+function prepareEditVideo(editor) {
+  const video = $("#edit-source-video");
+  if (!editor.source?.preview || video.hasAttribute("src")) return;
+  video.addEventListener("loadedmetadata", () => { if (D === editor) { seekEditSource(); updateEditButtons(); } });
+  video.addEventListener("timeupdate", () => { if (D === editor) updateEditButtons(); });
+  video.addEventListener("ended", () => { if (D === editor) advanceEditPlayback(true); });
+  video.addEventListener("pause", () => { if (D === editor && video.paused && !video.ended) stopEditPlayback(); });
+  video.addEventListener("error", () => {
+    if (D !== editor) return;
+    stopEditPlayback();
+    video.hidden = true;
+    const empty = $("#edit-source-empty");
+    empty.hidden = false;
+    empty.textContent = i18n.t("This video can't play in your browser. You can still enter times.");
+    updateEditButtons();
+  });
+  video.src = "/media/" + editor.jid + "/original/" + encodeURIComponent(editor.cid);
+  video.hidden = false;
+  $("#edit-source-empty").hidden = true;
+}
+function editTime(seconds) {
+  const hundredths = Math.round(seconds * 100), part = hundredths % 100;
+  return fmt(Math.floor(hundredths / 100)) + (part ? (i18n.formatLocale ? "," : ".") + String(part).padStart(2, "0") : "");
+}
+function clipMode(mode) {
+  stopEditPlayback();
+  $("#stage video")?.pause();
+  $("#edit-source-video").pause();
+  $("#stage").hidden = mode === "edit";
+  $("#edit-source").hidden = mode !== "edit";
+  $("#edit-source-actions").hidden = mode !== "edit";
+  if (mode === "edit") prepareEditVideo(D);
+  for (const button of $$(".edit-switch button")) button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
+  updateEditButtons();
+}
+function editPosition() {
+  const video = $("#edit-source-video");
+  if (!video.hidden && video.readyState >= 1) return Math.round((video.currentTime + D.source.preview[0]) * 100) / 100;
+  return null;
+}
+function seekEditSource(time = D.segments[D.selected]?.[0]) {
+  const video = $("#edit-source-video");
+  if (!video.readyState || time == null) return;
+  const [start, end] = D.source.preview;
+  if (time >= start && time <= end) video.currentTime = time - start;
+}
+function markedSegment() {
+  const start = $("#edit-start"), end = $("#edit-end");
+  const low = D.source?.start, high = Math.round(D.source?.end * 100) / 100;
+  const from = start.valueAsNumber, to = end.valueAsNumber;
+  if (start.validity.valid && end.validity.valid && from >= low && to <= high && Math.round((to - from) * 100) >= 10) {
+    return [from, to];
+  }
+  return null;
+}
+function canPlayEditSequence() {
+  const video = $("#edit-source-video"), preview = D.source?.preview;
+  return !video.hidden && video.readyState >= 1 && preview && D.segments.length &&
+    D.segments.every(([start, end]) => start >= preview[0] && end <= Math.round(preview[1] * 100) / 100);
+}
+function updateEditButtons() {
+  const length = segmentsLength(D.segments), count = D.segments.length, selected = D.segments[D.selected];
+  const marks = markedSegment(), pos = $("#edit-source").hidden ? null : editPosition();
+  const canUseSource = D.source && D.source.end > D.source.start;
+  const busy = D.busy || D.sending;
+  const set = (action, disabled) => { $(`[data-act="${action}"]`, D.root).disabled = !!disabled; };
+  set("edit-mark-start", pos === null);
+  set("edit-mark-end", pos === null);
+  set("edit-trim", !marks || !selected || busy);
+  set("edit-copy", !marks);
+  set("edit-paste", !canUseSource || !D.copied || count >= 12 || busy);
+  set("edit-remove", !selected || busy);
+  set("edit-split", !selected || pos === null || count >= 12 || busy ||
+    Math.round((pos - selected[0]) * 100) < 10 || Math.round((selected[1] - pos) * 100) < 10);
+  set("edit-play", !canPlayEditSequence());
+  set("remake", busy || (D.changed && (!canUseSource || length < 3 || length > 180)));
+}
+function drawEditSequence(focus = false) {
+  const [start, end] = D.segments[D.selected] || ["", ""];
+  $("#edit-start").value = start;
+  $("#edit-end").value = end;
+  put($("#edit-parts"), D.segments.map(([from, to], index) =>
+    `<button type="button" class="edit-part" style="--part-length:${Math.max(0.1, to - from)}" data-act="edit-select"
+      data-part="${index}" aria-pressed="${index === D.selected}"><b>${i18n.html("Segment {0}", index + 1)}</b>
+      <small>${editTime(from)} – ${editTime(to)}</small></button>`).join(""));
+  $("#edit-empty").hidden = D.segments.length > 0;
+  const length = segmentsLength(D.segments);
+  $("#edit-length").textContent = i18n.t("Duration {0}", editTime(length));
+  $("#edit-length-error").hidden = !D.changed || (length >= 3 && length <= 180);
+  updateEditButtons();
+  if (focus) $(`#edit-parts [data-part="${D.selected}"]`)?.focus();
+}
+function stopEditPlayback() {
+  if (D.playing === undefined) return;
+  D.playing = undefined;
+  cancelAnimationFrame(D.playFrame);
+  $("#edit-source-video").pause();
+  $("#edit-play-label").textContent = i18n.t("Play sequence");
+}
+function advanceEditPlayback(ended = false) {
+  if (D.playing === undefined) return;
+  const position = editPosition();
+  if (!ended && (position === null || position < D.segments[D.playing][1])) return;
+  const next = D.segments[D.playing + 1];
+  if (!next) return stopEditPlayback();
+  D.playing++;
+  seekEditSource(next[0]);
+  if (ended) playEditSource();
+}
+function watchEditPlayback(editor) {
+  if (D !== editor || D.playing === undefined) return;
+  const video = $("#edit-source-video");
+  if (!video.paused && !video.seeking) advanceEditPlayback();
+  if (D.playing !== undefined) D.playFrame = requestAnimationFrame(() => watchEditPlayback(editor));
+}
+function playEditSource() {
+  const editor = D;
+  return $("#edit-source-video").play().catch(() => { if (D === editor) stopEditPlayback(); });
+}
+function editAction(action, index) {
+  const marks = markedSegment();
+  if (action === "edit-play") {
+    if (D.playing !== undefined) return stopEditPlayback();
+    clipMode("edit");
+    D.playing = 0;
+    seekEditSource(D.segments[0][0]);
+    $("#edit-play-label").textContent = i18n.t("Stop sequence");
+    watchEditPlayback(D);
+    return playEditSource();
+  }
+  if (action === "edit-mark-start" || action === "edit-mark-end") {
+    $(action === "edit-mark-start" ? "#edit-start" : "#edit-end").value = editPosition();
+    return updateEditButtons();
+  }
+  if (action === "edit-copy") {
+    D.copied = marks;
+    $("#edit-copied").hidden = false;
+    $("#edit-copied").textContent = i18n.t("Copied {0} – {1}", editTime(marks[0]), editTime(marks[1]));
+    return updateEditButtons();
+  }
+  stopEditPlayback();
+  const selected = D.selected;
+  if (action === "edit-select") {
+    D.selected = index;
+    clipMode("edit");
+    seekEditSource();
+    return drawEditSequence(true);
+  }
+  if (action === "edit-trim") D.segments[selected] = marks;
+  if (action === "edit-split") {
+    const at = editPosition(), [start, end] = D.segments[selected];
+    D.segments.splice(selected, 1, [start, at], [at, end]);
+    D.selected++;
+  }
+  if (action === "edit-paste") {
+    D.selected = selected + 1;
+    D.segments.splice(D.selected, 0, [...D.copied]);
+  }
+  if (action === "edit-remove") {
+    D.segments.splice(selected, 1);
+    D.selected = Math.min(selected, D.segments.length - 1);
+  }
+  D.changed = true;
+  $("#edit-feedback").textContent = "";
+  drawEditSequence();
+}
+function drawClipEditor(full) {
+  const j = jobOf(D.jid), c = j?.clips.find(x => x.id === D.cid), root = D.root;
+  if (!c) { if (root.open) root.close(); return; }
+  const modal = root.id === "clipdlg", clipTitle = c.title || c.hook || i18n.t("Untitled clip");
+  const heading = modal ? i18n.t("Edit clip") : clipTitle;
   const m = `/media/${j.id}/`, sig = c.status + c.version;
-  const stage = c.status === "done" ? `<video src="${m}${esc(c.file)}?v=${c.version}" poster="${m}${esc(c.cover)}?v=${c.version}" controls autoplay playsinline></video>`
+  const stage = c.status === "done" ? `<video src="${m}${esc(c.file)}?v=${c.version}" poster="${m}${esc(c.cover)}?v=${c.version}" controls playsinline preload="metadata"></video>`
     : c.status === "error" ? `<div class="err" style="padding:20px;text-align:center">${esc(c.error || i18n.t("Could not make this clip."))}</div>`
     : `<span class="making">${c.status === "rendering" ? i18n.t("Making this clip…") : i18n.t("Waiting its turn…")}</span>`;
+  D.busy = j.status === "queued" || j.status === "running" || c.status === "rendering" || c.status === "queued";
   if (full) {
-    dlg.innerHTML = `<div class="editor"><div class="stage" id="stage">${stage}</div>
-      <div class="panel">
-        <div class="job-head" style="margin:0"><div><span class="badge ${scoreCls(c.score)}" style="position:static">${c.judges ? i18n.t("Words ") + c.judges.words + (c.judges.reaction ? i18n.t(" · Reaction ") + c.judges.reaction : "") : c.score ? i18n.t("Score ") + c.score : i18n.t("Clipped by hand")}</span>
-          <p class="sub" style="margin-top:8px">${esc(c.reason || "")}</p></div><button class="btn icon ghost" data-act="closedlg" aria-label="${i18n.html("Close")}">${ic("x")}</button></div>
-        <h3>${i18n.html("On the video")}</h3>
-        <label class="f">${i18n.html("Big text")}<input data-f="hook" value="${esc(c.hook)}"></label>
-        <label class="sw"><input type="checkbox" data-f="captions" data-caption-toggle ${c.captions === false ? "" : "checked"}>${i18n.html("Generate captions")}</label>
-        <div class="two"><label class="f">${i18n.html("Caption style")}<select data-f="style" data-caption-style ${c.captions === false ? "disabled" : ""}>${opts(S.status.styles, c.style)}</select></label>
-          <label class="f">Layout<select data-f="layout">${opts(S.status.layouts, c.layout)}</select></label></div>
-        <div class="two"><label class="f">${i18n.html("Start (seconds)")}<input data-f="start" type="number" step="0.5" value="${c.start}"></label>
-          <label class="f">${i18n.html("End (seconds)")}<input data-f="end" type="number" step="0.5" value="${c.end}"></label></div>
-        <h3>${i18n.html("Post text")}</h3>
-        <label class="f">${i18n.html("Title")}<input data-f="title" value="${esc(c.title)}"></label>
-        <label class="f">${i18n.html("Description")}<textarea data-f="description" rows="2">${esc(c.description)}</textarea></label>
-        <button class="btn" data-act="remake">${ic("scissors")}${i18n.html("Save and re-make clip")}</button>
-        <h3>${i18n.html("Post it")}</h3>
-        <div id="dposts" class="row" style="gap:4px"></div>
-        ${S.accounts.length ? `<div class="row">${S.accounts.map(a => `<label class="ck"><input type="checkbox" data-pacc value="${esc(a.id)}">${esc(a.label)} · ${esc(a.name)}</label>`).join("")}</div>
-          <div class="row"><button class="btn primary" data-act="postnow">${ic("send")}${i18n.html("Post now")}</button><button class="btn" data-act="postqueue">${i18n.html("Add to queue")}</button></div>`
-          : `<p class="help">${i18n.html("No accounts connected yet. Connect one in Settings.")}</p>`}
-        <div class="row" style="margin-top:auto;padding-top:8px;border-top:1px solid var(--line)">
-          ${c.status === "done" ? `<a class="btn" href="${m}${esc(c.file)}?download=1">${ic("down")}${i18n.html("Download")}</a>` : ""}
-          <button class="btn" data-act="copy" data-j="${j.id}" data-c="${esc(c.id)}">${ic("copy")}${i18n.html("Copy post text")}</button></div>
-      </div></div>`;
+    root.innerHTML = `<div class="editor">
+      <header class="edit-head">
+        <div class="grow"><h2 id="edit-title"${modal ? "" : ' tabindex="-1"'}>${esc(heading)}</h2>
+          <p class="help">${esc(modal ? clipTitle : j.title || j.source?.name || "")}</p></div>
+        <button class="btn primary" data-act="remake">${ic("scissors")}${i18n.html("Save and re-make clip")}</button>
+        ${modal ? `<button class="btn icon ghost" data-act="closedlg" autofocus aria-label="${i18n.html("Close")}">${ic("x")}</button>` : ""}
+      </header>
+      <div class="edit-body">
+        <section class="edit-player">
+          <div class="row edit-switch" role="group" aria-label="${i18n.html("Preview")}">
+            <button class="btn sm" data-act="clipmode" data-mode="edit">${i18n.html("Original video")}</button>
+            <button class="btn sm" data-act="clipmode" data-mode="result">${i18n.html("Saved clip")}</button>
+          </div>
+          <div class="edit-stage">
+            <div id="edit-source"><video id="edit-source-video" controls playsinline preload="metadata" hidden></video>
+              <p id="edit-source-empty">${i18n.html("Loading original…")}</p></div>
+            <div id="stage">${stage}</div>
+          </div>
+          <div id="edit-source-actions" class="row"><span class="help grow" id="edit-source-note"></span>
+            <a class="btn sm" id="edit-source-link" target="_blank" rel="noopener noreferrer" hidden>${i18n.html("Open original video")}</a></div>
+          <p class="edit-feedback" id="edit-feedback" role="alert"></p>
+        </section>
+        <section class="edit-tools">
+          <h3>${i18n.html("Mark a segment in the original")}</h3>
+          <div class="two" id="edit-marks">
+            <div><label class="f">${i18n.html("Start (seconds)")}<input id="edit-start" type="number" step="0.01" required></label>
+              <button class="btn sm edit-mark" data-act="edit-mark-start">${i18n.html("Mark start")}</button></div>
+            <div><label class="f">${i18n.html("End (seconds)")}<input id="edit-end" type="number" step="0.01" required></label>
+              <button class="btn sm edit-mark" data-act="edit-mark-end">${i18n.html("Mark end")}</button></div>
+          </div>
+          <div class="row"><button class="btn sm" data-act="edit-trim">${i18n.html("Trim selected")}</button>
+            <button class="btn sm" data-act="edit-copy">${ic("copy")}${i18n.html("Copy segment")}</button></div>
+          <p class="help" id="edit-copied" role="status" hidden></p>
+          <details><summary>${i18n.html("Appearance and post text")}</summary><div class="edit-options">
+            <label class="f">${i18n.html("Big text")}<input data-f="hook" value="${esc(c.hook)}"></label>
+            <label class="sw"><input type="checkbox" data-f="captions" data-caption-toggle ${c.captions === false ? "" : "checked"}>${i18n.html("Generate captions")}</label>
+            <div class="two"><label class="f">${i18n.html("Caption style")}<select data-f="style" data-caption-style ${c.captions === false ? "disabled" : ""}>${opts(S.status.styles, c.style)}</select></label>
+              <label class="f">${i18n.html("Layout")}<select data-f="layout">${opts(S.status.layouts, c.layout)}</select></label></div>
+            <label class="f">${i18n.html("Title")}<input data-f="title" value="${esc(c.title)}"></label>
+            <label class="f">${i18n.html("Description")}<textarea data-f="description" rows="2">${esc(c.description)}</textarea></label>
+            ${c.reason ? `<p class="help">${esc(c.reason)}</p>` : ""}
+          </div></details>
+          <details${D.mode === "post" ? " open" : ""}><summary>${i18n.html("Download and post")}</summary><div class="edit-options">
+            <div id="dposts" class="row" style="gap:4px"></div>
+            ${S.accounts.length ? `<div class="row">${S.accounts.map(a => `<label class="ck"><input type="checkbox" data-pacc value="${esc(a.id)}">${esc(a.label)} · ${esc(a.name)}</label>`).join("")}</div>
+              <div class="row"><button class="btn primary" data-act="postnow">${ic("send")}${i18n.html("Post now")}</button><button class="btn" data-act="postqueue">${i18n.html("Add to queue")}</button></div>`
+              : `<p class="help">${i18n.html("No accounts connected yet. Connect one in Social networks.")}</p><button class="btn" data-act="go" data-v="social">${ic("plug")}${i18n.html("Open Social networks")}</button>`}
+            <div class="row"><a id="edit-download" class="btn" hidden>${ic("down")}${i18n.html("Download")}</a>
+              <button class="btn" data-act="copy" data-j="${j.id}" data-c="${esc(c.id)}">${ic("copy")}${i18n.html("Copy post text")}</button></div>
+          </div></details>
+        </section>
+      </div>
+      <section class="edit-sequence" aria-labelledby="edit-sequence-title">
+        <div class="row"><h3 class="grow" id="edit-sequence-title">${i18n.html("Clip sequence")}</h3><output class="help" id="edit-length"></output></div>
+        <div id="edit-parts" class="edit-parts"></div>
+        <p id="edit-empty" class="help" hidden>${i18n.html("Copy a part of the original and paste it here.")}</p>
+        <div class="row">
+          <button class="btn sm" data-act="edit-play">${ic("play")}<span id="edit-play-label">${i18n.html("Play sequence")}</span></button>
+          <button class="btn sm" data-act="edit-split">${ic("scissors")}${i18n.html("Split at playhead")}</button>
+          <button class="btn sm" data-act="edit-paste">${i18n.html("Paste segment")}</button>
+          <button class="btn sm" data-act="edit-remove">${ic("trash")}${i18n.html("Remove selected")}</button>
+        </div>
+        <p class="edit-feedback" id="edit-length-error" hidden>${i18n.html("A clip can be 3 to 180 seconds long.")}</p>
+      </section>
+    </div>`;
+    clipMode(D.mode === "edit" ? "edit" : "result");
+    drawEditSequence();
   } else if (D.sig !== sig) $("#stage").innerHTML = stage;
+  const title = $("#edit-title");
+  if (title.textContent !== heading) title.textContent = heading;
+  if (!full && c.status === "done" && D.status !== "done") {
+    if (!D.source?.preview) loadEditSource(D);
+    const saved = clipSegments(c);
+    if (!D.changed && JSON.stringify(saved) !== JSON.stringify(D.segments)) {
+      D.segments = saved.map(part => [...part]);
+      D.selected = Math.max(0, Math.min(D.selected, saved.length - 1));
+      drawEditSequence();
+    }
+  }
+  $("#edit-download").hidden = c.status !== "done";
+  if (c.status === "done") $("#edit-download").href = `${m}${esc(c.file)}?v=${c.version}&download=1`;
+  for (const button of $$("[data-act=postnow], [data-act=postqueue]", root)) button.disabled = c.status !== "done";
+  updateEditButtons();
   D.sig = sig;
+  D.status = c.status;
   put($("#dposts"), postPills(c));
 }
-$("#clipdlg").addEventListener("close", () => { $("#clipdlg").innerHTML = ""; D.jid = null; });
+$("#clipdlg").addEventListener("close", e => {
+  const dialog = e.currentTarget;
+  if (!dialog.open) { resetClipEditor(dialog); dialog.replaceChildren(); }
+});
 $("#clipdlg").addEventListener("click", e => { if (e.target === e.currentTarget) e.currentTarget.close(); });
 
 /* ============================================================ render + polling */
@@ -2412,7 +2794,8 @@ function render() {
   drawShell(); drawJobs(); drawStream(); drawSelBar();
   if (S.view === "overview") drawOverview();
   if ($("#clog")) drawLog();
-  if (D.jid) drawClipDlg(false);
+  if (S.view === "editor") drawEditorPage();
+  else if (D.jid) drawClipEditor(false);
 }
 async function tick() {
   try {
@@ -2460,16 +2843,24 @@ function loop() {
 document.addEventListener("submit", e => { if (e.target.id === "addform") { e.preventDefault(); makeClips(); } });
 document.addEventListener("input", e => {
   if (e.target.matches("#addform .composer-opts input[type=number]")) rememberClipOptions();
+  if (e.target.matches("#edit-marks input")) updateEditButtons();
 });
 $("#file").addEventListener("change", e => { attach(e.target.files); e.target.value = ""; });
 document.addEventListener("dragover", e => { const a = $(".composer"); if (a) { e.preventDefault(); a.classList.add("over"); } });
 document.addEventListener("dragleave", () => $(".composer")?.classList.remove("over"));
 document.addEventListener("drop", e => { const a = $(".composer"); if (a) { e.preventDefault(); a.classList.remove("over"); attach(e.dataTransfer.files); } });
 function syncCaptionStyle(toggle) {
-  toggle.closest("#addform, #cform, #clipdlg").querySelectorAll("[data-caption-style]").forEach(i => i.disabled = !toggle.checked);
+  toggle.closest("#addform, #cform, .editor").querySelectorAll("[data-caption-style]").forEach(i => i.disabled = !toggle.checked);
 }
 document.addEventListener("change", async e => {
   const t = e.target;
+  if (t.id === "editor-clip-select" && t.value) {
+    S.editTarget = t.value.split("/");
+    remember("editor", S.editTarget);
+    drawEditorPage();
+    $("#editor-clip-select")?.focus();
+    return;
+  }
   if (t.id === "caption_language") {
     t.disabled = true;
     try {
@@ -2496,7 +2887,14 @@ document.addEventListener("change", async e => {
   }
   if (t.id === "sub_model") return fillSubscriptionEfforts($("#sub_effort")?.value || "");
   if (t.id === "sub_effort") return subscriptionChoiceChanged();
-  if (t.id === "ai_provider") { $("#ai_models").innerHTML = ""; if (S.ai && t.value !== S.ai.provider) { $("#ai_model").value = ""; $("#ai_base").value = ""; } return aiHints(); }
+  if (t.id === "ai_provider") {
+    const same = t.value === S.ai.provider;
+    $("#ai_models").innerHTML = "";
+    $("#ai_key").value = "";
+    $("#ai_model").value = same ? S.ai.models.join(", ") : "";
+    $("#ai_base").value = same ? S.ai.base_url || "" : "";
+    return aiHints();
+  }
   if (t.dataset.sel) {
     const k = t.dataset.sel;
     if (t.checked) sel().add(k); else sel().delete(k);
@@ -2520,12 +2918,13 @@ document.addEventListener("change", async e => {
 document.addEventListener("click", async e => {
   const b = e.target.closest("[data-act]"); if (!b) return;
   const a = b.dataset.act, d = b.dataset;
+  if (a === "editclip" && (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) return;
   if (b.tagName === "A") e.preventDefault();
   try {
     if (a === "go") { closePops(); return go(d.v, d.tab); }
     if (a === "subrefresh") {
       b.disabled = true;
-      try { await drawSubscription($("#setbody"), true); } finally { b.disabled = false; }
+      try { await drawSubscription($("#codex-subscription"), true); } finally { b.disabled = false; }
       return;
     }
     if (a === "subconnect") {
@@ -2535,14 +2934,14 @@ document.addEventListener("click", async e => {
       try {
         const k = await send("/api/ai/subscription/connect");
         if (popup && k.auth_url) popup.location.href = k.auth_url; else if (popup) popup.close();
-        await drawSubscription($("#setbody"), false, k);
+        await drawSubscription($("#codex-subscription"), false, k);
       } catch (err) { if (popup) popup.close(); throw err; }
       finally { b.disabled = false; }
       return;
     }
     if (a === "subcancel") {
       b.disabled = true;
-      try { const k = await send("/api/ai/subscription/cancel"); await drawSubscription($("#setbody"), false, k); }
+      try { const k = await send("/api/ai/subscription/cancel"); await drawSubscription($("#codex-subscription"), false, k); }
       finally { b.disabled = false; }
       return;
     }
@@ -2562,7 +2961,7 @@ document.addEventListener("click", async e => {
       finally {
         try {
           S.status = await api("/api/status"); drawShell();
-          await drawSubscription($("#setbody"), true);
+          await drawSubscription($("#codex-subscription"), true);
         } finally {
           subscriptionUsing = false;
           if ($("#sub_model") && selectedSubscriptionModel()) {
@@ -2633,7 +3032,14 @@ document.addEventListener("click", async e => {
     if (a === "pickfile") return $("#file").click();
     if (a === "addmore") { const u = $("#url"); return u && !u.value ? (u.focus(), toast(i18n.t("Paste another link, or drop a file anywhere on the box."))) : $("#file").click(); }
     if (a === "closedlg") return $("#clipdlg").close();
-    if (a === "openclip") return openClip(d.j, d.c);
+    if (a === "editclip") {
+      go("editor", [d.j, d.c]);
+      $("#editor-panel #edit-title")?.focus({preventScroll:true});
+      return;
+    }
+    if (a === "openclip") return openClip(d.j, d.c, d.mode);
+    if (a === "clipmode") return clipMode(d.mode);
+    if (a.startsWith("edit-")) return editAction(a, Number(d.part));
     if (a === "newcreator") {
       const dlg = $("#formdlg");
       dlg.innerHTML = `<form method="dialog" class="dlg"><h2>${i18n.html("New creator")}</h2><p class="help">${i18n.html("Each creator gets their own workspace, folder, settings and accounts.")}</p>
@@ -2766,11 +3172,11 @@ document.addEventListener("click", async e => {
       S.storOpen = false; toast(i18n.t("Saved. Close PeakCut and start it again to switch to the new folder."), "ok"); return drawSettings();
     }
     if (a === "storcancel") { await send("/api/storage", {cancel: true}, "PUT"); toast(i18n.t("Kept the current folder"), "ok"); return drawSettings(); }
-    if (a === "appsetup") { S.setupOpen = d.p && S.setupOpen !== d.p ? d.p : ""; return drawSettings(); }
+    if (a === "appsetup") { S.setupOpen = d.p && S.setupOpen !== d.p ? d.p : ""; return drawSocialAccounts(); }
     if (a === "copytext") { await navigator.clipboard.writeText(d.t); return toast(i18n.t("Copied"), "ok"); }
     if (a === "appsave") {
       await send("/api/apps", {platform: d.p, client_id: $("#app_id").value, client_secret: $("#app_secret").value}, "PUT");
-      S.setupOpen = ""; S.status = await api("/api/status"); toast(i18n.t("Saved. People can connect now."), "ok"); return drawSettings();
+      S.setupOpen = ""; S.status = await api("/api/status"); toast(i18n.t("Saved. People can connect now."), "ok"); return drawSocialAccounts();
     }
     if (a === "bell") return openBell();
     if (a === "feedback") return openFeedback("bug");
@@ -2790,19 +3196,42 @@ document.addEventListener("click", async e => {
     if (a === "testalert") { await saveSettings(); await api("/api/alerts/test", {method:"POST"}); return toast(i18n.t("Test message sent. Check your phone."), "ok"); }
     if (a === "accremove") {
       if (!await ask(i18n.t("Disconnect this account?"), i18n.t("Posts still waiting for it will fail."), i18n.t("Disconnect"), true)) return;
-      await api(`/api/accounts/${d.id}`, {method:"DELETE"}); await tick(); return drawSettings();
+      await api(`/api/accounts/${d.id}`, {method:"DELETE"}); await tick(); return drawSocialAccounts();
     }
     if (a === "remake") {
-      const body = {}; $$("#clipdlg [data-f]").forEach(i => {
-        body[i.dataset.f] = i.type === "checkbox" ? i.checked : i.type === "number" ? Number(i.value) : i.value;
+      const editor = D;
+      const body = {}; $$("[data-f]", editor.root).forEach(i => {
+        body[i.dataset.f] = i.type === "checkbox" ? i.checked : i.value;
       });
-      await send(`/api/jobs/${D.jid}/clips/${D.cid}/render`, body); toast(i18n.t("Re-making the clip…"), "ok"); return tick();
+      if (D.changed) body.segments = D.segments;
+      D.sending = true;
+      updateEditButtons();
+      $("#edit-feedback").textContent = "";
+      try {
+        await send(`/api/jobs/${editor.jid}/clips/${editor.cid}/render`, body);
+        if (D === editor) {
+          D.changed = false;
+          D.busy = true;
+          $("#stage").textContent = i18n.t("Re-making the clip…");
+          D.sig = "";
+          clipMode("result");
+        }
+        S.syncV = "";
+        return await tick();
+      } catch (err) {
+        if (D === editor) $("#edit-feedback").textContent = err.message;
+      } finally {
+        if (D === editor) { D.sending = false; updateEditButtons(); }
+      }
+      return;
     }
     if (a === "postnow" || a === "postqueue") {
-      const accs = $$("#clipdlg [data-pacc]:checked").map(i => i.value);
+      const editor = D;
+      const accs = $$("[data-pacc]:checked", editor.root).map(i => i.value);
       if (!accs.length) return toast(i18n.t("Tick at least one account first."), "bad");
       if (a === "postnow" && !await ask(i18n.t("Post now?"), i18n.t("This clip goes to {0} account{1} straight away.", accs.length, accs.length > 1 ? "s" : ""), i18n.t("Post now"))) return;
-      await send("/api/posts", {job:D.jid, clip:D.cid, accounts:accs, now:a === "postnow"});
+      if (D !== editor) return;
+      await send("/api/posts", {job:editor.jid, clip:editor.cid, accounts:accs, now:a === "postnow"});
       toast(a === "postnow" ? i18n.t("Posting now") : i18n.t("Added to the queue"), "ok"); return tick();
     }
   } catch (err) { b.disabled = false; toast(err.message, "bad"); }
@@ -2821,9 +3250,13 @@ $("#main").addEventListener("scroll", () => $(".topbar").classList.toggle("stuck
   }
   if (q.get("verified")) { history.replaceState(null, "", location.pathname); setTimeout(() => toast(i18n.t("Email confirmed. You're ready to clip."), "ok"), 300); }
   if (q.get("verify_error")) { history.replaceState(null, "", location.pathname); setTimeout(() => toast(q.get("verify_error"), "bad"), 300); }
-  if (location.pathname.startsWith("/app/")) { const [v, tab] = fromPath(location.pathname); S.view = v; S.ctab = tab; }  // the address decides, before anything loads
+  if (location.pathname.startsWith("/app/")) {
+    const [v, tab] = fromPath(location.pathname);
+    S.view = v;
+    if (v.startsWith("c:")) S.ctab = tab;
+  }
   await tick();
-  { const [v, tab] = location.pathname.startsWith("/app/") ? fromPath(location.pathname) : ["overview", "clips"]; go(v, tab, true); remember(S.view, S.ctab, "replace"); }
+  { const [v, tab] = location.pathname.startsWith("/app/") ? fromPath(location.pathname) : ["overview", "clips"]; go(v, tab, true); remember(S.view, viewTab(), "replace"); }
   try {  // a link pasted on the home page before signing up
     const link = sessionStorage.getItem("peakcut_link");
     if (link) { sessionStorage.removeItem("peakcut_link"); go("overview"); $("#url").value = link; onLink($("#url")); $("#url").focus(); toast(i18n.t("Your link is ready. Press Make clips."), "ok"); }

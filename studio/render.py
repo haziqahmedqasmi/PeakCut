@@ -99,7 +99,7 @@ def _key(word):
 def _groups(words, per):
     out, cur = [], []
     for w in words:
-        if cur and (len(cur) >= per or sum(len(x["w"]) for x in cur) + len(w["w"]) > 16
+        if cur and (w.get("cut") != cur[-1].get("cut") or len(cur) >= per or sum(len(x["w"]) for x in cur) + len(w["w"]) > 16
                     or w["s"] - cur[-1]["e"] > 0.45 or cur[-1]["w"][-1:] in ".?!"):
             out.append(cur)
             cur = []
@@ -185,7 +185,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     groups = _groups(inside, st["per"])
     for gi, g in enumerate(groups):
         g_start = max(0.0, g[0]["s"] - start)
-        g_end = min(g[-1]["e"] + 0.25, groups[gi + 1][0]["s"] if gi + 1 < len(groups) else end) - start
+        g_end = min(g[-1]["e"] + 0.25, g[-1].get("cut", end),
+                    groups[gi + 1][0]["s"] if gi + 1 < len(groups) else end) - start
         if g_end - g_start < 0.02:
             continue
         texts = []
@@ -232,20 +233,20 @@ PIP_W = 380            # how wide the facecam is in the 1080-wide frame
 PIP_MARGIN = 26
 
 
-def _filter(layout, fg_h, facecam=None):
+def _filter(layout, fg_h, facecam=None, source="0:v"):
     if layout == "gameplay" and facecam:
         # The game fills the screen, and the webcam sits in the top corner of it, so a viewer sees
         # the play and the face at the same time.
         fx, fy, fw, fh = (int(v) for v in facecam)
         if fw > 8 and fh > 8:
             pip_h = max(2, int(round(PIP_W * fh / fw)))
-            return (f"[0:v]fps={config.OUT_FPS},split=2[base][fc];"
+            return (f"[{source}]fps={config.OUT_FPS},split=2[base][fc];"
                     f"[base]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1[b];"
                     f"[fc]crop={fw}:{fh}:{fx}:{fy},scale={PIP_W}:{pip_h},setsar=1[p];"
                     f"[b][p]overlay={W - PIP_W - PIP_MARGIN}:{PIP_MARGIN}[v0];")
     if layout == "crop" or (layout == "gameplay" and not facecam):
-        return f"[0:v]fps={config.OUT_FPS},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1[v0];"
-    return (f"[0:v]fps={config.OUT_FPS},split=2[a][b];"
+        return f"[{source}]fps={config.OUT_FPS},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1[v0];"
+    return (f"[{source}]fps={config.OUT_FPS},split=2[a][b];"
             f"[a]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=6:2,"
             f"scale={W}:{H},eq=brightness=-0.14:saturation=1.15[bg];"
             f"[b]scale={W}:{fg_h}:force_original_aspect_ratio=increase,crop={W}:{fg_h}[fg];"
@@ -264,7 +265,7 @@ _qsv_ok = None
 RENDER_SECONDS = 600      # one clip's video encode; far beyond normal, so a frozen encoder is stopped, not waited on
 
 
-def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, src_w: int, src_h: int) -> dict:
+def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, src_w: int, src_h: int, *, segments=None) -> dict:
     """Writes <name>.mp4, <name>.jpg and <name>.ass into out_dir. Returns file names."""
     out_dir.mkdir(parents=True, exist_ok=True)
     start, end = clip["start"], clip["end"]
@@ -281,21 +282,51 @@ def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, sr
     # break the filter syntax).
     work = Path(tempfile.mkdtemp(prefix="pk"))
     try:
+        if segments:
+            return _render_in(work, src, out_dir, name, start, end, layout, fg_h, ass, face=face,
+                              sequence=(segments, src_w, src_h))
         return _render_in(work, src, out_dir, name, start, end, layout, fg_h, ass, face=face)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
 
-def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layout, fg_h, ass: str, face=None) -> dict:
+def _join_segments(segments, width, height):
+    """Seek to each source range, then put its picture and sound on one timeline."""
+    inputs, filters, tracks = [], [], []
+    width, height = width + width % 2, height + height % 2
+    for i, (src, start, duration) in enumerate(segments):
+        length = f"{duration:.2f}"
+        inputs.extend(["-threads", "2", "-ss", f"{start:.2f}", "-t", length, "-i", str(src)])
+        filters.append(f"[{i}:v]scale={width}:{height}:force_original_aspect_ratio=decrease,"
+                       f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1[partv{i}]")
+        # The seek sets the same time zero for both tracks. Fill any silence before the first audio packet.
+        filters.append(f"[{i}:a:0]aresample=48000:async=1:first_pts=0,aformat=channel_layouts=stereo,"
+                       f"apad=whole_dur={length},atrim=duration={length}[parta{i}]")
+        tracks.append(f"[partv{i}][parta{i}]")
+    joined = "".join(tracks) + f"concat=n={len(tracks)}:v=1:a=1[sequence][sound]"
+    return inputs, ";".join([*filters, joined]) + ";"
+
+
+def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layout, fg_h, ass: str, face=None,
+               sequence=None) -> dict:
     global _qsv_ok
     (work / f"{name}.ass").write_text(ass, encoding="utf-8")
     (work / "f").mkdir()
     for f in config.FONTS_DIR.glob("*.ttf"):
         shutil.copyfile(f, work / "f" / f.name)
-    fc = _filter(layout, fg_h, face) + f"[v0]ass={name}.ass:fontsdir=f[v]"
-    base = ["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.2f}", "-t", f"{end - start:.2f}", "-i", str(src),
-            "-filter_complex", fc, "-map", "[v]", "-map", "0:a:0", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
-            "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-movflags", "+faststart", "-pix_fmt"]
+    base = ["ffmpeg", "-y", "-v", "error"]
+    if sequence:
+        inputs, fc = _join_segments(*sequence)
+        base += ["-filter_complex_threads", "2", *inputs]
+        fc += _filter(layout, fg_h, face, "sequence") + "[sound]loudnorm=I=-14:TP=-1.5:LRA=11[normalized];"
+        audio = ["-map", "[normalized]", "-t", f"{end - start:.2f}"]
+    else:
+        base += ["-ss", f"{start:.2f}", "-t", f"{end - start:.2f}", "-i", str(src)]
+        fc = _filter(layout, fg_h, face)
+        audio = ["-map", "0:a:0", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11"]
+    fc += f"[v0]ass={name}.ass:fontsdir=f[v]"
+    base += ["-filter_complex", fc, "-map", "[v]", *audio,
+             "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-movflags", "+faststart", "-pix_fmt"]
     encoders = []
     if _qsv_ok is not False:
         encoders.append(("qsv", ["nv12", "-c:v", "h264_qsv", "-global_quality", "23", "-preset", "fast"]))

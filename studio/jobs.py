@@ -5,6 +5,7 @@ import os
 import math
 import queue
 import shutil
+import tempfile
 import threading
 import time
 import traceback
@@ -227,7 +228,7 @@ def _load_file(f: Path, uid: str):
                 job["recover"] = True
             elif job.get("resume"):
                 c["status"] = "queued"  # the video is being picked up again: this clip is made then
-            elif job.get("kind") != "live" and (f.parent / "words.json").is_file():
+            elif c.get("segments") or (job.get("kind") != "live" and (f.parent / "words.json").is_file()):
                 c["status"] = "queued"  # a single clip being re-made: jobs.start() makes it again
                 job.setdefault("remake", []).append(c["id"])
             else:
@@ -343,22 +344,100 @@ def delete(jid):
     return bool(job)
 
 
+MAX_EDIT_SEGMENTS = 12
+
+
+def editor_source(job, clip):
+    """The local original or saved piece, with its position in the original video."""
+    for path, start, end in ((job.get("source_path"), 0, job.get("duration")),
+                             (clip.get("src"), clip.get("src_offset"), clip.get("src_end"))):
+        if path and start is not None and end and end > start and Path(path).is_file():
+            return Path(path), start, end
+    return None, 0, 0
+
+
+def editor_remote(job):
+    source = job["source"]
+    url = source.get("url")
+    return url if job.get("kind") != "live" and source.get("type") == "url" and url and media.site_allowed(url) else None
+
+
+def editor_bounds(job, clip):
+    if job.get("duration") and editor_remote(job):
+        return 0, job["duration"]
+    _, start, end = editor_source(job, clip)
+    return start, end
+
+
+def _edit_segments(job, clip, value):
+    if not isinstance(value, list) or not 1 <= len(value) <= MAX_EDIT_SEGMENTS:
+        raise ValueError("Choose between 1 and 12 segments.")
+    low, high = editor_bounds(job, clip)
+    if high <= low:
+        raise ValueError("The original video is no longer available for editing.")
+    segments = []
+    for item in value:
+        if (not isinstance(item, list) or len(item) != 2
+                or any(type(t) not in (int, float) or not math.isfinite(t) for t in item)):
+            raise ValueError("Those times aren't valid.")
+        start, end = (round(t, 2) for t in item)
+        if start < low or end > round(high, 2) or round(end - start, 2) < 0.1:
+            raise ValueError("Each segment needs at least 0.1 seconds inside the original video.")
+        segments.append([start, end])
+    if not 3 <= round(sum(end - start for start, end in segments), 2) <= 180:
+        raise ValueError("A clip can be 3 to 180 seconds long.")
+    return segments
+
+
+class ClipBusy(Exception):
+    pass
+
+
+class ClipNotFound(Exception):
+    pass
+
+
 def request_render(jid, cid, changes: dict):
-    job = _jobs[jid]
-    clip = next(c for c in job["clips"] if c["id"] == cid)
+    with _lock:
+        job = get(jid)
+        clip = next((c for c in job["clips"] if c["id"] == cid), None) if job else None
+        if not clip:
+            raise ClipNotFound
+        if job["status"] in ("queued", "running") or clip["status"] in ("queued", "rendering"):
+            raise ClipBusy("This clip is still being made. Try again when it has finished.")
+        new = _render_changes(job, clip, changes)
+        previous = dict(clip)
+        clip.update(new, status="queued")
+        if "segments" not in new:
+            clip.pop("segments", None)
+        try:
+            save(job)
+        except OSError:
+            clip.clear()
+            clip.update(previous)
+            raise
+        _q.put(("clip", jid, cid))
+
+
+def _render_changes(job, clip, changes):
     new = dict(clip)
     if "captions" in changes:
         new.update(clean_options({"captions": changes["captions"]}))
-    for k in ("start", "end"):
-        if k in changes:
-            new[k] = round(float(changes[k]), 2)
-    if "src_offset" in clip:  # live clip: can only move inside the saved piece of stream
-        new["start"] = max(new["start"], clip["src_offset"])
-        new["end"] = min(new["end"], clip["src_end"])
-    if not (math.isfinite(new["start"]) and math.isfinite(new["end"])) or new["start"] < 0:
-        raise ValueError("Those times aren't valid.")
-    if not 3 <= new["end"] - new["start"] <= 180:
-        raise ValueError("A clip can be 3 to 180 seconds long.")
+    if "segments" in changes:
+        segments = _edit_segments(job, clip, changes["segments"])
+        new.update(segments=segments, start=min(s for s, _ in segments), end=max(e for _, e in segments))
+    elif "segments" not in clip or "start" in changes or "end" in changes:
+        new.pop("segments", None)
+        for k in ("start", "end"):
+            if k in changes:
+                new[k] = round(float(changes[k]), 2)
+        if not (math.isfinite(new["start"]) and math.isfinite(new["end"])) or new["start"] < 0:
+            raise ValueError("Those times aren't valid.")
+        if "src_offset" in clip:  # a saved piece can only play inside its own bounds
+            new["start"] = max(new["start"], clip["src_offset"])
+            new["end"] = min(new["end"], clip["src_end"])
+        if not 3 <= new["end"] - new["start"] <= 180:
+            raise ValueError("A clip can be 3 to 180 seconds long.")
     for k in ("hook", "title", "description", "style", "layout"):
         if k in changes:
             new[k] = str(changes[k])[:{"hook": 60, "title": 100, "description": 2000}.get(k, 20)]
@@ -367,9 +446,7 @@ def request_render(jid, cid, changes: dict):
     if new.get("layout") not in render.LAYOUTS:
         new["layout"] = DEFAULTS["layout"]
     new["caption_language"] = accounts.settings()["caption_language"]
-    clip.update(new, status="queued")
-    save(job)
-    _q.put(("clip", jid, cid))
+    return new
 
 
 def render_one(job, clip, words):
@@ -377,22 +454,27 @@ def render_one(job, clip, words):
     clip["status"] = "rendering"
     save(job)
     try:
-        if not clip.get("src") and not job.get("source_path"):
-            _piece_again(job, clip)
-        off = clip.get("src_offset", 0.0)
-        src = Path(clip["src"]) if clip.get("src") else Path(job["source_path"])
-        if not clip.get("src"):
-            clip["end"] = min(clip["end"], job["duration"])
-        near = _caption_words(job, clip, words, off) if clip.get("captions", True) else []
         language = clip.get("caption_language", job.get("caption_language", "en"))
         if clip.get("text_language", "en") != language and config.ai_ready():
             usage.set_context(job.get("creator"), job.get("title") or "")
             clip.update(brain.translate_clip_text(clip, language), text_language=language)
-        local = dict(clip, start=clip["start"] - off, end=clip["end"] - off,
-                     hook=roman.to_roman(clip.get("hook") or ""))
-        out = render.render_clip(src, d / "clips", clip["id"], local, near, job["width"], job["height"])
+        if clip.get("segments"):
+            out = _render_sequence(job, clip, words)
+        else:
+            if not clip.get("src") and not job.get("source_path"):
+                _piece_again(job, clip)
+            off = clip.get("src_offset", 0.0)
+            src = Path(clip["src"]) if clip.get("src") else Path(job["source_path"])
+            if not clip.get("src"):
+                clip["end"] = min(clip["end"], job["duration"])
+            near = _caption_words(job, clip, words, off) if clip.get("captions", True) else []
+            local = dict(clip, start=clip["start"] - off, end=clip["end"] - off,
+                         hook=roman.to_roman(clip.get("hook") or ""))
+            out = render.render_clip(src, d / "clips", clip["id"], local, near, job["width"], job["height"])
         clip.update(out, status="done", version=clip.get("version", 0) + 1, error=None)
         post = {k: clip[k] for k in ("title", "description", "hashtags", "hook", "start", "end", "score")}
+        if clip.get("segments"):
+            post["segments"] = clip["segments"]
         (d / "clips" / f"{clip['id']}.json").write_text(json.dumps(post, indent=1), encoding="utf-8")
         if clip["version"] == 1:
             clip.setdefault("made_at", time.time())
@@ -407,6 +489,39 @@ def render_one(job, clip, words):
         clip.update(status="error", error=safe.friendly(e, 400))
         creators.log(job["creator"], f"Clip failed: {safe.friendly(e, 200)}")
     save(job)
+
+
+def _render_sequence(job, clip, words):
+    src, low, high = editor_source(job, clip)
+    url = editor_remote(job)
+    d = Path(job["dir"])
+    inputs, captions, fetched, prepared = [], [], {}, {}
+    elapsed = 0.0
+    with tempfile.TemporaryDirectory(prefix="pk-src") as temp:
+        for index, (start, end) in enumerate(clip["segments"]):
+            duration = round(end - start, 2)
+            if src and low <= start and end <= round(high, 2):
+                inputs.append((src, round(start - low, 2), duration))
+            elif url:
+                if (start, end) not in fetched:
+                    fetched[start, end] = media.download_section(url, Path(temp), f"part{index}", start, end,
+                                                                int(job["options"]["quality"]), exact=True)
+                inputs.append((fetched[start, end], 0, duration))
+            else:
+                raise RuntimeError("The original video is no longer available for editing.")
+            cut = round(elapsed + duration, 2)
+            if clip.get("captions", True):
+                if (start, end) not in prepared:
+                    prepared[start, end] = _caption_words(job, dict(clip, start=start, end=end), words, 0)
+                captions.extend(dict(w, s=round(w["s"] - start + elapsed, 2),
+                                     e=round(min(w["e"], end) - start + elapsed, 2), cut=cut)
+                                for w in prepared[start, end] if start <= w["s"] < end)
+            elapsed = cut
+        local = dict(clip, start=0, end=elapsed, hook=roman.to_roman(clip.get("hook") or ""))
+        source = inputs[0][0]
+        dimensions = job if job.get("width") and job.get("height") else media.probe(source)
+        return render.render_clip(source, d / "clips", clip["id"], local, captions,
+                                  dimensions["width"], dimensions["height"], segments=inputs)
 
 
 def _caption_words(job, clip, words, off):
@@ -834,10 +949,13 @@ def _worker(quick_only=False):
             if kind == "job":
                 _run_job(job)
             else:
-                clip = next(c for c in job["clips"] if c["id"] == cid)
+                clip = next((c for c in job["clips"] if c["id"] == cid), None)
+                if clip is None:
+                    continue
                 words = []
-                if clip.get("captions", True):
-                    words = json.loads((Path(job["dir"]) / "words.json").read_text(encoding="utf-8"))
+                transcript = Path(job["dir"]) / "words.json"
+                if clip.get("captions", True) and transcript.is_file():
+                    words = json.loads(transcript.read_text(encoding="utf-8"))
                 render_one(job, clip, words)
         except Exception as e:  # noqa: BLE001
             (Path(job["dir"]) / "error.log").write_text(traceback.format_exc(), encoding="utf-8")
@@ -847,6 +965,9 @@ def _worker(quick_only=False):
                         c.update(status="error", error="The video stopped before this clip was made.")
                 _set(job, status="error", error=safe.friendly(e), stage="Stopped")
                 creators.log(job["creator"], f"Video failed: {safe.friendly(e)[:200]}")
+            else:
+                clip.update(status="error", error=safe.friendly(e, 400))
+                save(job)
         finally:
             ctx._uid.reset(token)
             if kind == "job":

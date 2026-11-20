@@ -119,7 +119,7 @@ def connect(cl, pf, code="code1"):
     return loc, back
 loc, back = connect(b, "youtube")
 check("YouTube: Google's page, asking to upload", (loc.netloc, "youtube.upload" in parse_qs(loc.query)["scope"][0]), ("accounts.google.com", True))
-check("YouTube: back on Connected apps, connected", (back.status_code, back.headers["location"].startswith("/app/settings/apps?connected=youtube")), (303, True))
+check("YouTube: back on Social networks, connected", (back.status_code, back.headers["location"].startswith("/app/social?connected=youtube")), (303, True))
 loc, back = connect(b, "instagram", "igcode#_")
 q = parse_qs(loc.query)
 check("Instagram: Instagram's own page, with publishing permission", (loc.netloc, q["client_id"][0], "instagram_business_content_publish" in q["scope"][0]),
@@ -138,6 +138,7 @@ r = b.get("/oauth/tiktok/callback", params={"code": "x", "state": "made-up"})
 check("a made-up return is refused", "connect_error" in r.headers["location"])
 r = b.get("/oauth/tiktok/callback", params={"error": "access_denied"})
 check("cancelling on the platform says so", "cancelled" in r.headers["location"])
+check("cancelling returns to Social networks", urlparse(r.headers["location"]).path, "/app/social")
 loc = urlparse(a.get("/oauth/tiktok/start").headers["location"])
 r = b.get("/oauth/tiktok/callback", params={"code": "c", "state": parse_qs(loc.query)["state"][0]})
 check("one person's sign-in cannot be finished by another", "connect_error" in r.headers["location"])

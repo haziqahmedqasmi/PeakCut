@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -979,9 +980,24 @@ def rerender(jid: str, cid: str, body: dict = Body(...)):
     _throttle("render:" + ctx.uid(), 20, 600, "That's a lot of re-makes in a short time. Wait a few minutes.")
     try:
         jobs.request_render(jid, cid, body)
-    except (ValueError, TypeError) as e:
+    except jobs.ClipNotFound:
+        raise HTTPException(404, "No such clip")
+    except jobs.ClipBusy as e:
+        raise HTTPException(409, str(e))
+    except (ValueError, TypeError, OverflowError) as e:
         raise HTTPException(400, str(e))
     return jobs.public(job)
+
+
+@app.get("/api/jobs/{jid}/clips/{cid}/source")
+def clip_source_info(jid: str, cid: str):
+    job = _job_or_404(jid)
+    clip = next((c for c in job["clips"] if c["id"] == cid), None)
+    if not clip:
+        raise HTTPException(404, "No such clip")
+    path, start, end = jobs.editor_source(job, clip)
+    lo, hi = jobs.editor_bounds(job, clip)
+    return {"start": lo, "end": hi, "preview": [start, end] if path else None, "url": jobs.editor_remote(job)}
 
 
 @app.delete("/api/jobs/{jid}")
@@ -1071,6 +1087,50 @@ def media_file(jid: str, name: str, download: int = 0):
     if not f.is_file():
         raise HTTPException(404)
     return FileResponse(f, filename=name if download else None, headers={"Cache-Control": "private, max-age=300"})
+
+
+@app.get("/media/{jid}/original/{cid}")
+def clip_source(jid: str, cid: str):
+    job = _job_or_404(jid)
+    clip = next((c for c in job["clips"] if c["id"] == cid), None)
+    path, _, _ = jobs.editor_source(job, clip) if clip else (None, 0, 0)
+    if not path or not path.resolve().is_relative_to(Path(job["dir"]).resolve()):
+        raise HTTPException(404, "The original video is no longer available for editing.")
+    ext = path.suffix.lower()
+    if ext not in VIDEO_TYPES:
+        raise HTTPException(404)
+    if ext == ".ts" and job.get("kind") == "live" and path == Path(clip.get("src") or ""):
+        path = _live_preview(path)
+        ext = path.suffix.lower()
+    return FileResponse(path, media_type="video/mp2t" if ext == ".ts" else None,
+                        headers={"Cache-Control": "private, no-store"})
+
+
+_preview_lock = threading.Lock()
+
+
+def _live_preview(source: Path) -> Path:
+    """Put the saved slice in a container a browser can play, without re-encoding it."""
+    preview = source.with_suffix(".preview.mp4")
+    if preview.is_file():
+        return preview
+    with _preview_lock:
+        if preview.is_file():
+            return preview
+        try:
+            with tempfile.NamedTemporaryFile(dir=source.parent, prefix="preview-", suffix=".mp4", delete=False) as file:
+                temp = Path(file.name)
+            try:
+                media.run(["ffmpeg", "-y", "-v", "error", "-i", str(source), "-map", "0:v:0", "-map", "0:a:0",
+                           "-c", "copy", "-movflags", "+faststart", str(temp)], timeout=20)
+                if not source.is_file():
+                    raise HTTPException(404)
+                temp.replace(preview)
+            finally:
+                temp.unlink(missing_ok=True)
+        except (OSError, RuntimeError):
+            return source
+    return preview
 
 
 # ================================================================ creators and live recording
@@ -1450,10 +1510,10 @@ def remove_account(aid: str):
 
 # ---------------------------------------------------------------- connecting YouTube, Instagram and TikTok
 # Connect sends the browser to the platform's own sign-in page; the platform sends it back here, and the person lands
-# on Settings, Connected apps, with the account added (or a message saying what went wrong).
+# on Social networks, with the account added (or a message saying what went wrong).
 def _back(**q):
     from urllib.parse import urlencode as _ue
-    return RedirectResponse("/app/settings/apps?" + _ue(q), 303)
+    return RedirectResponse("/app/social?" + _ue(q), 303)
 
 
 @app.get("/oauth/{platform}/start")

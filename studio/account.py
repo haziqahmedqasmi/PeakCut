@@ -47,6 +47,8 @@ def delete_clip(jid: str, cid: str) -> bool:
             mine = False
         if mine:                                   # never the whole video's own file
             p.unlink(missing_ok=True)
+            if p.suffix == ".ts":
+                p.with_suffix(".preview.mp4").unlink(missing_ok=True)
     ctx.bump()
     return True
 
