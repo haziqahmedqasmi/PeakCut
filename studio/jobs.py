@@ -4,6 +4,7 @@ import json
 import os
 import math
 import queue
+import re
 import shutil
 import threading
 import time
@@ -156,7 +157,7 @@ def public(job) -> dict:
     """What the browser may see: no server paths, no owner id."""
     out = {k: v for k, v in job.items() if k not in HIDDEN}
     out["source"] = {k: v for k, v in job["source"].items() if k != "path"}
-    out["clips"] = [{k: v for k, v in c.items() if k not in ("src", "fixed_words", "fixed_for")} for c in job["clips"]]
+    out["clips"] = [{k: v for k, v in c.items() if k not in ("src", "fixed_words", "fixed_for", "review_pieces")} for c in job["clips"]]
     ai = job.get("ai") or {}
     out["ai"] = {"tokens": ai.get("tokens", 0), "note": ai.get("note", ""), "used": bool(ai.get("model"))}   # never the model, never raw errors
     if job.get("status") == "queued":
@@ -245,7 +246,7 @@ def _load_file(f: Path, uid: str):
         if c.get("src"):
             c["src"] = _remap(c["src"], f.parent / "clips")
         if c.get("status") in ("rendering", "queued"):
-            if buffered and not c.get("src"):
+            if c.get("review_pieces") or (buffered and not c.get("src")):
                 c["status"] = "queued"  # the stream is still on disk: live.recover() finishes these
                 job["recover"] = True
             elif job.get("resume"):
@@ -407,9 +408,13 @@ def render_one(job, clip, words):
         if not clip.get("src"):
             clip["end"] = min(clip["end"], job["duration"])
         local = dict(clip, start=clip["start"] - off, end=clip["end"] - off, hook=roman.to_roman(clip.get("hook") or ""))
+        credit_name = (creators.get(job.get("creator")) or {}).get("credit_name", "").strip()
+        if credit_name:
+            if not re.search(r"(?<!\w)" + re.escape(credit_name) + r"(?!\w)", local["hook"], re.I):
+                local["hook"] = credit_name + (" | " + local["hook"] if local["hook"] else "")
         near = _caption_words(job, clip, words, off) if clip.get("captions", True) else []
         out = render.render_clip(src, d / "clips", clip["id"], local, near, job["width"], job["height"])
-        clip.update(out, status="done", version=clip.get("version", 0) + 1, error=None)
+        clip.update(out, status="done", version=clip.get("version", 0) + 1, error=None, rendered_credit_name=credit_name)
         post = {k: clip[k] for k in ("title", "description", "hashtags", "hook", "start", "end", "score")}
         (d / "clips" / f"{clip['id']}.json").write_text(json.dumps(post, indent=1), encoding="utf-8")
         if clip["version"] == 1:

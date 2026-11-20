@@ -24,7 +24,7 @@ _states: dict = {}   # one-time values for the connect redirects: state -> (user
 
 SECRET_KEYS = ("discord_webhook", "telegram_token")
 SETTING_DEFAULTS = {"discord_webhook": "", "telegram_token": "", "telegram_chat": "", "paused": False,
-                    "digest_hour": 8, "last_digest": "", "tour_done": False}
+                    "paused_platforms": [], "digest_hour": 8, "last_digest": "", "tour_done": False}
 
 YT_SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly"
 IG = "https://graph.instagram.com"
@@ -252,6 +252,10 @@ def save_settings(patch: dict) -> dict:
                 continue
             if k in ("paused", "tour_done"):
                 v = bool(v)
+            elif k == "paused_platforms":
+                if not isinstance(v, list):
+                    raise ValueError("Paused platforms must be a list.")
+                v = list(dict.fromkeys(p for p in v if isinstance(p, str) and p in PLATFORM_NAMES))
             elif k == "digest_hour":
                 v = max(0, min(23, int(v)))
             else:

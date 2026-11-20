@@ -203,3 +203,43 @@ post, and for following the terms of the sites you fetch from and post to.
 
 [MIT](LICENSE). Caption fonts in `studio/fonts/` (Anton, Archivo Black, Poppins) are under the SIL Open Font
 License; the licence texts are in the same folder.
+
+
+## Local LACY clipping workflow
+
+The creator Setup page supports fixed live intervals (`live_clip_interval_sec`), second-based post spacing (`post_gap_seconds`), and a local daily cap of 0 for no PeakCut cap. Fixed interval clips receive AI-generated titles and descriptions and can auto-post regardless of their highlight score. Platform quotas and processing time still apply.
+
+Every upload requires a creator mention and hashtag. TikTok has its own mention field. `credit_name` adds the creator name to the rendered heading; an older clip without that rendered name is blocked until rendered again. Required credit and hashtags are preserved when shortening descriptions, and missing credit blocks the upload before any platform request.
+
+For this installation the owner requested LACY on screen, @LacyHimself on YouTube, @lacy on TikTok, #LACY, and the supplied GTA tags. These are creator settings, not AI guesses.
+
+The supplied campaign guidelines require content featuring Lacy during the GTA marathon starting November 18, 2026, with Lacy as the primary focus; posting only on TikTok, Instagram Reels, YouTube Shorts or X; at least 50% of the audience from the USA, Canada, Australia, UK or New Zealand; and an account with a related audience niche. Only approved videos meeting the campaign's total view requirement qualify for its revenue share. Attribution checks do not verify audience geography, content eligibility, campaign approval or revenue-share qualification. Review those separately in channel analytics and the campaign rules.
+
+## TikTok through Buffer and Cloudinary
+
+Settings → Connected apps → TikTok via Buffer accepts a personal Buffer API key and signed Cloudinary upload credentials. Connect the TikTok channel in Buffer first, save the keys locally, find the channel, then select it in the creator's Setup. API credentials are kept in that user's ignored accounts folder with private file permissions; the dashboard only receives whether a key is saved.
+
+Buffer fetches selected MP4 clips from stable public Cloudinary HTTPS URLs. This does not require exposing the local server. TikTok uses its own five-hashtag selection, including the creator hashtag; YouTube retains its full tag list. Generated hashtags elsewhere in the TikTok caption are removed so they cannot exceed that selection. Buffer publishes these posts publicly and automatically. Do not use this destination for a creator configured for private publishing.
+
+The default TikTok pace is one post every 180 minutes, at most eight per day, independently of the YouTube schedule. At most one TikTok clip waits in PeakCut; additional automatic clips remain available locally and are not added to a growing backlog. A post stays “Publishing in Buffer” until Buffer reports it sent. Ambiguous submissions are not automatically retried, and posts already submitted must be checked or retried in Buffer to avoid duplicates.
+
+The local upload budget defaults to 1000 MB per UTC month, with a 100 MB per-file limit. It counts attempted transfers and does not measure Cloudinary's separate storage, transformation or delivery credits. Monitor the provider dashboards: free plans and platform quotas still apply. Hosted videos are retained; removing a PeakCut account or cancelling a local post does not delete hosted assets or posts already accepted by Buffer.
+
+References: [Buffer video hosting](https://developers.buffer.com/guides/hosting-media.html), [Buffer API](https://developers.buffer.com/reference.html), [TikTok with Buffer](https://support.buffer.com/articles/using-tiktok-with-buffer-oGEroY9Of2), [Cloudinary authenticated uploads](https://cloudinary.com/documentation/upload_images).
+
+The Home post queue has separate platform pause controls as well as the global pause. Pausing YouTube leaves its clips queued while TikTok continues. A platform pause is saved per user and survives restarting the studio. Resuming a platform releases its overdue queue too; review the waiting clips before resuming.
+
+An explicitly requested archive can queue more than one TikTok clip by setting `backlog: true` on `POST /api/posts`. This preserves the normal automatic one-clip queue limit while scheduling the requested saved clips with TikTok's separate spacing and daily cap. Repeating the archive request skips clips already queued, posted or submitted with an uncertain response.
+
+TikTok spacing can be set to 0 to start the next clip after Buffer confirms the previous publication. The queue enforces one upload/publication at a time and a rolling 24-hour cap of at most 15 even after downtime or across midnight. Saving a new spacing or cap also recalculates all waiting Buffer clips without changing post IDs or completed uploads. Publication checks start after 30 seconds and back off when needed. A rejected or uncertain submission pauses TikTok; resolve it in Buffer before resuming. High-volume automated posting can reduce reach: Buffer recommends 1–3 posts daily, and TikTok's account-specific limits can be lower than the configured cap.
+
+
+### Buffered live quality review
+
+In a creator's Setup, enable **Review buffered video for quality** to collect a 10- or 15-minute batch before selecting a clip. The AI reviews timestamped video frames sampled every ten seconds together with the transcript. It proposes at most one strong moment, then a second review samples that proposed clip every two seconds. Both reviews must score at least 90 and meet your higher score threshold, if set. The clip uses the configured length range (30–60 seconds is a useful starting point). Nothing is forced when a batch has no suitable hook or a review fails.
+
+Set **Content to look for** to the game and moments you want. Reviews reject ads, breaks, idle/absent creators and unrelated footage. These are sampled AI judgments, so they can miss details and cannot guarantee virality. Fixed intervals, automatic spoken triggers and forced-clip settings are ignored in this mode; manual clip buttons remain available. One minute overlaps consecutive batches and existing clips are checked to prevent duplicates. The live card shows when the next batch is due and the latest decisions.
+
+Quality review keeps at least the batch length plus five minutes in the rolling buffer; set a longer retention if desired. Selected source pieces are preserved separately until rendering completes, including across restarts. Unselected footage expires with the rolling buffer. Old unreviewed clips do not automatically queue in quality mode, but posts already waiting in the publishing queue must be cancelled or paused separately. Publishing pace and account pauses remain separate settings.
+
+Maintainer walkthrough: [buffered live review and publishing setup](docs/buffered-live-walkthrough.md).

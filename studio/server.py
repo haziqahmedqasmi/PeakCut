@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 
 from . import admin as admins
 from . import account, load
-from . import (accounts, ai, alerts, auth, config, creators, ctx, db, jobs, live, media, posting,
+from . import (accounts, ai, alerts, auth, buffer_publish, config, creators, ctx, db, jobs, live, media, posting,
                profiles, render, safe, transcribe, usage)
 
 from . import tools as _tools  # noqa: E402
@@ -1395,6 +1395,40 @@ def remove_account(aid: str):
     return {"ok": True}
 
 
+@app.get("/api/buffer")
+def buffer_get():
+    return buffer_publish.public_settings()
+
+
+@app.put("/api/buffer")
+def buffer_put(body: dict = Body(...)):
+    try:
+        before = buffer_publish.settings()
+        saved = buffer_publish.save_settings(body)
+        if any(before[k] != saved[k] for k in ("gap_minutes", "daily_cap")):
+            saved["rescheduled"] = posting.replan_buffer_queue()
+        return saved
+    except (ValueError, TypeError):
+        raise HTTPException(400, "Check the Buffer settings: use at most 5 hashtags and valid numeric limits.") from None
+
+
+@app.get("/api/buffer/channels")
+def buffer_channels():
+    try:
+        return buffer_publish.channels()
+    except (ValueError, RuntimeError) as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/buffer/connect")
+def buffer_connect(body: dict = Body(...)):
+    _need_verified()
+    try:
+        return buffer_publish.connect(str(body.get("channel_id", "")))
+    except (ValueError, RuntimeError) as e:
+        raise HTTPException(400, str(e))
+
+
 # ---------------------------------------------------------------- connecting YouTube, Instagram and TikTok
 # Connect sends the browser to the platform's own sign-in page; the platform sends it back here, and the person lands
 # on Settings, Connected apps, with the account added (or a message saying what went wrong).
@@ -1546,7 +1580,7 @@ def add_posts(body: dict = Body(...)):
     clip = next((c for c in job["clips"] if c["id"] == body.get("clip")), None) if job else None
     if not clip or clip.get("status") != "done":
         raise HTTPException(404, "That clip is not ready")
-    made = posting.enqueue(job, clip, [str(a) for a in body.get("accounts", [])][:20], now=bool(body.get("now")))
+    made = posting.enqueue(job, clip, [str(a) for a in body.get("accounts", [])][:20], now=bool(body.get("now")), backlog=bool(body.get("backlog")))
     if not made:
         raise HTTPException(400, "Nothing was queued. Pick at least one account this clip has not already gone to.")
     return {"queued": len(made)}

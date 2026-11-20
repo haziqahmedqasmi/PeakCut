@@ -6,12 +6,13 @@ import socket
 import ssl
 import subprocess
 import threading
+import tempfile
 import time
 from pathlib import Path
 
 import numpy as np
 
-from . import alerts, auth, brain, config, creators, ctx, facecam, games, hashtags, jobs, load, media, transcribe, usage
+from . import alerts, auth, brain, config, creators, ctx, facecam, games, hashtags, jobs, load, media, review, transcribe, usage
 
 # ":username!user@host PRIVMSG #channel :the message"
 _NICK = re.compile(r"(?m)^:([A-Za-z0-9_]{2,25})!")
@@ -148,6 +149,8 @@ class Session:
         self.rejected = 0
         self.verdicts = []
         self.last_trigger = -999.0
+        self.interval_end = float(job.get("interval_clip_end", 0))
+        self.review_end = float(job.get("quality_review_end", 0))
         self.started_at = time.time()
         self.skipped = 0
         self.last_ai = 0.0
@@ -173,8 +176,8 @@ class Session:
         runs at a time; if the running one is stuck far past its own timeout, a new one is let through.
         """
         now = time.time()
-        if self.ai_busy and now - self.ai_busy < config.LIVE_AI_TIMEOUT + 60:
-            return
+        if self.ai_busy and (self.settings.get("live_quality_mode") or now - self.ai_busy < config.LIVE_AI_TIMEOUT + 60):
+            return False
 
         def work():
             try:
@@ -185,6 +188,7 @@ class Session:
                 self.ai_busy = 0.0
         self.ai_busy = now
         threading.Thread(target=ctx.bind(work), daemon=True, name="ai_check").start()
+        return True
 
     def _find_facecam(self, src):
         """Where the webcam is in the stream, once. Only a sure answer is used.
@@ -359,7 +363,10 @@ class Session:
                     self.seg_clock = max(self.seg_clock, end)
                 self.listed.update(r[0] for r in rows if len(r) > 2)
                 self.csv_seen[i] = len(rows)
-            keep_from = self.seg_clock - self.settings["buffer_min"] * 60
+            keep_minutes = self.settings["buffer_min"]
+            if self.settings.get("live_quality_mode"):
+                keep_minutes = max(keep_minutes, self.settings.get("live_review_min", 10) + 5)
+            keep_from = self.seg_clock - keep_minutes * 60
             while self.segments and self.segments[0][2] < keep_from:
                 self.segments.pop(0)[0].unlink(missing_ok=True)
             if time.time() - self.swept > 60:
@@ -508,6 +515,8 @@ class Session:
     def _ai_check(self, window=None, why=None):
         """Judge 1 reads only the words. If it finds a moment, judge 2 reads only the loudness and chat activity
         for the same stretch, without seeing the words. A clip is made when both say yes (or as set in Setup)."""
+        if self.settings.get("live_quality_mode"):
+            return self._quality_check(window or (max(0, self.t_done - 600), self.t_done))
         st = self.settings
         every = int(st.get("ai_every_min", 3)) or 3
         if window:                    # just the stretch around a jump, or around someone saying "clip"
@@ -583,6 +592,79 @@ class Session:
             if added >= (1 if every <= 2 else 2):
                 break
 
+    def _quality_step(self):
+        """Wait for a complete ten/fifteen-minute batch; never trigger or force a clip."""
+        if self.user_stopped or self.ai_busy:
+            return
+        size = int(self.settings.get("live_review_min", 10)) * 60
+        end = self.review_end + size
+        if self.t_done < end:
+            if not self.ended or self.t_done - self.review_end < self.settings["min_len"]:
+                return
+            end = self.t_done
+        # Sixty seconds of overlap preserves a story crossing two batch boundaries.
+        start = max(0.0, self.review_end - 60)
+        if self._ask_ai((start, end), "Buffered quality review"):
+            self.review_end = end
+            self.job["quality_review_end"] = end
+
+    def _quality_check(self, window):
+        """A broad visual review, then a closer independent check of the one candidate."""
+        st = dict(self.settings)
+        start, end = window
+        verdict = {"t": round(end), "transcript": None, "reaction": None, "trigger": "Buffered quality review"}
+        self.last_check = end
+        try:
+            recent = [c for c in self.job["clips"] if c.get("quality_review", {}).get("approved")
+                      and time.time() - c.get("made_at", 0) < 3600]
+            if len(recent) >= st["live_per_hour"]:
+                self.skipped += 1
+                return self._verdict(verdict, "Skipped: quality clip limit reached this hour")
+            focus = st.get("live_focus") or st.get("game") or "Remarkable gameplay and the creator's genuine reactions"
+            creator = st.get("credit_name") or st.get("name") or self.job.get("uploader", "")
+            usage.set_context(self.job["creator"], self.job["title"] or "Live stream")
+            with tempfile.TemporaryDirectory(prefix=".review-", dir=self.dir) as temp:
+                with self.lock:
+                    manifest, base = review.snapshot(self.segments, start, end, temp)
+                    words = [dict(w) for w in self.words if start <= w["s"] <= end]
+                jpeg = review.storyboard(manifest, base, start, end)
+                cands, tokens = brain.judge_buffer(words, start, end, jpeg, self.job["title"], creator, focus,
+                                                  st["min_len"], st["max_len"], timeout=config.LIVE_AI_TIMEOUT)
+                self.checks += 1
+                self.tokens += tokens
+                if not cands:
+                    self.skipped += 1
+                    return self._verdict(verdict, "Skipped: no strong, relevant hook in this buffer")
+                c = cands[0]
+                threshold = max(90, st["min_score"], st["post_min_score"])
+                verdict["transcript"] = c["score"]
+                if c["score"] < threshold:
+                    return self._verdict(verdict, "Skipped: below the quality score threshold")
+                if brain._overlaps(c["start"], c["end"], self.job["clips"]) or any(
+                        abs(c["start"] - k["start"]) < st["min_gap_min"] * 60 for k in self.job["clips"]):
+                    return self._verdict(verdict, "Skipped: this moment was already clipped or is too close")
+                close = review.storyboard(manifest, base, c["start"], c["end"], step=2)
+                said, tokens = brain.check_buffer_clip([w for w in words if c["start"] <= w["s"] <= c["end"]],
+                                                       c, close, creator, focus, timeout=config.LIVE_AI_TIMEOUT)
+                self.checks += 1
+                self.tokens += tokens
+                if not said["approved"] or said["score"] < threshold:
+                    self.rejected += 1
+                    return self._verdict(verdict, "Skipped after close video check: " + said["reason"])
+                # A stop or a mode change while the AI was working must not create another clip.
+                if self.user_stopped or not self.settings.get("live_quality_mode"):
+                    return self._verdict(verdict, "Skipped: recording stopped or mode changed")
+                c["score"] = min(c["score"], said["score"])
+                c["quality_review"] = {"approved": True, "version": 1, "score": c["score"],
+                                       "reason": said["reason"], "focus": focus, "buffer_start": start, "buffer_end": end}
+                self._add_clip(c, review_manifest=manifest)
+                self._verdict(verdict, "Clipped: strong hook and close video check agreed")
+                self.job["ai"].pop("last_error", None)
+        except Exception as e:  # noqa: BLE001 - a failed review creates no clip and has no loudness fallback
+            self.job["ai"]["last_error"] = media_safe(e)
+            self._verdict(verdict, "Skipped: video review unavailable; no clip made")
+
+
     def _verdict(self, v, result):
         self.verdicts.append(dict(v, result=result))
         del self.verdicts[:-6]
@@ -594,6 +676,8 @@ class Session:
         """Built in: when someone says "clip" ("clip it", "clip that"), the AI looks at that moment as soon as its
         transcript is ready; people say it right after something worth clipping. Then the creator's own trigger
         phrases from Setup, which clip straight away with no AI check."""
+        if self.settings.get("live_quality_mode") or self.settings.get("live_clip_interval_sec", 0):
+            return
         for w in new_words or []:
             if self.CLIP_WORDS.search(re.sub(r"[^a-z' ]", "", w["w"].lower())) and w["s"] - self.last_said > self.SAID_GAP \
                     and not self.said:
@@ -612,6 +696,24 @@ class Session:
                         self.last_trigger = t
                         self.manual.append({"start": max(0.0, t - 30), "end": t + 2, "why": f'Someone said "{p}"'})
 
+    def _interval_step(self):
+        """Queue consecutive complete intervals without needing a trigger or an AI verdict."""
+        interval = int(self.settings.get("live_clip_interval_sec", 0))
+        if self.settings.get("live_quality_mode"):
+            return
+        if not interval:
+            self.interval_end = self.t_done
+            return
+        if self.user_stopped:
+            return
+        # A delay in transcription may finish several intervals together. Keep their exact boundaries.
+        while self.interval_end + interval <= self.t_done:
+            end = self.interval_end + interval
+            self.manual.append({"start": self.interval_end, "end": end, "auto_interval": True,
+                                "why": f"Automatic {interval}-second clip"})
+            self.interval_end = end
+        self.job["interval_clip_end"] = self.interval_end
+
     def _manual_step(self):
         for req in [m for m in self.manual if m["end"] <= self.t_done or self.ended]:
             text = " ".join(w["w"] for w in self.words if req["start"] <= w["s"] <= req["end"])
@@ -626,12 +728,18 @@ class Session:
                      "description": "", "hashtags": [], "highlight_words": []}
             self.manual.remove(req)
             c.update(start=round(req["start"], 2), end=round(min(req["end"], self.samples / SR), 2), score=0)
+            if req.get("auto_interval"):
+                c["auto_interval"] = True
+                c["title"] = c.get("title") or self.job.get("title") or "Live highlight"
             if req.get("why"):
                 c["reason"] = req["why"]
             self._add_clip(c)
 
-    def _add_clip(self, c):
+    def _add_clip(self, c, review_manifest=None):
         self.n += 1
+        if review_manifest:
+            c["review_pieces"] = review.pin_clip(review_manifest, c["start"], c["end"],
+                                                self.dir / "clips" / f"clip{self.n:03d}.review")
         c.update(id=f"clip{self.n:03d}", style=self.settings["style"], layout=self.settings["layout"],
                  captions=self.job["options"].get("captions", True), status="queued", version=0, made_at=time.time())
         if self.job["options"].get("hook_text"):      # the person's own big text, in place of the AI's
@@ -647,24 +755,28 @@ class Session:
 
     def _render(self, clip):
         """Runs on the render worker: copy the needed buffer pieces, then make the clip."""
-        # The picture comes a few seconds behind the sound, and after a hiccup on the stream it can be a
-        # minute behind. Wait for it while it is still being written: a clip is never cut down to a stub.
-        began, moved_at = time.time(), time.time()
-        with self.lock:
-            seen = self.seg_clock
-        while time.time() - began < 150:
-            self._scan_segments()
-            if self.ended or (self.segments and self.segments[-1][2] >= clip["end"] + 1):
-                break
+        pinned = clip.get("review_pieces")
+        if pinned:
+            segs = [(Path(p), a, b) for p, a, b in pinned if Path(p).exists()]
+        else:
+            # The picture comes a few seconds behind the sound, and after a hiccup on the stream it can be a
+            # minute behind. Wait for it while it is still being written: a clip is never cut down to a stub.
+            began, moved_at = time.time(), time.time()
             with self.lock:
-                clock = self.seg_clock
-            if clock > seen + 0.5:
-                moved_at, seen = time.time(), clock       # the picture is still arriving: it will get there
-            elif time.time() - moved_at > 20:
-                break               # the picture has stopped arriving: waiting will not help
-            time.sleep(1)
-        with self.lock:
-            segs = [s for s in self.segments if s[2] > clip["start"] - PAD and s[1] < clip["end"] + PAD and s[0].exists()]
+                seen = self.seg_clock
+            while time.time() - began < 150:
+                self._scan_segments()
+                if self.ended or (self.segments and self.segments[-1][2] >= clip["end"] + 1):
+                    break
+                with self.lock:
+                    clock = self.seg_clock
+                if clock > seen + 0.5:
+                    moved_at, seen = time.time(), clock       # the picture is still arriving: it will get there
+                elif time.time() - moved_at > 20:
+                    break               # the picture has stopped arriving: waiting will not help
+                time.sleep(1)
+            with self.lock:
+                segs = [s for s in self.segments if s[2] > clip["start"] - PAD and s[1] < clip["end"] + PAD and s[0].exists()]
         if not segs or segs[0][1] > clip["start"] + 2:
             clip.update(status="error", error="That part of the stream is no longer in the buffer.")
             jobs.save(self.job)
@@ -714,6 +826,12 @@ class Session:
         clip.update(src=str(src), src_offset=src_offset, src_end=src_end)
         clip["start"], clip["end"] = span
         jobs.render_one(self.job, clip, list(self.words))
+        if pinned:
+            for p, _a, _b in pinned:
+                Path(p).unlink(missing_ok=True)
+            (self.dir / "clips" / f"{clip['id']}.review").rmdir()
+            clip.pop("review_pieces", None)
+            jobs.save(self.job)
 
     def _align(self, src, guess, dur):
         """Where `src` really starts on the transcript clock. The video pieces and the audio feed keep separate
@@ -762,6 +880,11 @@ class Session:
                       "checks": self.checks, "skipped": self.skipped, "tokens": self.tokens, "words": len(self.words),
                       "rejected": self.rejected, "verdicts": list(reversed(self.verdicts)),
                       "every_min": int(self.settings.get("ai_every_min", 3)) or 3,
+                      "quality_mode": bool(self.settings.get("live_quality_mode")),
+                      "review_min": self.settings.get("live_review_min", 10),
+                      "reviewed_until": self.review_end, "review_busy": bool(self.ai_busy),
+                      "next_review_sec": max(0, round(self.review_end + self.settings.get("live_review_min", 10) * 60 - self.t_done)),
+                      "focus": self.settings.get("live_focus", ""),
                       "auto": None,
                       "pending_clips": len(self.manual)})
         jobs.save(self.job)
@@ -781,14 +904,20 @@ class Session:
                     started = True
                     self.job.update(status="live", stage="Recording")
                     creators.log(cid, f"Recording started: {self.job['title']}")
+                self._interval_step()
                 self._manual_step()
                 # Three ways the AI is asked: on the creator's schedule (every N minutes), and always, when the
                 # stream suddenly gets louder or chat busier, or when someone says "clip".
                 every = int(self.settings.get("ai_every_min", 3)) or 3
-                self._watch_spikes()
+                if not self.settings.get("live_quality_mode") and not self.settings.get("live_clip_interval_sec", 0):
+                    self._watch_spikes()
                 sp, said = self.spike, self.said
                 if self.user_stopped:
                     pass
+                elif self.settings.get("live_quality_mode"):
+                    self._quality_step()
+                elif self.settings.get("live_clip_interval_sec", 0):
+                    pass  # fixed intervals replace scheduled, loudness and spoken-trigger AI selection
                 elif said and (self.t_done >= said["t"] + self.SAID_AFTER or (self.ended and not busy)):
                     self.said = None
                     self._ask_ai((said["t"] - self.SAID_BEFORE, said["t"] + self.SAID_AFTER), said["why"])
