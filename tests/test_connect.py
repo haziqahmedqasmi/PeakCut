@@ -32,7 +32,7 @@ user, b = person("user@example.com")
 
 # ---- nothing is set up: the buttons say so, and only an admin may set it up
 st = b.get("/api/status").json()
-check("nothing can be connected before setup", st["connect"], {"youtube": False, "instagram": False, "tiktok": False})
+check("nothing can be connected before setup", st["connect"], {"youtube": False, "instagram": False, "instagram_login": False, "tiktok": False})
 check("a normal user cannot see the setup", b.get("/api/apps").status_code, 404)
 check("...or change it", b.put("/api/apps", json={"platform": "tiktok", "client_id": "abcd", "client_secret": "x"}, headers=ORIGIN).status_code, 404)
 r = b.get("/oauth/instagram/start")
@@ -40,7 +40,7 @@ check("Connect before setup comes back with a reason", (r.status_code, "connect_
 check("setup from another website is refused", a.put("/api/apps", json={"platform": "tiktok", "client_id": "abcd1234", "client_secret": "s"},
                                                     headers={"Origin": "https://evil.example"}).status_code, 403)
 check("a bad id is refused", a.put("/api/apps", json={"platform": "tiktok", "client_id": "a b<", "client_secret": "s"}, headers=ORIGIN).status_code, 400)
-for pf, cid in (("youtube", "g-client-123.apps"), ("instagram", "1234567890"), ("tiktok", "awtiktokkey123")):
+for pf, cid in (("youtube", "g-client-123.apps"), ("instagram", "1234567890"), ("instagram_login", "9876543210"), ("tiktok", "awtiktokkey123")):
     r = a.put("/api/apps", json={"platform": pf, "client_id": cid, "client_secret": f"{pf}-secret-value"}, headers=ORIGIN)
     check(f"{pf} app saved", (r.status_code, r.json()[pf]["ready"]), (200, True))
 apps = a.get("/api/apps").json()
@@ -48,7 +48,7 @@ check("secrets are never sent back", any("secret-value" in json.dumps(v) for v i
 check("each platform shows the address to register", apps["tiktok"]["redirect"], BASE + "/oauth/tiktok/callback")
 r = a.put("/api/apps", json={"platform": "tiktok", "client_id": "", "client_secret": "tiktok-secret-value2"}, headers=ORIGIN)
 check("a new secret alone keeps the saved id", accounts.app_keys("tiktok"), ("awtiktokkey123", "tiktok-secret-value2"))
-check("everyone can connect now", b.get("/api/status").json()["connect"], {"youtube": True, "instagram": True, "tiktok": True})
+check("everyone can connect now", b.get("/api/status").json()["connect"], {"youtube": True, "instagram": True, "instagram_login": True, "tiktok": True})
 
 # ---- YouTube cookies, for servers YouTube refuses
 from studio import media
@@ -188,6 +188,47 @@ loc = urlparse(a.get("/oauth/tiktok/start").headers["location"])
 r = b.get("/oauth/tiktok/callback", params={"code": "c", "state": parse_qs(loc.query)["state"][0]})
 check("one person's sign-in cannot be finished by another", "connect_error" in r.headers["location"])
 check("an unknown platform does not exist", b.get("/oauth/myspace/start").status_code, 404)
+
+# ---- the older Instagram Login still works next to Unified Login, with its own app, and shares the return address
+apps = a.get("/api/apps").json()
+check("Instagram Login shows the same address to register as Unified Login", (apps["instagram_login"]["redirect"], apps["instagram_login"]["redirect"] == apps["instagram"]["redirect"]),
+      (BASE + "/oauth/instagram/callback", True))
+check("Instagram Login has its own app, not the Meta one", (apps["instagram_login"]["id_label"], accounts.app_keys("instagram_login")[0]), ("Instagram app ID", "9876543210"))
+a.put("/api/apps", json={"platform": "instagram_login", "client_id": "9876543210", "client_secret": "x", "config_id": "cfg-nope"}, headers=ORIGIN)
+check("Instagram Login takes no configuration ID", "config_id" in accounts._apps_saved()["instagram_login"], False)
+check("...and Unified Login's was not touched", accounts.app_config_id("instagram"), "cfg12345")
+legacy_user, lg = person("legacy@example.com")
+r = lg.get("/oauth/instagram_login/start")
+loc_old = urlparse(r.headers["location"])
+q_old = parse_qs(loc_old.query)
+check("Instagram Login: Instagram's own page, with its own permissions", (loc_old.netloc, loc_old.path, q_old["client_id"][0], q_old["scope"][0]),
+      ("www.instagram.com", "/oauth/authorize", "9876543210", "instagram_business_basic,instagram_business_content_publish"))
+check("Instagram Login comes back to the shared address", q_old["redirect_uri"][0], BASE + "/oauth/instagram/callback")
+back = lg.get("/oauth/instagram/callback", params={"code": "oldcode#_", "state": q_old["state"][0]})
+check("Instagram Login: connected through the shared address", "connected=instagram" in back.headers["location"])
+old_accs = lg.get("/api/accounts").json()
+check("Instagram Login: the account is an ordinary Instagram account", [(x["platform"], x["name"]) for x in old_accs], [("instagram", "@clipper")])
+with ctx.as_user(legacy_user.id):
+    old_acc = accounts.get("ig_17841")
+check("Instagram Login: it talks to Instagram's own API and keeps its long token", (old_acc["api_host"], old_acc["token"]), (accounts.LEGACY_IG, "ig-long"))
+check("Instagram Login: its token never reaches the page", "ig-long" in lg.get("/api/accounts").text, False)
+check("Instagram Login: the token exchange used the Instagram app's secret", any(
+    c[1] == "https://graph.instagram.com/access_token" and c[2].get("client_secret") == "x" for c in calls if c[0] == "GET"), True)
+loc_y = urlparse(lg.get("/oauth/youtube/start").headers["location"])
+r = lg.get("/oauth/instagram/callback", params={"code": "c", "state": parse_qs(loc_y.query)["state"][0]})
+check("a YouTube sign-in cannot be finished as an Instagram one", "connect_error" in r.headers["location"])
+loc_i = urlparse(lg.get("/oauth/instagram_login/start").headers["location"])
+r = lg.get("/oauth/tiktok/callback", params={"code": "c", "state": parse_qs(loc_i.query)["state"][0]})
+check("an Instagram Login sign-in cannot be finished as a TikTok one", "connect_error" in r.headers["location"])
+loc_u = urlparse(lg.get("/oauth/instagram/start").headers["location"])
+back = lg.get("/oauth/instagram/callback", params={"code": "igcode", "state": parse_qs(loc_u.query)["state"][0]})
+check("Unified Login still finishes through the same address", "connected=instagram" in back.headers["location"])
+check("an Instagram account from before Unified Login (no mark) keeps using Instagram's own API",
+      (accounts._ig_host({"token": "t"}), accounts._ig_host({"token": "t", "token_type": "USER"}), accounts._ig_host({"api_host": accounts.META_GRAPH})),
+      (accounts.LEGACY_IG, accounts.META_GRAPH, accounts.META_GRAPH))
+with ctx.as_user(legacy_user.id):
+    accounts.instagram_views({"id": "ig_old", "user_id": "17841", "token": "tok", "token_time": time.time()}, "m1")
+check("...for reading views as well", [c[1] for c in calls if "/m1/insights" in c[1]][-1], "https://graph.instagram.com/m1/insights")
 
 # ---- the one-hour links Instagram fetches clips from
 with ctx.as_user(user.id):

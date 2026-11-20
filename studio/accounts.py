@@ -32,9 +32,14 @@ META_AUTH = "https://www.facebook.com/v21.0/dialog/oauth"
 LEGACY_IG = "https://graph.instagram.com"
 IG_UPLOAD = "https://rupload.facebook.com/ig-api-upload/v21.0"
 IG_SCOPES = "instagram_basic,instagram_content_publish,instagram_manage_insights"
+# The older "Instagram Login" sign-in (its own Instagram app ID and secret). It stays available next to Meta's
+# Unified Login, so an app that already uses it keeps working.
+IG_LOGIN_SCOPES = "instagram_business_basic,instagram_business_content_publish"
 TT = "https://open.tiktokapis.com/v2"
 TT_SCOPES = "user.info.basic,video.publish"
-PLATFORM_NAMES = {"youtube": "YouTube", "instagram": "Instagram", "tiktok": "TikTok"}
+# "instagram_login" is only a second way to connect: the accounts it adds are ordinary "instagram" accounts.
+PLATFORM_NAMES = {"youtube": "YouTube", "instagram": "Instagram", "instagram_login": "Instagram (Instagram Login)",
+                  "tiktok": "TikTok"}
 
 
 def _dir() -> Path:
@@ -72,8 +77,9 @@ def _write(name, data):
 # name -> (what the platform calls the id, what it calls the secret, .env names for both)
 APPS = {"google": ("Client ID", "Client secret", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"),
         "instagram": ("Meta App ID", "Meta App Secret", "PEAKCUT_IG_APP_ID", "PEAKCUT_IG_APP_SECRET"),
+        "instagram_login": ("Instagram app ID", "Instagram app secret", "PEAKCUT_IG_LOGIN_APP_ID", "PEAKCUT_IG_LOGIN_APP_SECRET"),
         "tiktok": ("Client key", "Client secret", "PEAKCUT_TIKTOK_CLIENT_KEY", "PEAKCUT_TIKTOK_CLIENT_SECRET")}
-APP_FOR = {"youtube": "google", "instagram": "instagram", "tiktok": "tiktok"}
+APP_FOR = {"youtube": "google", "instagram": "instagram", "instagram_login": "instagram_login", "tiktok": "tiktok"}
 _apps_seen = {"at": None, "data": {}}
 
 
@@ -125,6 +131,8 @@ def can_connect(platform: str) -> bool:
 
 
 def redirect_for(platform: str) -> str:
+    # both Instagram sign-ins come back to the same address, so one address is registered with Meta for either
+    platform = "instagram" if platform == "instagram_login" else platform
     return f"{config.PUBLIC_URL}/oauth/{platform}/callback"
 
 
@@ -153,7 +161,7 @@ def save_app(platform: str, cid: str, secret: str, config_id: str = "") -> dict:
         raise ValueError("Unknown platform.")
     name = APP_FOR[platform]
     cid, secret = str(cid or "").strip()[:200], str(secret or "").strip()[:300]
-    config_id = str(config_id or "").strip()[:100]
+    config_id = str(config_id or "").strip()[:100] if platform == "instagram" else ""   # only Unified Login has one
     old = _apps_saved().get(name) or {}
     if not cid and not secret:
         raise ValueError(f"Paste the {APPS[name][0]} and {APPS[name][1]}.")
@@ -192,10 +200,14 @@ def _new_state(platform: str) -> str:
     return state
 
 
-def _take_state(state: str, platform: str):
+def _take_state(state: str, platform):
+    """Use up a one-time sign-in value. `platform` is one name, or several that may finish at this address.
+    Returns the name the sign-in was really started for."""
+    allowed = (platform,) if isinstance(platform, str) else tuple(platform)
     got = _states.pop(state or "", None)
-    if not got or got[0] != ctx.uid() or got[2] != platform or time.time() - got[1] > 900:
+    if not got or got[0] != ctx.uid() or got[2] not in allowed or time.time() - got[1] > 900:
         raise ValueError("This sign-in has expired. Press Connect again.")
+    return got[2]
 
 
 def connect_url(platform: str) -> str:
@@ -218,16 +230,21 @@ def connect_url(platform: str) -> str:
         else:
             p["scope"] = IG_SCOPES
         return f"{META_AUTH}?" + urlencode(p)
+    if platform == "instagram_login":
+        return "https://www.instagram.com/oauth/authorize?" + urlencode({
+            "client_id": cid, "redirect_uri": redirect, "response_type": "code", "scope": IG_LOGIN_SCOPES, "state": state})
     return "https://www.tiktok.com/v2/auth/authorize/?" + urlencode({
         "client_key": cid, "redirect_uri": redirect, "response_type": "code", "scope": TT_SCOPES, "state": state})
 
 
 def connect_finish(platform: str, code: str, state: str) -> dict:
-    _take_state(state, platform)
+    # Unified Login and Instagram Login share one return address: the saved state says which one was started
+    platform = _take_state(state, ("instagram", "instagram_login") if platform == "instagram" else platform)
     code = (code or "").split("#")[0]           # Instagram adds "#_" to the code
     if not code:
         raise ValueError("The platform did not send a sign-in code. Try again.")
-    return {"youtube": _youtube_finish, "instagram": _instagram_finish, "tiktok": _tiktok_finish}[platform](code)
+    return {"youtube": _youtube_finish, "instagram": _instagram_finish, "instagram_login": _instagram_login_finish,
+            "tiktok": _tiktok_finish}[platform](code)
 
 
 # ------------------------------------------------------------------ links the platforms can fetch a clip from
@@ -591,9 +608,42 @@ def instagram_add(token: str) -> dict:
     return _instagram_save(token.strip())
 
 
+# ------------------------------------------------------------------ Instagram (the older Instagram Login)
+def _instagram_login_finish(code: str) -> dict:
+    cid, secret = app_keys("instagram_login")
+    short = _check(httpx.post("https://api.instagram.com/oauth/access_token", data={
+        "client_id": cid, "client_secret": secret, "grant_type": "authorization_code",
+        "redirect_uri": redirect_for("instagram_login"), "code": code}, timeout=30), "Instagram sign-in").json()
+    if isinstance(short.get("data"), list) and short["data"]:
+        short = short["data"][0]
+    if "instagram_business_content_publish" not in str(short.get("permissions", "instagram_business_content_publish")):
+        raise ValueError("PeakCut needs permission to publish. Connect again and leave every box ticked.")
+    long = _check(httpx.get(f"{LEGACY_IG}/access_token", params={"grant_type": "ig_exchange_token", "client_secret": secret,
+                                                                 "access_token": short["access_token"]}, timeout=30),
+                  "Keeping the Instagram sign-in").json()
+    return _instagram_login_save(long["access_token"])
+
+
+def _instagram_login_save(token: str) -> dict:
+    me = _check(httpx.get(f"{LEGACY_IG}/me", params={"fields": "user_id,username,account_type"},
+                          headers={"Authorization": f"Bearer {token}"}, timeout=30), "Reading the Instagram account").json()
+    kind = str(me.get("account_type") or "")
+    acc = {"id": f"ig_{me['user_id']}", "platform": "instagram", "name": "@" + me["username"], "added": time.time(),
+           "user_id": str(me["user_id"]), "token": token, "token_time": time.time(), "api_host": LEGACY_IG,
+           "detail": {"BUSINESS": "Business account", "MEDIA_CREATOR": "Creator account"}.get(kind.upper(), "")}
+    _put(acc)
+    return acc
+
+
+def _ig_host(acc) -> str:
+    """Which Instagram API an account talks to. Accounts connected before Unified Login existed carry no mark at
+    all and used Instagram's own API, so an unmarked account stays on it."""
+    return acc.get("api_host") or (LEGACY_IG if "token_type" not in acc else META_GRAPH)
+
+
 def _ig_token(acc) -> str:
-    # Legacy Instagram token refresh (graph.instagram.com)
-    if acc.get("api_host") == LEGACY_IG:
+    # Instagram Login tokens (graph.instagram.com) last 60 days and are renewed weekly
+    if _ig_host(acc) == LEGACY_IG:
         if time.time() - acc.get("token_time", 0) > 7 * 86400:  # tokens last 60 days; refresh weekly
             try:
                 r = _check(httpx.get(f"{LEGACY_IG}/refresh_access_token", params={"grant_type": "ig_refresh_token"},
@@ -617,7 +667,7 @@ def instagram_upload(acc, path: Path, caption: str, job_id: str = ""):
     reach, the file is sent instead (only possible for some app types)."""
     token = _ig_token(acc)
     auth = {"Authorization": f"Bearer {token}"}
-    host = acc.get("api_host") or META_GRAPH
+    host = _ig_host(acc)
     uid = acc["user_id"]
     if config.PUBLIC_URL.startswith("https://") and job_id:
         box = _check(httpx.post(f"{host}/{uid}/media", data={"media_type": "REELS", "video_url": clip_link(job_id, path.name),
@@ -665,7 +715,7 @@ def _extract_metric_value(item: dict):
 
 
 def instagram_views(acc, media_id: str):
-    host = acc.get("api_host") or META_GRAPH
+    host = _ig_host(acc)
     token = _ig_token(acc)
     headers = {"Authorization": f"Bearer {token}"}
     for metric in ("views", "plays"):

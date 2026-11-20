@@ -2109,6 +2109,10 @@ async function drawSettings() {
            "Under <b>Facebook Login for Business</b>, create a configuration with Instagram assets and add the redirect address below.",
            "Paste the <b>Meta App ID</b>, <b>Meta App Secret</b>, and optional <b>Login configuration ID</b> below."],
           "Works with Instagram Creator and Business accounts via Meta Unified Login. In development mode, add your Instagram account as an asset or tester."],
+        instagram_login: ["https://developers.facebook.com/apps", "Meta for Developers",
+          ["Use an app that has <b>Instagram API setup with Instagram login</b> (the older way; Meta no longer offers it for new apps).",
+           "Under <b>Business login settings</b>, add the address below as a redirect URL.", "Paste the <b>Instagram app ID</b> and <b>Instagram app secret</b> here."],
+          "Works with Creator and Business Instagram accounts. Until Meta reviews your app, only accounts you add as testers can connect. The accounts it connects are listed under Instagram."],
         tiktok: ["https://developers.tiktok.com/apps", "TikTok for Developers",
           ["Create an app and add <b>Login Kit</b> and <b>Content Posting API</b> with Direct Post turned on.",
            "Add the address below as a redirect URI, with the scopes <b>user.info.basic</b> and <b>video.publish</b>.", "Paste the Client key and Client secret here."],
@@ -2134,7 +2138,8 @@ async function drawSettings() {
       body.innerHTML = `<section class="set-sec"><h2>Connected apps</h2><p class="help">Connect the accounts PeakCut posts clips to: press Connect, sign in on the platform's own page, and you're back here. PeakCut never sees your passwords. Then pick which accounts each creator posts to, in that creator's Setup.</p>
         <div class="apps">
           ${card("youtube", "YouTube", yt, "#FF0000", "Post clips to your channel as Shorts.")}
-          ${card("instagram", "Instagram", ig, "linear-gradient(45deg,#F58529,#DD2A7B,#8134AF)", "Post clips as Reels. Needs a Creator or Business account.")}
+          ${card("instagram", "Instagram (Unified Login)", ig, "linear-gradient(45deg,#F58529,#DD2A7B,#8134AF)", "Post clips as Reels with a Meta app (Facebook Login for Business). Needs a Creator or Business account.")}
+          ${card("instagram_login", "Instagram (Instagram Login)", ig, "linear-gradient(45deg,#F58529,#DD2A7B,#8134AF)", "The older sign-in with an Instagram app ID. Use it if your Meta app still offers it.")}
           ${card("tiktok", "TikTok", tt, "#000", "Post clips straight to your TikTok.")}
         </div></section>${admin ? await ytCookiesCard(yt) : ""}`;
     }
