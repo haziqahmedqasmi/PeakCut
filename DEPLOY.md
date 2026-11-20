@@ -53,6 +53,7 @@ Meta requires new apps to use **Instagram API with Unified Login** via **Faceboo
    - Name your configuration.
    - Under **Permissions**, select:
      - `instagram_content_publish` (required for posting Reels)
+     - `instagram_manage_insights` (required for fetching Reel views and analytics)
      - `pages_show_list` (required for discovering connected Page and Instagram assets)
      - `business_management` (optional/recommended if managing business portfolio assets)
      - If available in your app's use case permissions, also select `instagram_basic` and `pages_read_engagement`.

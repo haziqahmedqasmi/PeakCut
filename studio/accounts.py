@@ -31,7 +31,7 @@ META_GRAPH = "https://graph.facebook.com/v21.0"
 META_AUTH = "https://www.facebook.com/v21.0/dialog/oauth"
 LEGACY_IG = "https://graph.instagram.com"
 IG_UPLOAD = "https://rupload.facebook.com/ig-api-upload/v21.0"
-IG_SCOPES = "instagram_basic,instagram_content_publish"
+IG_SCOPES = "instagram_basic,instagram_content_publish,instagram_manage_insights"
 TT = "https://open.tiktokapis.com/v2"
 TT_SCOPES = "user.info.basic,video.publish"
 PLATFORM_NAMES = {"youtube": "YouTube", "instagram": "Instagram", "tiktok": "TikTok"}
@@ -652,14 +652,34 @@ def instagram_upload(acc, path: Path, caption: str, job_id: str = ""):
     return pub["id"], link
 
 
+def _extract_metric_value(item: dict):
+    if not isinstance(item, dict):
+        return None
+    if "values" in item and item["values"]:
+        v = item["values"][0]
+        if isinstance(v, dict) and "value" in v:
+            return v["value"]
+    if "total_value" in item and isinstance(item["total_value"], dict) and "value" in item["total_value"]:
+        return item["total_value"]["value"]
+    return None
+
+
 def instagram_views(acc, media_id: str):
     host = acc.get("api_host") or META_GRAPH
-    r = httpx.get(f"{host}/{media_id}/insights", params={"metric": "views"},
-                  headers={"Authorization": f"Bearer {_ig_token(acc)}"}, timeout=30)
-    if r.status_code != 200:
-        return None
-    data = r.json().get("data", [])
-    return int(data[0]["values"][0]["value"]) if data and "values" in data[0] and data[0]["values"] else None
+    token = _ig_token(acc)
+    headers = {"Authorization": f"Bearer {token}"}
+    for metric in ("views", "plays"):
+        try:
+            r = httpx.get(f"{host}/{media_id}/insights", params={"metric": metric}, headers=headers, timeout=30)
+            if r.status_code == 200:
+                data = r.json().get("data", [])
+                if data:
+                    val = _extract_metric_value(data[0])
+                    if val is not None:
+                        return int(val)
+        except Exception:  # noqa: BLE001
+            pass
+    return None
 
 
 # ------------------------------------------------------------------ TikTok (Login Kit + Content Posting API)
