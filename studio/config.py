@@ -121,6 +121,11 @@ USERS_DIR = DATA_DIR / "users"          # users/<user id>/{creators,jobs,account
 MODELS_DIR = Path(env("PEAKCUT_MODELS") or DATA_DIR / "models")
 TMP_DIR = DATA_DIR / "tmp"
 FONTS_DIR = DATA_DIR / "fonts"          # caption fonts, copied from studio/fonts so every server renders the same
+# Fonts people bring: any .ttf or .otf file put in this folder can be picked for captions.
+MY_FONTS_DIR = Path(env("PEAKCUT_MY_FONTS") or DATA_DIR / "my-fonts")
+# With this on, the fonts installed on the computer PeakCut runs on can be picked too. Off by default: a computer
+# has hundreds (symbols and other alphabets among them), and on a server they are the server's fonts, not yours.
+SYSTEM_FONTS = env("PEAKCUT_SYSTEM_FONTS", "0") == "1"
 # YouTube already has a word-by-word transcript of most videos. With this on, that is what the AI reads to find the
 # clips (seconds instead of transcribing hours), and our own model is run only on the clips themselves.
 YT_TRANSCRIPT = env("PEAKCUT_YT_TRANSCRIPT", "1") != "0"
@@ -152,7 +157,7 @@ STATIC_MIN_SECONDS = float(env("PEAKCUT_STATIC_MIN_SECONDS", "6"))
 # recording carries on, so a slow answer costs a check, not the stream.
 LIVE_AI_TIMEOUT = float(env("PEAKCUT_LIVE_AI_TIMEOUT", "45"))
 
-for d in (USERS_DIR, MODELS_DIR, TMP_DIR, FONTS_DIR):
+for d in (USERS_DIR, MODELS_DIR, TMP_DIR, FONTS_DIR, MY_FONTS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 

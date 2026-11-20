@@ -62,6 +62,10 @@ are there, and only then offer to delete the old folder. Never delete anything w
 - **Adding a spoken language**: add a row to `MODELS` in `studio/fetch_model.py`. Any NVIDIA NeMo transducer model
   exported for sherpa-onnx works; its word pieces must mark word starts with `▁`. The language a video is in comes
   from `options["lang"]` (or a creator's `lang`) and is passed to `transcribe.transcribe(..., lang=...)`.
+- **Caption fonts**: the bundled ones are listed in `FONTS` in `studio/render.py` (each with its licence in
+  `studio/fonts`). People add their own as `.ttf` or `.otf` files in the `my-fonts` folder of the data folder (keys
+  `my:<file name>`), and with `PEAKCUT_SYSTEM_FONTS=1` the computer's installed fonts are listed too (`sys:`). A font
+  that has gone falls back to the caption style's own.
 - **Clips are rendered in a short temporary folder** and moved into place (`render.render_clip`): ffmpeg's caption
   step cannot open paths longer than 260 characters on Windows.
 - **Secrets** are read from the environment or from files named by `*_FILE` settings. Never write a key, a real

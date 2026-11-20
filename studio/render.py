@@ -21,8 +21,181 @@ STYLES = {
 }
 HOOK = {"font": "Poppins ExtraBold", "size": 96, "ink": "14100E", "box": "FFFFFF", "pad_x": 36, "pad_y": 22, "radius": 26,
         "max_w": 900}
-FONT_FILES = {"Poppins ExtraBold": "Poppins-ExtraBold.ttf", "Anton": "Anton-Regular.ttf", "Archivo Black": "ArchivoBlack-Regular.ttf"}
+# The caption fonts a person can pick. Each is bundled in studio/fonts with its licence (all free to use and share).
+# key: what is saved with a clip; name: the font's own family name, which the caption renderer looks it up by;
+# file: the font file; label: what the page shows. An empty choice ("") means the caption style's own font.
+FONTS = {
+    "poppins": {"label": "Poppins", "name": "Poppins ExtraBold", "file": "Poppins-ExtraBold.ttf"},
+    "anton": {"label": "Anton", "name": "Anton", "file": "Anton-Regular.ttf"},
+    "archivo": {"label": "Archivo Black", "name": "Archivo Black", "file": "ArchivoBlack-Regular.ttf"},
+    "bebas": {"label": "Bebas Neue", "name": "Bebas Neue", "file": "BebasNeue-Regular.ttf"},
+    "kanit": {"label": "Kanit", "name": "Kanit ExtraBold", "file": "Kanit-ExtraBold.ttf"},
+    "barlow": {"label": "Barlow Condensed", "name": "Barlow Condensed ExtraBold", "file": "BarlowCondensed-ExtraBold.ttf"},
+    "paytone": {"label": "Paytone One", "name": "Paytone One", "file": "PaytoneOne-Regular.ttf"},
+    "righteous": {"label": "Righteous", "name": "Righteous", "file": "Righteous-Regular.ttf"},
+    "bangers": {"label": "Bangers", "name": "Bangers", "file": "Bangers-Regular.ttf"},
+    "luckiest": {"label": "Luckiest Guy", "name": "Luckiest Guy", "file": "LuckiestGuy-Regular.ttf"},
+    "bungee": {"label": "Bungee", "name": "Bungee", "file": "Bungee-Regular.ttf"},
+    "rubikmono": {"label": "Rubik Mono One", "name": "Rubik Mono One", "file": "RubikMonoOne-Regular.ttf"},
+    "blackops": {"label": "Black Ops One", "name": "Black Ops One", "file": "BlackOpsOne-Regular.ttf"},
+    "pixel": {"label": "Press Start 2P (pixel)", "name": "Press Start 2P", "file": "PressStart2P-Regular.ttf"},
+    "pacifico": {"label": "Pacifico (script)", "name": "Pacifico", "file": "Pacifico-Regular.ttf"},
+}
+BUNDLED_DIR = Path(__file__).resolve().parent / "fonts"
 CAP_MAX_W = 960   # captions never run wider than this, whatever is said
+
+# ---------------------------------------------------------------- fonts people bring themselves
+# Any .ttf or .otf file put in the my-fonts folder (in the data folder) can be picked for captions; its key is
+# "my:" and the file name. With PEAKCUT_SYSTEM_FONTS=1 the fonts installed on the computer can be picked too ("sys:").
+FONT_TYPES = (".ttf", ".otf")
+MY_FONT_MB = 40            # a font file bigger than this is skipped: real caption fonts are far smaller
+MAX_FONT_FILES = 3000      # a folder holding more is read only this far, so the list stays quick
+
+
+def _system_font_dirs() -> list:
+    import os
+    import sys
+    home = Path.home()
+    if sys.platform == "win32":
+        win = Path(os.environ.get("WINDIR") or "C:/Windows")
+        local = os.environ.get("LOCALAPPDATA")
+        return [win / "Fonts"] + ([Path(local) / "Microsoft" / "Windows" / "Fonts"] if local else [])
+    if sys.platform == "darwin":
+        return [Path("/System/Library/Fonts"), Path("/Library/Fonts"), home / "Library" / "Fonts"]
+    return [Path("/usr/share/fonts"), Path("/usr/local/share/fonts"), home / ".local" / "share" / "fonts", home / ".fonts"]
+
+
+def _read_font_info(path: Path) -> dict:
+    """The few facts needed from a font file, read without loading all of it: its names, and the sizes the
+    caption renderer works with. Raises on anything that is not a usable font."""
+    import struct
+    with open(path, "rb") as fh:
+        head = fh.read(12)
+        if head[:4] not in (b"\x00\x01\x00\x00", b"OTTO", b"true"):
+            raise ValueError("not a single font file")
+        n = struct.unpack(">H", head[4:6])[0]
+        if not 0 < n < 100:
+            raise ValueError("bad table count")
+        tables = {}
+        d = fh.read(16 * n)
+        for i in range(n):
+            tag, _, off, ln = struct.unpack(">4sIII", d[16 * i: 16 * i + 16])
+            tables[tag] = (off, ln)
+
+        def table(tag, most=1 << 20):
+            off, ln = tables[tag]
+            fh.seek(off)
+            return fh.read(min(ln, most))
+        hd, os2, nm = table(b"head", 64), table(b"OS/2", 100), table(b"name")
+    info = {"upm": struct.unpack(">H", hd[18:20])[0]}
+    info["asc"], info["desc"] = struct.unpack(">HH", os2[74:78])                 # what the renderer sizes the font by
+    has_cap = struct.unpack(">H", os2[0:2])[0] >= 2 and len(os2) >= 90          # older font files do not say how tall capitals are
+    info["cap"] = (has_cap and struct.unpack(">h", os2[88:90])[0]) or int(info["upm"] * 0.7)
+    if not (info["upm"] and info["asc"] + info["desc"] > 0 and info["cap"] > 0):
+        raise ValueError("font sizes missing")
+    names = {}
+    count, strings = struct.unpack(">HH", nm[2:6])[0], struct.unpack(">H", nm[4:6])[0]
+    for i in range(count):
+        plat, enc, lang, nid, ln, off = struct.unpack(">6H", nm[6 + 12 * i: 18 + 12 * i])
+        raw = nm[strings + off: strings + off + ln]
+        if plat == 3 and lang in (0x409, 0) and nid not in names:                    # Windows names, English
+            names[nid] = raw.decode("utf-16-be", "replace")
+    for i in range(count):                                                          # older Mac-only names, if that is all there is
+        plat, enc, lang, nid, ln, off = struct.unpack(">6H", nm[6 + 12 * i: 18 + 12 * i])
+        if plat == 1 and enc == 0 and nid not in names:
+            names[nid] = nm[strings + off: strings + off + ln].decode("latin-1")
+    info["names"] = names
+    return info
+
+
+def _usable_name(names: dict) -> str:
+    """The name the caption renderer finds the font by: its full name, or its PostScript name when the full
+    name holds a character the caption file cannot carry."""
+    for nid in (4, 6):
+        v = (names.get(nid) or "").strip()
+        if v and v.isprintable() and not re.search(r"[,{}\\]", v):
+            return v
+    return ""
+
+
+_built_in: set = set()
+
+
+def _built_in_names() -> set:
+    """Every name the bundled fonts go by: a copy of one of them brought again is not listed twice."""
+    if not _built_in:
+        for f in FONTS.values():
+            try:
+                _built_in.update(v for k, v in _read_font_info(BUNDLED_DIR / f["file"])["names"].items() if k in (1, 4, 6) and v)
+            except Exception:  # noqa: BLE001
+                pass
+            _built_in.add(f["name"])
+    return set(_built_in)
+
+
+_scan: dict = {}   # folder -> (what was in it, the fonts found), so the list is only re-read when the folder changes
+
+
+def _scan_folder(folder: Path, prefix: str, recursive: bool) -> dict:
+    try:
+        files = []
+        it = folder.rglob("*") if recursive else folder.iterdir()
+        for p in it:
+            if p.suffix.lower() in FONT_TYPES:
+                files.append(p)
+                if len(files) >= MAX_FONT_FILES:
+                    break
+        stats = [(p, p.stat()) for p in sorted(files, key=lambda p: p.name.lower())]
+    except OSError:
+        return {}
+    sig = tuple((str(p), s.st_mtime_ns, s.st_size) for p, s in stats)
+    got = _scan.get((str(folder), prefix))
+    if got and got[0] == sig:
+        return got[1]
+    out, seen = {}, _built_in_names()
+    for p, s in stats:
+        if not p.is_file() or s.st_size > MY_FONT_MB * 1e6:
+            continue
+        try:
+            info = _read_font_info(p)
+        except Exception:  # noqa: BLE001 - a broken or unusual font file is left out of the list, not an error
+            continue
+        name = _usable_name(info["names"])
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        key = prefix + (p.relative_to(folder).as_posix() if recursive else p.name)
+        out[key] = {"label": name, "name": name, "file": p.name, "path": p}
+    _scan[(str(folder), prefix)] = (sig, out)
+    return out
+
+
+def my_fonts() -> dict:
+    """Fonts added to the my-fonts folder, then (when allowed) the ones installed on this computer."""
+    out = _scan_folder(config.MY_FONTS_DIR, "my:", recursive=False)
+    if config.SYSTEM_FONTS:
+        taken = {f["name"] for f in out.values()}
+        for d in _system_font_dirs():
+            for k, f in _scan_folder(d, "sys:", recursive=True).items():
+                if f["name"] not in taken:
+                    taken.add(f["name"])
+                    out[k] = f
+    return out
+
+
+def all_fonts() -> dict:
+    """Every font that can be picked for captions: key -> label, name, file and path."""
+    return {**{k: dict(f, path=BUNDLED_DIR / f["file"]) for k, f in FONTS.items()}, **my_fonts()}
+
+
+def font_by_key(key):
+    if not key:
+        return None
+    if key in FONTS:
+        return dict(FONTS[key], path=BUNDLED_DIR / FONTS[key]["file"])
+    if key.startswith(("my:", "sys:")):
+        return my_fonts().get(key)
+    return None
 
 
 class _Font:
@@ -30,26 +203,24 @@ class _Font:
     word can grow without pushing its neighbours, and the heading box fits its text."""
     _cache: dict = {}
 
-    def __init__(self, name):
-        import struct
-        path = Path(__file__).resolve().parent / "fonts" / FONT_FILES.get(name, FONT_FILES["Poppins ExtraBold"])
-        d = path.read_bytes()
-        tables = {}
-        for i in range(struct.unpack(">H", d[4:6])[0]):
-            tag, _, off, _ = struct.unpack(">4sIII", d[12 + 16 * i: 28 + 16 * i])
-            tables[tag] = off
-        self.upm = struct.unpack(">H", d[tables[b"head"] + 18: tables[b"head"] + 20])[0]
-        o = tables[b"OS/2"]
-        self.asc, self.desc = struct.unpack(">HH", d[o + 74: o + 78])      # what the renderer sizes the font by
-        self.cap = struct.unpack(">h", d[o + 88: o + 90])[0] or int(self.upm * 0.7)
+    def __init__(self, path: Path):
+        info = _read_font_info(path)
+        self.upm, self.asc, self.desc, self.cap = info["upm"], info["asc"], info["desc"], info["cap"]
         self.path = str(path)
         self._pil = {}
 
     @classmethod
-    def get(cls, name):
-        if name not in cls._cache:
-            cls._cache[name] = cls(name)
-        return cls._cache[name]
+    def get(cls, name, path=None):
+        """A font by its name; a font someone brought needs its file too."""
+        if path is None:
+            path = BUNDLED_DIR / next((f["file"] for f in FONTS.values() if f["name"] == name), FONTS["poppins"]["file"])
+        try:
+            key = (str(path), Path(path).stat().st_mtime_ns)
+        except OSError:
+            return cls.get(FONTS["poppins"]["name"])                           # the file has gone: measure as the default
+        if key not in cls._cache:
+            cls._cache[key] = cls(Path(path))
+        return cls._cache[key]
 
     def em(self, size):
         return size * self.upm / (self.asc + self.desc)
@@ -76,6 +247,25 @@ def install_fonts():
     for f in src.glob("*.ttf"):
         if not (config.FONTS_DIR / f.name).exists():
             shutil.copyfile(f, config.FONTS_DIR / f.name)
+    note = config.MY_FONTS_DIR / "README.txt"
+    try:
+        if not note.exists():
+            note.write_text(MY_FONTS_NOTE, encoding="utf-8")
+    except OSError:
+        pass     # a folder that cannot be written to still works for fonts put there by hand
+
+
+MY_FONTS_NOTE = """Your own caption fonts
+
+Put .ttf or .otf font files in this folder and they can be picked for captions in PeakCut:
+under Caption style when you make clips, in a creator's settings, and in the clip editor.
+They show up within a few seconds; reopen the options if they are not there yet.
+
+A font you have installed on this computer can be copied here from its fonts folder
+(C:\\Windows\\Fonts on Windows, Font Book > Show in Finder on a Mac).
+
+Check that a font's licence lets you use it in videos you publish.
+"""
 
 
 LAYOUTS = {"blur": "Full frame + blurred fill", "zoom": "Zoomed in + blurred fill", "crop": "Fill the screen (centre crop)",
@@ -163,8 +353,24 @@ def _hook_events(hook, dur, y):
     return ev
 
 
-def build_ass(words, start, end, hook, style_name, highlight, hook_y, cap_y) -> str:
-    st = STYLES.get(style_name, STYLES["bounce"])
+def caption_style(style_name, font_key=None) -> dict:
+    """The caption style, in the font the person picked if they picked one. The size changes with the font so its
+    capital letters stand as tall as the style's own font would draw them: every font then looks the same size."""
+    st = dict(STYLES.get(style_name, STYLES["bounce"]))
+    pick = font_by_key(font_key)
+    if pick and pick["name"] != st["font"]:
+        try:
+            own, new = _Font.get(st["font"]), _Font.get(pick["name"], pick["path"])
+        except Exception:  # noqa: BLE001 - a font file that cannot be read: the style's own font, and the clip still gets made
+            return st
+        ratio = (own.cap / (own.asc + own.desc)) / (new.cap / (new.asc + new.desc))
+        st["size"] = max(60, min(260, int(round(st["size"] * ratio))))
+        st["font"], st["font_path"] = pick["name"], pick["path"]
+    return st
+
+
+def build_ass(words, start, end, hook, style_name, highlight, hook_y, cap_y, font=None) -> str:
+    st = caption_style(style_name, font)
     words = [dict(w, s=w["s"] - CAPTION_LEAD, e=w["e"] - CAPTION_LEAD) for w in words]
     strong = {_key(h) for h in highlight if _key(h)}
     head = f"""[Script Info]
@@ -184,7 +390,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     dur = end - start
     ev = _hook_events(_clean(hook), dur, hook_y)
-    f = _Font.get(st["font"])
+    f = _Font.get(st["font"], st.get("font_path"))
     inside = [dict(w, w=_clean(w["w"])) for w in words if w["s"] >= start - 0.05 and w["s"] < end]
     inside = sorted((w for w in inside if w["w"]), key=lambda w: w["s"])
     for i, w in enumerate(inside[:-1]):
@@ -292,7 +498,7 @@ def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, sr
         layout = "crop"     # no webcam found: the game fills the screen, which is still the right shape
     hook_y = _hook_y(layout, hook_y, face)
     ass = build_ass(words if clip.get("captions", True) else [], start, end, clip.get("hook", ""), clip.get("style", "bounce"),
-                    clip.get("highlight_words", []), hook_y, cap_y)
+                    clip.get("highlight_words", []), hook_y, cap_y, font=clip.get("font"))
     # The clip is made in a short work folder and moved into place afterwards. The caption step of ffmpeg cannot
     # open files whose full path is longer than 260 characters on Windows, which a data folder deep inside other
     # folders easily reaches. Inside the work folder every name is short and relative (a drive colon would also
@@ -301,17 +507,25 @@ def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, sr
     try:
         # The title and description are also written into the file itself, for any place that reads them from it.
         meta = {"title": clip.get("title") or "", "description": clip.get("description") or "", "comment": clip.get("description") or ""}
-        return _render_in(work, src, out_dir, name, start, end, layout, fg_h, ass, face=face, meta=meta)
+        pick = font_by_key(clip.get("font")) if clip.get("captions", True) else None
+        own = pick["path"] if pick and str(clip.get("font")) not in FONTS else None    # a font someone brought
+        return _render_in(work, src, out_dir, name, start, end, layout, fg_h, ass, face=face, meta=meta, own_font=own)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
 
-def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layout, fg_h, ass: str, face=None, meta=None) -> dict:
+def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layout, fg_h, ass: str, face=None, meta=None,
+               own_font=None) -> dict:
     global _qsv_ok
     (work / f"{name}.ass").write_text(ass, encoding="utf-8")
     (work / "f").mkdir()
     for f in config.FONTS_DIR.glob("*.ttf"):
         shutil.copyfile(f, work / "f" / f.name)
+    if own_font:
+        try:     # under a short name of its own, so it can never replace one of the fonts above
+            shutil.copyfile(own_font, work / "f" / ("own" + Path(own_font).suffix.lower()))
+        except OSError:
+            pass     # gone since it was picked: the renderer falls back to another font and the clip is still made
     fc = _filter(layout, fg_h, face) + f"[v0]ass={name}.ass:fontsdir=f[v]"
     base = ["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.2f}", "-t", f"{end - start:.2f}", "-i", str(src),
             "-filter_complex", fc, "-map", "[v]", "-map", "0:a:0", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",

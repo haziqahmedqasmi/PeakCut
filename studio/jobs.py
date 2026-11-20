@@ -108,9 +108,9 @@ _by_user: dict = {}                       # user -> {job id: job}: listing one p
 _lock = threading.RLock()
 on_clip_ready: list = []   # callbacks (job, clip), run once when a clip first finishes
 
-DEFAULTS = {"max_clips": 6, "min_len": 15, "max_len": 60, "style": "bounce", "layout": "blur", "quality": 720,
+DEFAULTS = {"max_clips": 6, "min_len": 15, "max_len": 60, "style": "bounce", "font": "", "layout": "blur", "quality": 720,
             "range_start": None, "range_end": None, "captions": True, "hook_text": "", "description_text": "",
-            "lang": "en"}   # lang: the language spoken
+            "lang": "en"}   # lang: the language spoken; font: "" is the caption style's own font
 
 
 LIMITS = {"max_clips": (1, 20), "min_len": (5, 120), "max_len": (10, 180), "quality": (360, 1080)}
@@ -127,6 +127,9 @@ def clean_options(options) -> dict:
             continue
         if k in ("hook_text", "description_text"):     # kept even when empty: it clears the creator's own text for this video
             out[k] = creators.clean_hook(v) if k == "hook_text" else creators.clean_description(v)
+            continue
+        if k == "font":                                # kept even when empty: back to the caption style's own font
+            out[k] = v if isinstance(v, str) and render.font_by_key(v) else ""
             continue
         if k not in DEFAULTS or v in ("", None):
             continue
@@ -315,7 +318,7 @@ def create(source: dict, options: dict, enqueue=True, creator=None, kind="video"
     c = creators.get(creator) if creator else None
     if c:
         d = creators.root(c["id"]) / ("live" if kind == "live" else "videos") / jid
-        base = {**DEFAULTS, **{k: c[k] for k in ("max_clips", "min_len", "max_len", "style", "layout", "captions", "lang") if k in c},
+        base = {**DEFAULTS, **{k: c[k] for k in ("max_clips", "min_len", "max_len", "style", "font", "layout", "captions", "lang") if k in c},
                 "hook_text": creators.clean_hook(c.get("hook_text")),
                 "description_text": creators.clean_description(c.get("description_text"))}
     else:
@@ -387,15 +390,17 @@ def request_render(jid, cid, changes: dict):
         raise ValueError("Those times aren't valid.")
     if not 3 <= new["end"] - new["start"] <= 180:
         raise ValueError("A clip can be 3 to 180 seconds long.")
-    for k in ("hook", "title", "description", "style", "layout"):
+    for k in ("hook", "title", "description", "style", "font", "layout"):
         if k in changes:
-            new[k] = str(changes[k])[:{"hook": 60, "title": 100, "description": 2000}.get(k, 20)]
+            new[k] = str(changes[k])[:{"hook": 60, "title": 100, "description": 2000}.get(k, 300 if k == "font" else 20)]
     if "hashtags" in changes:
         new["hashtags"] = clean_hashtags(changes["hashtags"])
     if new.get("style") not in render.STYLES:
         new["style"] = DEFAULTS["style"]
     if new.get("layout") not in render.LAYOUTS:
         new["layout"] = DEFAULTS["layout"]
+    if not render.font_by_key(new.get("font")):
+        new["font"] = ""
     clip.update(new, status="queued")
     save(job)
     _q.put(("clip", jid, cid))
@@ -856,7 +861,7 @@ def _run_job(job):
             found = keep
         for c in found:
             c.update(id=f"clip{len(job['clips']) + 1:02d}", start=round(c["start"] + shift, 2),
-                     end=round(c["end"] + shift, 2), style=o["style"], layout=o["layout"],
+                     end=round(c["end"] + shift, 2), style=o["style"], font=o.get("font", ""), layout=o["layout"],
                      captions=o.get("captions", True), status="queued", version=0)
             if o.get("hook_text"):        # the person's own big text, on every clip, in place of the AI's
                 c["hook"] = o["hook_text"]

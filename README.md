@@ -10,7 +10,9 @@ creator's live stream and clip the highlights while the stream is still running.
 ## What it does
 
 - **Clips from any video.** Transcribes the audio, asks an AI which moments would hold a stranger's attention, and
-  renders each one with captions in one of three styles.
+  renders each one with captions in one of three styles, in any of 15 bundled fonts or your own (put `.ttf` or
+  `.otf` files in the `my-fonts` folder inside the data folder; `PEAKCUT_SYSTEM_FONTS=1` also lists the fonts
+  installed on the computer).
 - **Live clipping.** Records a stream into a rolling buffer and clips as it happens, using loudness, chat activity
   and the transcript.
 - **Workspaces per creator.** Channels, clip settings, posting rules and an activity log for each creator you clip.
@@ -211,5 +213,5 @@ post, and for following the terms of the sites you fetch from and post to.
 
 ## Licence
 
-[MIT](LICENSE). Caption fonts in `studio/fonts/` (Anton, Archivo Black, Poppins) are under the SIL Open Font
-License; the licence texts are in the same folder.
+[MIT](LICENSE). Caption fonts in `studio/fonts/` are under the SIL Open Font License, except Luckiest Guy, which is
+under the Apache License 2.0; each font's licence text is in the same folder.

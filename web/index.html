@@ -7,7 +7,7 @@
 <link rel="icon" type="image/svg+xml" href="/brand/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@300&family=Archivo+Black&family=Anton&family=Poppins:wght@800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@300&family=Archivo+Black&family=Anton&family=Poppins:wght@800&family=Bebas+Neue&family=Kanit:wght@800&family=Barlow+Condensed:wght@800&family=Paytone+One&family=Righteous&family=Bangers&family=Luckiest+Guy&family=Bungee&family=Rubik+Mono+One&family=Black+Ops+One&family=Press+Start+2P&family=Pacifico&display=swap" rel="stylesheet">
 <style>
 :root{
   --brand:#FF8B33;--brand-press:#F27A1F;--brand-ink:#2A1A12;--brand-soft:#FFF2E8;--brand-line:#FFD9BC;--brand-deep:#A9480A;
@@ -386,6 +386,11 @@ img.av{object-fit:cover}
 .tile-o[aria-pressed=true]{background:var(--brand-soft);color:var(--brand-ink)}
 .cap-prev{height:54px;border-radius:7px;background:#1E1612;display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;font-size:14px;line-height:1;color:#fff;letter-spacing:0;-webkit-text-stroke:1px #000;paint-order:stroke fill}
 .cap-prev b{font-weight:inherit}
+.cap-font{margin-top:10px}
+.cap-font-hint{display:block;margin-top:6px;font-size:12px;line-height:1.45}
+.cap-font-hint code{word-break:break-all}
+.linkish{border:0;padding:0;background:none;color:var(--brand-deep);font-weight:600;text-decoration:underline;cursor:pointer;transition:color .15s ease}
+.linkish:hover{color:var(--brand-ink)}
 .lay-prev{height:54px;border-radius:7px;background:#1E1612;display:grid;place-items:center}
 .lay-prev .ph{position:relative;width:28px;height:48px;border-radius:4px;overflow:hidden;background:#4A3428}
 .lay-prev .ph::before{content:"";position:absolute;inset:0;background:linear-gradient(160deg,#B4643A,#5E3A2A);filter:blur(3px);opacity:.75}
@@ -1392,7 +1397,8 @@ function drawAdd(variant) {
         <textarea id="o_desc" rows="3" maxlength="2000" placeholder="Left empty, the AI writes a different one for each clip. Write it once here and it is the description of every clip, exactly as typed." aria-label="Description for every clip">${esc(c?.description_text || "")}</textarea></label></div>
       <div class="ob"><div class="ot cap-head"><span id="o_style_label">Caption style</span>
         <label><input type="checkbox" id="o_captions" data-caption-toggle ${c?.captions === false ? "" : "checked"}>Generate captions</label></div>
-        ${choice("o_style", Object.entries(S.status.styles).map(([k, v]) => ({v:k, label:v, prev:capPrev(k)})), c?.style ?? "bounce", c?.captions === false)}</div>
+        ${choice("o_style", Object.entries(S.status.styles).map(([k, v]) => ({v:k, label:v, prev:capPrev(k, c?.font)})), c?.style ?? "bounce", c?.captions === false)}
+        <label class="f cap-font">Font<select id="o_font" data-caption-style ${c?.captions === false ? "disabled" : ""}>${fontOpts(c?.font)}</select></label>${myFontsHint()}</div>
       <div class="ob"><div class="ot">Layout</div>${choice("o_layout", Object.entries(S.status.layouts).map(([k, v]) => ({v:k, label:LAYOUT_SHORT[k] || v, title:v, prev:`<span class="lay-prev ${esc(k)}"><span class="ph"><i></i></span></span>`})), c?.layout ?? "blur")}</div>
       <div class="ob"><div class="ot">Video quality</div><input type="hidden" id="o_quality" value="720"><div class="seg" role="group" aria-label="Video quality">
         <button type="button" data-seg="o_quality" data-v="720" aria-pressed="true">720p<small>Fast</small></button>
@@ -1419,12 +1425,44 @@ function setLang(v) {   // when the creator is changed in the add bar, their lan
   i.value = v; i.parentElement.querySelectorAll("[data-seg]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === v)));
 }
 document.addEventListener("change", e => { if (e.target.id === "o_creator") setLang(S.creators.find(x => x.id === e.target.value)?.lang || "en"); });
-const CAP_LOOK = {bounce:{font:"'Archivo Black'", hl:"#FFFF00", up:true}, hype:{font:"Anton", hl:"#FF3C3C", up:true}, clean:{font:"Poppins", hl:"#6BD7FF", up:false, w:800}};
-function capPrev(k) {
+const CAP_LOOK = {bounce:{font:"Poppins", hl:"#FFF000", up:true, w:800}, hype:{font:"Anton", hl:"#FF3C3C", up:true}, clean:{font:"Poppins", hl:"#6BD7FF", up:false, w:800}};
+// How each caption font is drawn on this page (the same fonts the clips are made with)
+const FONT_CSS = {poppins:["Poppins", 800], anton:["Anton"], archivo:["'Archivo Black'"], bebas:["'Bebas Neue'"], kanit:["Kanit", 800],
+  barlow:["'Barlow Condensed'", 800], paytone:["'Paytone One'"], righteous:["Righteous"], bangers:["Bangers"], luckiest:["'Luckiest Guy'"],
+  bungee:["Bungee"], rubikmono:["'Rubik Mono One'"], blackops:["'Black Ops One'"], pixel:["'Press Start 2P'"], pacifico:["Pacifico"]};
+// Fonts people brought (my-fonts folder, or this computer's) are fetched from PeakCut, only once something is drawn in them
+const ownFont = k => /^(my|sys):/.test(k || "");
+const ownFamily = k => "pkf-" + [...k].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7).toString(36);
+function ownFontFaces() {
+  const keys = Object.keys(S.status.fonts || {}).filter(ownFont), sig = keys.join("|");
+  let st = $("#ownfonts"); if (st && st.dataset.sig === sig) return;
+  if (!st) { st = document.createElement("style"); st.id = "ownfonts"; document.head.append(st); }
+  st.dataset.sig = sig;
+  st.textContent = keys.map(k => `@font-face{font-family:"${ownFamily(k)}";src:url("/api/fonts/file?k=${encodeURIComponent(k)}");font-display:swap}`).join(" ");
+}
+const fontCss = k => FONT_CSS[k] ? `font-family:${FONT_CSS[k][0]},sans-serif;font-weight:${FONT_CSS[k][1] || 400}`
+  : ownFont(k) && (S.status.fonts || {})[k] ? (ownFontFaces(), `font-family:'${ownFamily(k)}',sans-serif;font-weight:400`) : "";
+function fontOpts(val) {
+  const all = Object.entries(S.status.fonts || {}), o = ([k, v]) =>    // this computer's fonts are not drawn in the list: there are hundreds
+    `<option value="${esc(k)}"${k.startsWith("sys:") ? "" : ` style="${fontCss(k)}"`}${k === (val || "") ? " selected" : ""}>${esc(v)}</option>`;
+  const group = (label, rows) => rows.length ? `<optgroup label="${label}">${rows.map(o).join("")}</optgroup>` : "";
+  const missing = val && !(S.status.fonts || {})[val] ? `<option value="" selected>Font no longer there: the style's own</option>` : "";
+  return `<option value="">The style's own font</option>${missing}` + group("Built in", all.filter(([k]) => !ownFont(k)))
+    + group("Your fonts", all.filter(([k]) => k.startsWith("my:"))) + group("On this computer", all.filter(([k]) => k.startsWith("sys:")));
+}
+function myFontsHint() {    // for the person who can add fonts: where they go
+  const m = S.status.my_fonts; if (!m) return "";
+  return `<small class="sub cap-font-hint">Your own fonts: put .ttf or .otf files in the <b>my-fonts</b> folder${m.open ? ` <button type="button" class="linkish" data-act="fontsopen">Open it</button>` : `: <code>${esc(m.folder)}</code>`}</small>`;
+}
+function capPrev(k, font) {
   const s = CAP_LOOK[k] || {font:"inherit", hl:"#FF8B33", up:true};
   const t = s.up ? ["CLIP", "THIS"] : ["Clip", "this"];
-  return `<span class="cap-prev" style="font-family:${s.font},sans-serif;font-weight:${s.w || 400}">${t[0]}&nbsp;<b style="color:${s.hl}">${t[1]}</b></span>`;
+  return `<span class="cap-prev" style="${fontCss(font) || `font-family:${s.font},sans-serif;font-weight:${s.w || 400}`}">${t[0]}&nbsp;<b style="color:${s.hl}">${t[1]}</b></span>`;
 }
+document.addEventListener("change", e => {    // a new font: the style previews show it straight away
+  if (e.target.id !== "o_font") return;
+  $$('[data-seg="o_style"]').forEach(b => { b.querySelector(".cap-prev").outerHTML = capPrev(b.dataset.v, e.target.value); });
+});
 function picker(id, aria, items, val) {
   const cur = items.find(x => String(x.v) === String(val)) || items[0];
   const av = x => x.img ? `<img class="av" src="${x.img}" alt="">` : `<span class="av">${x.icon ? ic(x.icon) : esc((x.label || "?").trim().slice(0, 1).toUpperCase())}</span>`;
@@ -1474,7 +1512,7 @@ document.addEventListener("keydown", e => {
 const targetCreator = () => creatorId() || $("#o_creator")?.value || "";
 function jobOptions() {
   const n = id => { const v = $(id).value; return v === "" ? null : Number(v); };
-  const o = {max_clips:n("#o_max"), min_len:n("#o_min"), max_len:n("#o_maxlen"), captions:$("#o_captions").checked, style:$("#o_style").value, layout:$("#o_layout").value, quality:n("#o_quality"),
+  const o = {max_clips:n("#o_max"), min_len:n("#o_min"), max_len:n("#o_maxlen"), captions:$("#o_captions").checked, style:$("#o_style").value, font:$("#o_font").value, layout:$("#o_layout").value, quality:n("#o_quality"),
     hook_text:$("#o_hook").value.trim(), description_text:$("#o_desc").value.trim(), lang:$("#o_lang")?.value || "en"};
   if (n("#o_from") !== null) o.range_start = n("#o_from") * 60;
   if (n("#o_to") !== null) o.range_end = n("#o_to") * 60;
@@ -1904,6 +1942,7 @@ function drawCreatorForm() {
     <div class="card"><h2>Clips</h2><p class="help">How this creator's clips look.</p>
       <div class="fields"><label class="sw span"><input type="checkbox" data-k="captions" data-caption-toggle ${c.captions === false ? "" : "checked"}>Generate captions</label>
         <label class="f">Caption style<select data-k="style" data-caption-style ${c.captions === false ? "disabled" : ""}>${opts(S.status.styles, c.style)}</select></label>
+        <label class="f">Caption font<select data-k="font" data-caption-style ${c.captions === false ? "disabled" : ""}>${fontOpts(c.font)}</select></label>
         <label class="f">Layout<select data-k="layout">${opts(S.status.layouts, c.layout)}</select></label>
         <label class="f">Game<input data-k="game" value="${esc(c.game || "")}" placeholder="Read from the title"><small class="sub" style="font-weight:400">Left empty, the game is read from the stream's title. Set it for a streamer whose title says nothing: GTA 6, Fortnite, Elden Ring.</small></label>
         <label class="f">Shortest clip (seconds)<input data-k="min_len" type="number" value="${c.min_len}"></label>
@@ -2223,7 +2262,8 @@ function drawClipDlg(full) {
         <label class="f">Big text<input data-f="hook" value="${esc(c.hook)}"></label>
         <label class="sw"><input type="checkbox" data-f="captions" data-caption-toggle ${c.captions === false ? "" : "checked"}>Generate captions</label>
         <div class="two"><label class="f">Caption style<select data-f="style" data-caption-style ${c.captions === false ? "disabled" : ""}>${opts(S.status.styles, c.style)}</select></label>
-          <label class="f">Layout<select data-f="layout">${opts(S.status.layouts, c.layout)}</select></label></div>
+          <label class="f">Caption font<select data-f="font" data-caption-style ${c.captions === false ? "disabled" : ""}>${fontOpts(c.font)}</select></label></div>
+        <label class="f">Layout<select data-f="layout">${opts(S.status.layouts, c.layout)}</select></label>
         <div class="two"><label class="f">Start (seconds)<input data-f="start" type="number" step="0.5" value="${c.start}"></label>
           <label class="f">End (seconds)<input data-f="end" type="number" step="0.5" value="${c.end}"></label></div>
         <div class="row" style="justify-content:space-between;align-items:center"><h3>Post text</h3>
@@ -2526,6 +2566,7 @@ document.addEventListener("click", async e => {
     if (a === "updhow") return updateHow();
     if (a === "updlater") { try { localStorage.setItem("peakcut_update_seen", S.status.update?.latest || ""); } catch {} return drawShell(); }
     if (a === "storopen") { await send("/api/storage/open"); return; }
+    if (a === "fontsopen") { await send("/api/fonts/open"); return toast("Put the font files in that folder. They show up in the list within a few seconds.", "ok"); }
     if (a === "storchange") { S.storOpen = !S.storOpen; S.storNew = ""; return drawSettings(); }
     if (a === "storpick") {
       b.disabled = true;

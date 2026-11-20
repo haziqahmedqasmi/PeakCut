@@ -80,9 +80,9 @@ def info(local: bool) -> dict:
             "local": bool(local)}
 
 
-def open_folder():
-    """Show PeakCut's folder in the computer's file manager."""
-    p = str(config.DATA_DIR.resolve())
+def open_folder(folder=None):
+    """Show PeakCut's folder (or one inside it, such as my-fonts) in the computer's file manager."""
+    p = str(Path(folder or config.DATA_DIR).resolve())
     if sys.platform == "win32":
         os.startfile(p)                                   # noqa: S606 - the owner's own folder, on their own computer
     elif sys.platform == "darwin":

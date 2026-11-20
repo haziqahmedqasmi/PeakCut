@@ -611,7 +611,7 @@ def status(request: Request):
     return {"user": auth.public(me_), "update": updates.latest() if me_.is_admin else None, "accounts": config.ACCOUNTS, "disk_full": load.disk_full(), "no_ffmpeg": bool(_tools.missing()), "links": {"repo": config.REPO_URL, "follow": config.FOLLOW_URL}, "ai": usage.brief(), "unread": notices.unread(),
             "tour": not accounts.settings()["tour_done"],
             "youtube": accounts.youtube_ready(), "connect": {p: accounts.can_connect(p) for p in accounts.PLATFORM_NAMES}, "max_upload_mb": config.MAX_UPLOAD_MB, "upload_part_mb": config.UPLOAD_PART_MB, "max_batch": config.MAX_ACTIVE_JOBS_PER_USER,
-            "styles": {k: v["label"] for k, v in render.STYLES.items()}, "layouts": render.LAYOUTS, "speech": _speech_brief()}
+            "styles": {k: v["label"] for k, v in render.STYLES.items()}, "fonts": {k: v["label"] for k, v in render.all_fonts().items()}, "my_fonts": _my_fonts_brief(request, me_), "layouts": render.LAYOUTS, "speech": _speech_brief()}
 
 
 def _speech_brief() -> dict:
@@ -1554,6 +1554,37 @@ def storage_open(request: Request):
     except OSError as e:
         raise HTTPException(500, "Couldn't open the folder: " + safe.friendly(e, 200))
     return {"ok": True}
+
+
+def _my_fonts_brief(request: Request, me_) -> dict | None:
+    """Where people's own caption fonts go: told to the admin, who is the one who can put files there."""
+    if not me_.is_admin:
+        return None
+    return {"folder": str(config.MY_FONTS_DIR.resolve()), "open": _on_this_computer(request)}
+
+
+@app.post("/api/fonts/open")
+def fonts_open(request: Request):
+    from . import storage
+    _admin(request)
+    if not _on_this_computer(request):
+        raise HTTPException(400, "The folder can only be opened on the computer PeakCut runs on.")
+    try:
+        config.MY_FONTS_DIR.mkdir(parents=True, exist_ok=True)
+        storage.open_folder(config.MY_FONTS_DIR)
+    except OSError as e:
+        raise HTTPException(500, "Couldn't open the folder: " + safe.friendly(e, 200))
+    return {"ok": True}
+
+
+@app.get("/api/fonts/file")
+def font_file(k: str = ""):
+    """A font someone brought, so the page can show its name in that very font. Only fonts in the list are sent."""
+    f = render.font_by_key(k) if k.startswith(("my:", "sys:")) else None
+    if not f:
+        raise HTTPException(404, "No such font.")
+    kind = "font/otf" if f["path"].suffix.lower() == ".otf" else "font/ttf"
+    return FileResponse(f["path"], media_type=kind)
 
 
 @app.post("/api/storage/pick")
