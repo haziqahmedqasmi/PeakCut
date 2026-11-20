@@ -387,6 +387,17 @@ def _gem(model: str) -> str:
     return model.removeprefix("models/")
 
 
+_GEMINI_SCHEMA_ERRORS = (
+    "schema",
+    "responsemimetype",
+    "response_mime_type",
+    "json mode",
+    "json_mode",
+    "application/json",
+    "controlled generation",
+)
+
+
 def _gemini(model, prompt, schema, timeout=None):
     url = f"{base_url()}/{_gem(model)}:generateContent"
     headers = {"x-goog-api-key": key()}
@@ -394,8 +405,9 @@ def _gemini(model, prompt, schema, timeout=None):
             "generationConfig": {"temperature": 0.4, "responseMimeType": "application/json", "responseSchema": schema}}
     r = httpx.post(url, json=body, headers=headers, timeout=timeout or 120)
     used_plain = False
-    if r.status_code in (400, 422) and "api key" not in r.text.lower() and "api_key" not in r.text.lower():
-        # Models like Gemma in the Gemini list support generateContent without responseSchema.
+    low = (r.text or "").lower() if r.status_code in (400, 422) else ""
+    if low and any(t in low for t in _GEMINI_SCHEMA_ERRORS):
+        # Models like Gemma in the Gemini list support generateContent without responseSchema or JSON mode.
         plain = {"contents": [{"role": "user", "parts": [{"text": _wrapped(prompt, schema)}]}]}
         r = httpx.post(url, json=plain, headers=headers, timeout=timeout or 120)
         used_plain = True

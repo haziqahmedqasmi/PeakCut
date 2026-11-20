@@ -140,7 +140,7 @@ seen.clear()
 ai.test()
 check("a models/ prefix is not doubled in the address", seen[0][0] == f"{GEM}/gemini-2.5-flash:generateContent", seen[0][0])
 
-# Discovered models that reject responseSchema (e.g. Gemma) fall back to prompt JSON
+# Discovered models that reject responseSchema or JSON mode (e.g. Gemma) fall back to prompt JSON
 schema_calls = []
 def fake_gemma_post(url, json=None, headers=None, timeout=None):
     schema_calls.append(json)
@@ -152,7 +152,48 @@ ai.save("gemini", "gemma-3-27b-it", "", None)
 ai.httpx.post = fake_gemma_post
 gemma_res = ai.test()
 check("discovered gemini model without responseSchema support succeeds via prompt JSON fallback",
-      gemma_res["ok"] and len(schema_calls) == 2, str((gemma_res, len(schema_calls))))
+      gemma_res["ok"] and len(schema_calls) == 2 and "generationConfig" not in schema_calls[1],
+      str((gemma_res, len(schema_calls))))
+
+for label_msg, status, err_msg in (
+    ("response_schema error retries without schema", 400, "Invalid value at 'generation_config.response_schema'"),
+    ("responseMimeType error retries without schema", 400, "Unknown name \"responseMimeType\" at 'generation_config'"),
+    ("application/json MIME refusal retries without schema", 422, "Unsupported MIME type: application/json"),
+    ("controlled generation refusal retries without schema", 400, "Controlled generation is not supported for this model"),
+):
+    retry_calls = []
+    def fake_schema_err(url, json=None, headers=None, timeout=None, _st=status, _msg=err_msg):
+        retry_calls.append(json)
+        if "generationConfig" in (json or {}):
+            return Reply(_st, {"error": {"code": _st, "message": _msg}})
+        return Reply(200, {"candidates": [{"content": {"parts": [{"text": '{"items": ["ok"]}'}]}}],
+                           "usageMetadata": {"promptTokenCount": 5, "totalTokenCount": 9}})
+    ai.httpx.post = fake_schema_err
+    res = ai.test()
+    check(f"gemini: {label_msg}", res["ok"] and len(retry_calls) == 2 and "generationConfig" not in retry_calls[1],
+          str((res, len(retry_calls))))
+
+for label_msg, status, err_msg in (
+    ("payload limit 400 does not retry and keeps original message", 400, "Request payload size exceeds the limit: 20971520 bytes"),
+    ("generic invalid JSON payload 400 does not retry and keeps original message", 400, "Invalid JSON payload at contents[0]: missing field"),
+    ("bad API key 400 does not retry and keeps original message", 400, "API key not valid. Please pass a valid API key."),
+    ("non-schema 422 does not retry and keeps original message", 422, "Invalid argument: safetySettings"),
+):
+    no_retry_calls = []
+    def fake_other_err(url, json=None, headers=None, timeout=None, _st=status, _msg=err_msg):
+        no_retry_calls.append(json)
+        if len(no_retry_calls) == 1:
+            return Reply(_st, {"error": {"code": _st, "message": _msg}})
+        return Reply(400, {"error": {"code": 400, "message": "masked second error"}})
+    ai.httpx.post = fake_other_err
+    caught = ""
+    try:
+        ai.test()
+    except ai.AIError as exc:
+        caught = str(exc)
+    check(f"gemini: {label_msg}",
+          len(no_retry_calls) == 1 and f"HTTP {status}" in caught and err_msg in caught,
+          str((len(no_retry_calls), caught)))
 
 def explained(text):
     return ai.explain(ai.AIError(text))
