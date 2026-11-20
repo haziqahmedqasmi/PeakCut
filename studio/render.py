@@ -5,10 +5,13 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from . import config, roman
+from . import config, roman, stacked
 from .media import NO_WINDOW, run
 
 W, H = config.OUT_W, config.OUT_H
+FACE_H = round(H * .40 / 2) * 2
+FRAME_COLOR = "0xFFD400"
+FRAME_PX = 6
 
 # ASS colours are &HBBGGRR. `size` is the ASS font size (line height); _Font turns it into real pixels.
 STYLES = {
@@ -81,7 +84,8 @@ def install_fonts():
 LAYOUTS = {"blur": "Full frame + blurred fill", "zoom": "Zoomed in + blurred fill", "crop": "Fill the screen (centre crop)",
            "left": "Fill the screen, keep the left side", "right": "Fill the screen, keep the right side",
            "fit": "Full frame on black", "split": "Split screen: left half on top, right half below (two people)",
-           "gameplay": "Gameplay fills the screen, facecam in the corner"}
+           "gameplay": "Gameplay fills the screen, facecam in the corner",
+           "stacked": "Facecam on top, gameplay below"}
 _FILLS = ("crop", "left", "right", "gameplay")      # layouts where the picture covers the whole frame
 
 
@@ -112,10 +116,12 @@ def _groups(words, per):
     return out
 
 
-def geometry(src_w, src_h, layout):
+def geometry(src_w, src_h, layout, face=None):
     """Where the video sits in the 1080x1920 frame, and where hook and captions go."""
     if src_h >= src_w and layout != "crop":
         layout = "crop"  # already vertical or square: nothing to gain from a blurred fill
+    if layout == "stacked":
+        return layout, FACE_H, FACE_H, FACE_H + 56
     if layout not in LAYOUTS:
         layout = "blur"
     if layout in ("blur", "fit"):
@@ -240,6 +246,16 @@ PIP_MARGIN = 26
 
 
 def _filter(layout, fg_h, facecam=None):
+    if layout == "stacked" and facecam:
+        x, y, w, h = facecam
+        game_h = H - fg_h
+        return (f"[0:v]fps={config.OUT_FPS},split=2[cam][game];"
+                f"[cam]crop=iw*{w}:ih*{h}:iw*{x}:ih*{y},"
+                f"scale={W}:{fg_h}:force_original_aspect_ratio=increase:force_divisible_by=2,"
+                f"crop={W}:{fg_h},setsar=1[top];"
+                f"[game]scale={W}:{game_h}:force_original_aspect_ratio=increase,"
+                f"crop={W}:{game_h},setsar=1[bottom];[top][bottom]vstack=inputs=2,"
+                f"drawbox=x=0:y={fg_h - FRAME_PX // 2}:w=iw:h={FRAME_PX}:color={FRAME_COLOR}:t=fill[v0];")
     if layout == "gameplay" and facecam:
         # The game fills the screen, and the webcam sits in the top corner of it, so a viewer sees
         # the play and the face at the same time.
@@ -288,10 +304,18 @@ def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, sr
     start, end = clip["start"], clip["end"]
     layout, fg_h, hook_y, cap_y = geometry(src_w, src_h, clip.get("layout", "blur"))
     face = clip.get("facecam")
+    requested = clip.get("layout", "blur")
+    if layout == "stacked":
+        face = stacked.detect(src, start, end)
+        layout, fg_h, hook_y, cap_y = geometry(src_w, src_h, "stacked" if face else "blur", face)
     if layout == "gameplay" and not (face and len(face) == 4):
         layout = "crop"     # no webcam found: the game fills the screen, which is still the right shape
     hook_y = _hook_y(layout, hook_y, face)
-    ass = build_ass(words if clip.get("captions", True) else [], start, end, clip.get("hook", ""), clip.get("style", "bounce"),
+    hook = clip.get("hook", "")
+    if layout == "stacked" and _clean(hook):
+        # Leave room for the two-line hook card and the largest animated caption.
+        cap_y = FACE_H + 220
+    ass = build_ass(words if clip.get("captions", True) else [], start, end, hook, clip.get("style", "bounce"),
                     clip.get("highlight_words", []), hook_y, cap_y)
     # The clip is made in a short work folder and moved into place afterwards. The caption step of ffmpeg cannot
     # open files whose full path is longer than 260 characters on Windows, which a data folder deep inside other
@@ -301,18 +325,24 @@ def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, sr
     try:
         # The title and description are also written into the file itself, for any place that reads them from it.
         meta = {"title": clip.get("title") or "", "description": clip.get("description") or "", "comment": clip.get("description") or ""}
-        return _render_in(work, src, out_dir, name, start, end, layout, fg_h, ass, face=face, meta=meta)
+        graph = _filter(layout, fg_h, face) + "[v0]"
+        if requested == "stacked":
+            graph += f"drawbox=x=0:y=0:w=iw:h=ih:color={FRAME_COLOR}:t={FRAME_PX},"
+        result = _render_in(work, src, out_dir, name, start, end, layout, graph, ass, meta=meta)
+        if requested == "stacked":
+            result["layout"] = requested
+        return result
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
 
-def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layout, fg_h, ass: str, face=None, meta=None) -> dict:
+def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layout, graph, ass: str, meta=None) -> dict:
     global _qsv_ok
     (work / f"{name}.ass").write_text(ass, encoding="utf-8")
     (work / "f").mkdir()
     for f in config.FONTS_DIR.glob("*.ttf"):
         shutil.copyfile(f, work / "f" / f.name)
-    fc = _filter(layout, fg_h, face) + f"[v0]ass={name}.ass:fontsdir=f[v]"
+    fc = graph + f"ass={name}.ass:fontsdir=f[v]"
     base = ["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.2f}", "-t", f"{end - start:.2f}", "-i", str(src),
             "-filter_complex", fc, "-map", "[v]", "-map", "0:a:0", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
             "-c:a", "aac", "-b:a", "160k", "-ar", "48000"]
