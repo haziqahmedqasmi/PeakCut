@@ -68,23 +68,12 @@ Meta requires new apps to use **Instagram API with Unified Login** via **Faceboo
    - While in **Development Mode**, add your Meta/Instagram account under **App roles** or assign the Instagram professional asset to your Business Portfolio.
    - For public production use by external creators, submit `instagram_basic` and `instagram_content_publish` for **App Review**.
 
-### Keeping the older Instagram Login as well
+### Keeping the older Instagram Login working
 
-Both ways of connecting an Instagram account can be set up at the same time. Settings -> Connected apps then shows
-two Instagram cards: **Instagram (Unified Login)** and **Instagram (Instagram Login)**.
-
-- **Instagram Login** is the older way: a Meta app with *API setup with Instagram login*, its own **Instagram app ID**
-  and **Instagram app secret**, and the permissions `instagram_business_basic` and
-  `instagram_business_content_publish`. Meta no longer offers it for newly created apps, but an existing app that
-  has it keeps working. Set it up in the dashboard (**Set up** on its card) or with `PEAKCUT_IG_LOGIN_APP_ID` and
-  `PEAKCUT_IG_LOGIN_APP_SECRET`. It takes no configuration ID.
-- **Both use the same redirect address**, `https://your-domain/oauth/instagram/callback`. Register that one address
-  in either app. PeakCut remembers which button was pressed, so each sign-in is finished the way it started.
-- Accounts from either way are ordinary Instagram accounts: they are listed under Instagram, picked in a creator's
-  Setup, and post Reels the same way. Each account remembers which API it uses, and Instagram accounts connected
-  before Unified Login existed carry on with Instagram's own API without being connected again.
-- `PEAKCUT_IG_APP_ID` and `PEAKCUT_IG_APP_SECRET` now belong to **Unified Login** (the Meta app). If you used them
-  for the older Instagram Login app, move the values to `PEAKCUT_IG_LOGIN_APP_ID` and `PEAKCUT_IG_LOGIN_APP_SECRET`.
+If your Meta app already uses **API setup with Instagram login**, leave **Login configuration ID** (`PEAKCUT_IG_CONFIG_ID`)
+empty and keep `PEAKCUT_IG_APP_ID` / `PEAKCUT_IG_APP_SECRET` as your Instagram app ID and secret. PeakCut uses the
+existing Instagram Login flow when no configuration ID is set, and Facebook Login for Business (Unified Login) when
+one is configured. Accounts saved before Unified Login keep using `graph.instagram.com` automatically.
 
 ## Google setup (sign-in and YouTube)
 
