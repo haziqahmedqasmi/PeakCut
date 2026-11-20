@@ -689,14 +689,13 @@ class Session:
             return
         finally:
             lst.unlink(missing_ok=True)
-        # Only the gameplay layout uses a webcam, and only once the clip's own file is written: the
-        # webcam is looked for in it, once per stream.
-        if clip.get("layout") == "gameplay":
-            if not self.facecam_checked:
-                self.facecam_box = self._find_facecam(src)
-                self.facecam_checked = True
-            if self.facecam_box:
-                clip["facecam"] = self.facecam_box
+        # Looked for once per stream, in the clip's own piece of it, whatever layout this clip was made
+        # with: the answer stays on the stream, so a later clip or a re-make of this one can still use it.
+        if not self.facecam_checked:
+            self.facecam_box = self._find_facecam(src)
+            self.facecam_checked = True
+        if self.facecam_box:
+            clip["facecam"] = self.facecam_box
         dur = segs[-1][2] - segs[0][1]
         offset = self._align(src, segs[0][1] + self.clock_fix, dur)
         self.clock_fix = offset - segs[0][1]  # the two clocks drift ~4 s an hour; start the next clip from here
