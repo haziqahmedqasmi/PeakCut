@@ -76,9 +76,14 @@ If you prefer a file (or run a server), the same three things can go in `.env`. 
 
 ```ini
 PEAKCUT_AI_PROVIDER=gemini
-PEAKCUT_AI_MODELS=gemini-2.5-flash
+PEAKCUT_AI_MODELS=gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.5-flash
 PEAKCUT_AI_KEY=your-key-here
 ```
+
+**Which Gemini model.** `gemini-2.5-flash` and `gemini-2.5-flash-lite` no longer work with new keys ("no longer
+available to new users"), so pick a newer one. `gemini-3.5-flash-lite` is a good first choice: it answers in a second
+or two, picks good clips, and has the most generous free daily limit of the current models. List a second and third
+model after it, as above: when Google is busy ("high demand") or a limit is reached, the next one is tried.
 
 | `PEAKCUT_AI_PROVIDER` | Service | Where to get a key |
 |---|---|---|
