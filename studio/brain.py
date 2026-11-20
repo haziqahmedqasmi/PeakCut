@@ -154,7 +154,7 @@ def _tidy(c, s, e, game=None):
 
 def _same_word(old, new):
     """A caption fix may respell a word or turn it into digits. It may not swap in different words."""
-    a, b = re.sub(r"[^a-z0-9]", "", old.lower()), re.sub(r"[^a-z0-9]", "", new.lower())
+    a, b = re.sub(r"[^\w]|_", "", old.lower()), re.sub(r"[^\w]|_", "", new.lower())
     return (not b) or (any(ch.isdigit() for ch in b) and len(new) <= 12) or difflib.SequenceMatcher(None, a, b).ratio() >= 0.45
 
 

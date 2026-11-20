@@ -1,9 +1,10 @@
 """Hindi and Urdu captions come out in Roman letters (Hinglish): the same words at the same moments, never
 translated. The AI is replaced by a stand-in, so nothing leaves this machine."""
-import os, sys, tempfile
+import os, re, struct, sys, tempfile
+from pathlib import Path
 os.environ["PEAKCUT_DATA"] = tempfile.mkdtemp(prefix="pc-roman-"); os.environ["DATABASE_URL"] = ""
 sys.path.insert(0, ".")
-from studio import brain, roman
+from studio import brain, config, render, roman
 fails = []
 def check(n, ok, x=""):
     print(("PASS " if ok else "FAIL ") + n + (f"  {x}" if x and not ok else "")); ok or fails.append(n)
@@ -84,6 +85,109 @@ check("Hindi is never translated, only spelled in Roman letters", text(out) == "
 brain.ask_ai = by_purpose
 answers["now"] = ["Hello", "there", "friend."]
 check("English stays English", text(brain.english_captions(ws("hello there friend"), "en", "")) == "Hello there friend.")
+
+# ---- Cyrillic captions keep real Cyrillic and use the bundled Cyrillic fonts
+for sample in ("Привет мир", "Ёжик", "buster Привет"):
+    check(f"Cyrillic kept: {sample}",
+          roman.to_roman(sample) == sample and not roman.needs_roman(sample)
+          and roman.has_cyrillic(sample) and roman.drawable(sample),
+          roman.to_roman(sample))
+check("mixed Cyrillic and Greek keeps Cyrillic and spells out Greek",
+      roman.to_roman("Привет Ελλάδα") == "Привет Ellada", roman.to_roman("Привет Ελλάδα"))
+
+brain.ask_ai = no_ai
+cyr_src = ws("Привет мир Ёжик")
+check("without AI, Cyrillic captions stay in Cyrillic",
+      text(brain.fix_caption_words(cyr_src, "test", "en")) == "Привет мир Ёжик")
+brain.ask_ai = fake_ai
+answers["now"] = ["Привет,", "мир", "Ёжик!"]
+check("with AI, Cyrillic punctuation fixes are accepted",
+      text(brain.fix_caption_words(cyr_src, "", "en")) == "Привет, мир Ёжик!")
+answers["now"] = ["Hello", "world", "Hedgehog"]
+check("with AI, an English rewrite of Cyrillic words is refused",
+      text(brain.fix_caption_words(cyr_src, "", "en")) == "Привет мир Ёжик")
+cyr_clip = brain._tidy({"hook": "это безумие", "title": "Привет мир", "description": "Ёжик",
+                        "highlight_words": ["Привет", "buster"], "score": 90}, 1, 20)
+check("hook, title, description and highlight words keep Cyrillic",
+      (cyr_clip["hook"], cyr_clip["title"], cyr_clip["description"], cyr_clip["highlight_words"])
+      == ("ЭТО БЕЗУМИЕ", "Привет мир", "Ёжик", ["Привет", "buster"]), str(cyr_clip))
+
+
+def _style_font(ass, style_name):
+    m = re.search(rf"^Style: {style_name},([^,]+),", ass, re.M)
+    return m.group(1) if m else ""
+
+
+def _cmap_codepoints(ttf_path: Path) -> set:
+    d = ttf_path.read_bytes()
+    n = struct.unpack(">H", d[4:6])[0]
+    tables = {}
+    for i in range(n):
+        tag, _, off, ln = struct.unpack(">4sIII", d[12 + 16 * i: 28 + 16 * i])
+        tables[tag] = (off, ln)
+    off, ln = tables[b"cmap"]
+    cm = d[off:off + ln]
+    cps = set()
+    for i in range(struct.unpack(">H", cm[2:4])[0]):
+        _, _, sub_off = struct.unpack(">HHI", cm[4 + 8 * i: 12 + 8 * i])
+        if struct.unpack(">H", cm[sub_off:sub_off + 2])[0] == 4:
+            seg2 = struct.unpack(">H", cm[sub_off + 6: sub_off + 8])[0]
+            seg = seg2 // 2
+            ends = struct.unpack(f">{seg}H", cm[sub_off + 14: sub_off + 14 + seg2])
+            starts = struct.unpack(f">{seg}H", cm[sub_off + 16 + seg2: sub_off + 16 + 2 * seg2])
+            for s, e in zip(starts, ends):
+                if s != 0xFFFF:
+                    cps.update(range(s, e + 1))
+    return cps
+
+
+# Cyrillic font selection across styles, mixed Latin+Cyrillic, highlights, and hooks
+ass_bounce = render.build_ass(ws("Привет мир Ёжик"), 0, 5, "ENGLISH HOOK", "bounce", [], 300, 1380)
+check("bounce selects Montserrat ExtraBold for Cyrillic captions while English hook keeps Poppins",
+      _style_font(ass_bounce, "Cap") == "Montserrat ExtraBold"
+      and _style_font(ass_bounce, "Hook") == "Poppins ExtraBold"
+      and "ПРИВЕТ" in ass_bounce and "ЁЖИК" in ass_bounce and "\\q0" not in ass_bounce,
+      f"Cap={_style_font(ass_bounce, 'Cap')} Hook={_style_font(ass_bounce, 'Hook')}")
+
+ass_hype = render.build_ass(ws("buster Привет"), 0, 5, "ЭТО БЕЗУМИЕ", "hype", ["Привет"], 300, 1380)
+check("hype selects Oswald Bold for mixed Latin+Cyrillic captions and highlights Cyrillic words",
+      _style_font(ass_hype, "Cap") == "Oswald Bold"
+      and _style_font(ass_hype, "Hook") == "Montserrat ExtraBold"
+      and "BUSTER" in ass_hype and "ПРИВЕТ" in ass_hype
+      and f"\\c&H{render.STYLES['hype']['strong']}&}}ПРИВЕТ" in ass_hype,
+      f"Cap={_style_font(ass_hype, 'Cap')} Hook={_style_font(ass_hype, 'Hook')}")
+
+ass_clean = render.build_ass(ws("buster Привет"), 0, 5, "", "clean", [], 300, 1380)
+check("clean selects Montserrat ExtraBold and keeps original Cyrillic case",
+      _style_font(ass_clean, "Cap") == "Montserrat ExtraBold"
+      and "buster" in ass_clean and "Привет" in ass_clean)
+
+# Purely Latin captions keep each style's original font unchanged
+for style_name, want_font in (("bounce", "Poppins ExtraBold"), ("hype", "Anton"), ("clean", "Poppins ExtraBold")):
+    ass_lat = render.build_ass(ws("Hello world niño été"), 0, 5, "BIG HOOK", style_name, [], 300, 1380)
+    check(f"Latin captions in {style_name} keep {want_font}",
+          _style_font(ass_lat, "Cap") == want_font and _style_font(ass_lat, "Hook") == "Poppins ExtraBold",
+          _style_font(ass_lat, "Cap"))
+check("Archivo Black stays unchanged for Latin and switches for Cyrillic",
+      render._font_for("Archivo Black", "Hello") == "Archivo Black"
+      and render._font_for("Archivo Black", "Привет") == "Montserrat ExtraBold")
+outside_cyr = [{"w": "Привет", "s": 0.0, "e": 0.5}, {"w": "Hello", "s": 5.0, "e": 5.5}]
+check("Cyrillic words outside the clip range do not change a Latin clip's font",
+      _style_font(render.build_ass(outside_cyr, 4.0, 7.0, "", "hype", [], 300, 1380), "Cap") == "Anton")
+
+# Bundled Cyrillic TTF files and OFL licenses exist on disk and cover Russian, Ukrainian, and Latin
+fonts_dir = Path(render.__file__).resolve().parent / "fonts"
+required_cps = (set(range(0x0410, 0x0450)) | {0x0401, 0x0451}
+                | {ord(c) for c in "ЄІЇҐєіїґABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"})
+render.install_fonts()
+for font_name, license_file in (("Montserrat ExtraBold", "OFL-montserrat.txt"), ("Oswald Bold", "OFL-oswald.txt")):
+    ttf = fonts_dir / render.FONT_FILES[font_name]
+    lic = fonts_dir / license_file
+    cps = _cmap_codepoints(ttf) if ttf.exists() else set()
+    missing = required_cps - cps
+    check(f"bundled {font_name} TTF and OFL licence exist and cover Cyrillic + Latin",
+          ttf.exists() and lic.exists() and not missing and (config.FONTS_DIR / ttf.name).exists(),
+          f"missing={len(missing)}")
 
 print("ALL PASSED" if not fails else f"{len(fails)} failed")
 import shutil; shutil.rmtree(os.environ["PEAKCUT_DATA"], ignore_errors=True)

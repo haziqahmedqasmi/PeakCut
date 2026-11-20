@@ -21,8 +21,18 @@ STYLES = {
 }
 HOOK = {"font": "Poppins ExtraBold", "size": 96, "ink": "14100E", "box": "FFFFFF", "pad_x": 36, "pad_y": 22, "radius": 26,
         "max_w": 900}
-FONT_FILES = {"Poppins ExtraBold": "Poppins-ExtraBold.ttf", "Anton": "Anton-Regular.ttf", "Archivo Black": "ArchivoBlack-Regular.ttf"}
+FONT_FILES = {"Poppins ExtraBold": "Poppins-ExtraBold.ttf", "Anton": "Anton-Regular.ttf", "Archivo Black": "ArchivoBlack-Regular.ttf",
+              "Montserrat ExtraBold": "Montserrat-ExtraBold.ttf", "Oswald Bold": "Oswald-Bold.ttf"}
+# Cyrillic stand-ins for bundled fonts that only cover Latin, matched by weight and width.
+CYRILLIC_FONTS = {"Poppins ExtraBold": "Montserrat ExtraBold", "Anton": "Oswald Bold", "Archivo Black": "Montserrat ExtraBold"}
 CAP_MAX_W = 960   # captions never run wider than this, whatever is said
+
+
+def _font_for(name: str, *texts) -> str:
+    """Use a Cyrillic-capable bundled font when text has Cyrillic letters and the style's font lacks them."""
+    if name in CYRILLIC_FONTS and any(roman.has_cyrillic(t) for t in texts):
+        return CYRILLIC_FONTS[name]
+    return name
 
 
 class _Font:
@@ -96,7 +106,7 @@ def _clean(text):
 
 
 def _key(word):
-    return re.sub(r"[^a-z0-9']", "", word.lower())
+    return re.sub(r"[^\w']|_", "", word.lower())
 
 
 def _groups(words, per):
@@ -132,9 +142,9 @@ def geometry(src_w, src_h, layout):
     return layout, fg_h, max(230, top - 190), min(1640, top + fg_h + 180)
 
 
-def _hook_events(hook, dur, y):
+def _hook_events(hook, dur, y, font=None):
     """The heading: dark text in a white rounded box that fits it, on one line or two balanced ones."""
-    f, size = _Font.get(HOOK["font"]), HOOK["size"]
+    f, size = _Font.get(font or HOOK["font"]), HOOK["size"]
     words = hook.split()
     if not words:
         return []
@@ -167,6 +177,11 @@ def build_ass(words, start, end, hook, style_name, highlight, hook_y, cap_y) -> 
     st = STYLES.get(style_name, STYLES["bounce"])
     words = [dict(w, s=w["s"] - CAPTION_LEAD, e=w["e"] - CAPTION_LEAD) for w in words]
     strong = {_key(h) for h in highlight if _key(h)}
+    hook_text = _clean(hook)
+    inside = [dict(w, w=_clean(w["w"])) for w in words if w["s"] >= start - 0.05 and w["s"] < end]
+    inside = sorted((w for w in inside if w["w"]), key=lambda w: w["s"])
+    cap_font = _font_for(st["font"], *(w["w"] for w in inside))
+    hook_font = _font_for(HOOK["font"], hook_text)
     head = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {W}
@@ -176,17 +191,15 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cap,{st['font']},{st['size']},&H00{st['base']},&H00{st['base']},&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,{st['outline']},0,5,0,0,0,1
-Style: Hook,{HOOK['font']},{HOOK['size']},&H00{HOOK['ink']},&H00{HOOK['ink']},&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1
+Style: Cap,{cap_font},{st['size']},&H00{st['base']},&H00{st['base']},&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,{st['outline']},0,5,0,0,0,1
+Style: Hook,{hook_font},{HOOK['size']},&H00{HOOK['ink']},&H00{HOOK['ink']},&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     dur = end - start
-    ev = _hook_events(_clean(hook), dur, hook_y)
-    f = _Font.get(st["font"])
-    inside = [dict(w, w=_clean(w["w"])) for w in words if w["s"] >= start - 0.05 and w["s"] < end]
-    inside = sorted((w for w in inside if w["w"]), key=lambda w: w["s"])
+    ev = _hook_events(hook_text, dur, hook_y, hook_font)
+    f = _Font.get(cap_font)
     for i, w in enumerate(inside[:-1]):
         w["e"] = max(w["s"], min(w["e"], inside[i + 1]["s"]))
     groups = _groups(inside, st["per"])

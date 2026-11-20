@@ -20,9 +20,9 @@ def events(ass):
             out.append((a, b, l))
     return out
 
-# ---- letters the caption fonts do not have
-check("Russian-style letters are spelled in Roman letters", roman.to_roman("Привет, Москва"), "Privet, Moskva")
-check("Greek too", roman.to_roman("Ελλάδα"), "Ellada")
+# ---- letters the caption fonts do and do not have
+check("Cyrillic letters are left alone and can be drawn", (roman.to_roman("Привет, Москва"), roman.drawable("Привет, Москва")), ("Привет, Москва", True))
+check("Greek letters are spelled in Roman letters", roman.to_roman("Ελλάδα"), "Ellada")
 check("Korean too", roman.to_roman("안녕하세요"), "annyeonghaseyo")
 check("accented Latin letters are left alone and can be drawn", (roman.to_roman("niño été"), roman.drawable("niño été")), ("niño été", True))
 check("Japanese cannot be drawn by the caption fonts", roman.drawable("こんにちは"), False)
