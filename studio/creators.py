@@ -6,7 +6,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import config, ctx
+from . import config, ctx, post_text
 
 
 def _root() -> Path:
@@ -20,7 +20,7 @@ DEFAULTS = {"name": "", "channel": "", "style": "bounce", "layout": "blur", "cap
             "game": "", "hook_text": "", "description_text": "",
             "trigger_words": "clip that, clip it",
             "autopost": False, "accounts": [], "post_min_score": 75, "post_gap_min": 45, "daily_cap": 6,
-            "privacy": "public", "post_footer": "", "rate_per_1k": 0.0, "channels": {}}
+            "privacy": "public", "post_footer": "", "credit_name": "", "live_clip_interval_sec": 0, "live_quality_mode": False, "require_credit": False, "live_review_min": 10, "live_focus": "", "post_gap_seconds": 0, "credit_handle": "", "credit_tiktok_handle": "", "credit_hashtag": "", "post_hashtags": "", "rate_per_1k": 0.0, "channels": {}}
 PLATFORMS = ("youtube", "twitch", "kick")
 
 
@@ -57,7 +57,7 @@ def _fix(c: dict) -> dict:
         c["channel"] = next((ch[k] for k in PLATFORMS if k in ch), "")
     return c
 NUMERIC = {"min_len": (5, 120), "max_len": (10, 180), "max_clips": (1, 20), "min_score": (0, 100), "buffer_min": (5, 120), "live_per_hour": (1, 60), "ai_every_min": (1, 30), "auto_jump_pct": (20, 300), "must_clip_min": (0, 240), "min_gap_min": (0, 60),
-           "post_min_score": (0, 100), "post_gap_min": (5, 1440), "daily_cap": (1, 50)}
+           "live_review_min": (10, 15), "live_clip_interval_sec": (0, 3600), "post_gap_seconds": (0, 86400), "post_min_score": (0, 100), "post_gap_min": (5, 1440), "daily_cap": (0, 5000)}
 
 
 def root(cid) -> Path:
@@ -69,10 +69,10 @@ def root(cid) -> Path:
 def _clean(data: dict) -> dict:
     out = {}
     for k in DEFAULTS:
-        if k == "captions":
+        if k in ("captions", "live_quality_mode", "require_credit"):
             if k in data:
                 if not isinstance(data[k], bool):
-                    raise ValueError("Captions must be on or off.")
+                    raise ValueError(k.replace("_", " ").capitalize() + " must be on or off.")
                 out[k] = data[k]
             continue
         if k not in data or data[k] is None:
@@ -87,6 +87,23 @@ def _clean(data: dict) -> dict:
             v = {p: str(u).strip()[:300] for p, u in (v.items() if isinstance(v, dict) else []) if p in PLATFORMS and str(u).strip()}
         elif k == "accounts":
             v = [str(x) for x in v][:20] if isinstance(v, list) else []
+        elif k == "credit_name":
+            v = str(v).strip()
+            if v and not re.fullmatch(r"[\w .'-]{1,40}", v):
+                raise ValueError("Creator's on-screen name must be at most 40 letters, numbers, spaces or plain punctuation.")
+        elif k in ("credit_handle", "credit_tiktok_handle"):
+            v = post_text.token(v, "@", "Creator mention")
+        elif k == "credit_hashtag":
+            v = post_text.token(v, "#", "Creator hashtag")
+        elif k == "post_hashtags":
+            v = str(v).strip()
+            parts = re.split(r"[,\s]+", v) if v else []
+            for part in parts:
+                post_text.token(part, "#", "Required hashtag")
+            tags = post_text.hashtags(parts)
+            if len(tags) > 10:
+                raise ValueError("Use at most 10 extra required hashtags.")
+            v = " ".join("#" + t for t in tags)
         elif k == "hook_text":
             v = clean_hook(v)
         elif k == "description_text":

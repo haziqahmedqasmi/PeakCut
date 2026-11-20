@@ -333,7 +333,7 @@ def call(model: str, prompt: str, schema: dict, timeout: float | None = None):
     return {"gemini": _gemini, "openai": _openai, "anthropic": _anthropic}[how](model, prompt, schema, timeout)
 
 
-def see(prompt: str, image: bytes, timeout: float | None = None) -> tuple[str, int, int]:
+def see(prompt: str, image: bytes, timeout: float | None = None, max_tokens: int = 300) -> tuple[str, int, int]:
     """Ask one model about one picture: (the answer as text, tokens in, tokens out).
 
     Nothing is broken by a service that cannot look at pictures, or a model that is only text: the answer
@@ -358,7 +358,7 @@ def see(prompt: str, image: bytes, timeout: float | None = None) -> tuple[str, i
         sent = int(u.get("promptTokenCount") or 0)
         return text, sent, max(0, int(u.get("totalTokenCount") or 0) - sent)
     if how == "anthropic":
-        body = {"model": model, "max_tokens": 300, "messages": [{"role": "user", "content": [
+        body = {"model": model, "max_tokens": max_tokens, "messages": [{"role": "user", "content": [
             {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}},
             {"type": "text", "text": prompt}]}]}
         r = httpx.post(f"{base_url()}/messages", json=body, timeout=timeout or 120,

@@ -1728,13 +1728,13 @@ function liveHtml(j) {
         <button class="btn" data-act="clipnow" data-j="${j.id}" data-s="60">Last 60s</button>
         <button class="btn danger" data-act="stoplive" data-j="${j.id}">${ic("stop")}Stop</button></div></div>
     <div class="stats"><div class="stat"><b>${fmt(L.elapsed)}</b><span>Recorded</span></div><div class="stat"><b>${Math.round(L.buffer_sec / 60)} min</b><span>Kept in buffer</span></div>
-      <div class="stat">${everyPick(j.creator, L.every_min ?? 3)}<span>${L.every_min === 0 ? (L.auto?.warming ? "AI checks: learning the stream" : L.auto?.waiting ? "AI checks: jump spotted, checking soon" : `AI checks on jumps · ${L.auto?.spikes || 0} so far`) : "AI checks every"}</span></div>
+      <div class="stat">${L.quality_mode ? `<b>${L.review_min} min</b>` : everyPick(j.creator, L.every_min ?? 3)}<span>${L.quality_mode ? (L.review_busy ? "Reviewing buffered video…" : `Quality review · next in ${fmt(L.next_review_sec || 0)}`) : L.every_min === 0 ? (L.auto?.warming ? "AI checks: learning the stream" : L.auto?.waiting ? "AI checks: jump spotted, checking soon" : `AI checks on jumps · ${L.auto?.spikes || 0} so far`) : "AI checks every"}</span></div>
       <div class="stat"><b>${L.checks}</b><span>AI calls${L.skipped ? ` · ${L.skipped} skipped` : ""}${L.rejected ? ` · ${L.rejected} turned down` : ""}</span></div><div class="stat"><b>${j.clips.length}</b><span>Clips so far</span></div>
       ${L.pending_clips ? `<div class="stat"><b>${L.pending_clips}</b><span>Hand clip being prepared</span></div>` : ""}</div>
     <div class="meters">
       <div class="meter"><h4>Loudness, last minute</h4>${spark(L.level, "", -55, -8)}</div>
       ${L.chat ? `<div class="meter"><h4>Chat messages per second</h4>${spark(L.chat, "chat", 0, Math.max(4, ...L.chat))}</div>` : ""}
-      <div class="meter"><h4>Latest AI decisions</h4><div class="said" style="justify-content:flex-start;color:var(--text)">${(L.verdicts || []).length ? L.verdicts.slice(0, 4).map(v => `<div>${fmt(v.t)} · ${v.transcript != null ? "words " + v.transcript : ""}${v.reaction != null ? " · reaction " + v.reaction : ""} · <span class="sub">${esc(v.result)}</span></div>`).join("") : "<div class='sub'>First check soon…</div>"}</div></div>
+      <div class="meter"><h4>Latest AI decisions</h4><div class="said" style="justify-content:flex-start;color:var(--text)">${(L.verdicts || []).length ? L.verdicts.slice(0, 4).map(v => `<div>${fmt(v.t)} · ${v.transcript != null ? (L.quality_mode ? "quality " : "words ") + v.transcript : ""}${v.reaction != null ? " · reaction " + v.reaction : ""} · <span class="sub">${esc(v.result)}</span></div>`).join("") : "<div class='sub'>First check soon…</div>"}</div></div>
       <div class="meter"><h4>What was just said</h4><div class="said">${L.lines.length ? L.lines.map(t => `<div>${esc(t)}</div>`).join("") : "<div>Listening…</div>"}</div></div>
     </div>${j.error ? `<div class="err">${esc(j.error)}</div>` : ""}</div>
     ${j.clips.length ? `<div class="grid" style="margin-bottom:28px">${[...j.clips].reverse().map(c => clipHtml(j, c)).join("")}</div>` : ""}`;
@@ -1856,17 +1856,26 @@ function drawCreatorForm() {
   box.innerHTML = `<div class="card"><h2>Their stream</h2><p class="help">Where to record from, and whether to start by itself.</p>
       <div class="chans">${channelRows(c)}</div>
       <div class="fields" style="margin-top:14px"><label class="sw span"><input type="checkbox" data-k="auto_watch" ${c.auto_watch ? "checked" : ""}><span>Record automatically when they go live<small>Checks straight away, then every two minutes.</small></span></label></div></div>
-    <div class="card"><h2>How the AI decides</h2><p class="help">Two separate AI checks. The words judge reads only what was said. The reaction judge sees only how loud the streamer got and how busy chat was, never the words.</p>
-      <div class="fields">
-        <label class="f">Check the live stream every<select data-k="ai_every_min">${opts({1:"1 minute", 2:"2 minutes", 3:"3 minutes", 5:"5 minutes", 10:"10 minutes"}, c.ai_every_min || 3)}</select><small class="sub" id="costhint" style="font-weight:400">${costHint(c.ai_every_min)}</small></label>
-        <p class="help span" style="margin:0">On top of that, the AI always looks straight away when the stream suddenly gets louder or chat gets busier, and when someone says "clip" or "clip it".</p>
+    <div class="card"><h2>How the AI decides</h2>
+      <label class="sw"><input type="checkbox" data-k="live_quality_mode" ${c.live_quality_mode ? "checked" : ""}><span>Review buffered video for quality<small>Skip weak moments. Make a clip only when two video checks approve it.</small></span></label>
+      <p class="help">${c.live_quality_mode ? "Record a full batch, then review sampled video frames and speech together. A closer video check must confirm the hook, game relevance and creator focus. Ads, breaks, idle footage and unrelated content are skipped. Empty batches produce no clips. Analysis and rendering add delay; virality is never guaranteed." : "Choose quality review above, or use the original highlight and interval controls below."}</p>
+      <div class="fields">${c.live_quality_mode ? `
+        <label class="f">Review a new batch every<select data-k="live_review_min">${opts({10:"10 minutes", 15:"15 minutes"}, c.live_review_min || 10)}</select></label>
+        <label class="f">Most quality clips per hour<input data-k="live_per_hour" type="number" min="1" max="60" value="${c.live_per_hour}"></label>
+        <label class="f span">Content to look for<input data-k="live_focus" value="${esc(c.live_focus || "")}" maxlength="300" placeholder="Strong GTA / Vice City gameplay and genuine reactions"><small class="sub">The title alone does not establish which game is being played. Uncertain or unrelated footage is rejected.</small></label>
+        <label class="f">Minimum quality score<input data-k="min_score" type="number" min="90" max="100" value="${Math.max(90,c.min_score)}"><small class="sub">Both reviews must score at least 90. There is no forced minimum output.</small></label>
+        <label class="f">Minimum gap between selected moments (minutes)<input data-k="min_gap_min" type="number" min="0" max="60" value="${c.min_gap_min}"></label>
+        <p class="help span">Quality review overrides fixed intervals, automatic spoken triggers and forced clips. One candidate at most per batch. The previous minute overlaps the next review so a moment can cross a batch boundary; duplicates are rejected. Unsaved buffer footage expires after the retention period below. Manual clip buttons remain available.</p>
+      ` : `        <label class="f">Check the live stream every<select data-k="ai_every_min">${opts({1:"1 minute", 2:"2 minutes", 3:"3 minutes", 5:"5 minutes", 10:"10 minutes"}, c.ai_every_min || 3)}</select><small class="sub" id="costhint" style="font-weight:400">${c.live_clip_interval_sec ? "Title and caption requests follow the interval below." : costHint(c.ai_every_min)}</small></label>
+        <p class="help span" style="margin:0">${c.live_clip_interval_sec ? "Each complete interval is clipped without a spoken trigger. AI title and caption requests, rendering time, upload time and platform quotas affect when it is published." : 'On top of that, the AI looks straight away when the stream suddenly gets louder or chat busier, or someone asks for a clip.'}</p>
+        <label class="f">Automatic clip interval (seconds)<input data-k="live_clip_interval_sec" type="number" min="0" max="3600" value="${c.live_clip_interval_sec || 0}"><small class="sub">0 uses highlight detection. 30 creates consecutive 30-second clips, generates titles and captions, and bypasses spoken triggers and score thresholds.</small></label>
         <label class="f">Most live clips per hour<input data-k="live_per_hour" type="number" min="1" max="60" value="${c.live_per_hour}"></label>
         <label class="f">Make a clip when<select data-k="decide_mode">${opts({both:"Both judges say yes", either:"Both say yes, or the words judge is very sure (90+)"}, c.decide_mode)}</select></label>
         <label class="f">Words judge must score at least<input data-k="min_score" type="number" min="0" max="100" value="${c.min_score}"></label>
         <label class="f">Make sure there's a live clip at least every<select data-k="must_clip_min">${opts({0:"Off", 15:"15 minutes", 30:"30 minutes", 60:"1 hour", 120:"2 hours"}, c.must_clip_min)}</select></label>
         <label class="f">Minimum gap between live clips (minutes)<input data-k="min_gap_min" type="number" min="0" max="60" value="${c.min_gap_min}"></label>
         <label class="f span">Always clip the last 30 seconds when someone says<input data-k="trigger_words" value="${esc(c.trigger_words)}" placeholder="clip that, clip it"><small class="sub" style="font-weight:400">Separate phrases with commas. Matched on the transcript, so it needs no AI call.</small></label>
-      </div></div>
+`}</div></div>
     <div class="card"><h2>Clips</h2><p class="help">How this creator's clips look.</p>
       <div class="fields"><label class="sw span"><input type="checkbox" data-k="captions" data-caption-toggle ${c.captions === false ? "" : "checked"}>Generate captions</label>
         <label class="f">Caption style<select data-k="style" data-caption-style ${c.captions === false ? "disabled" : ""}>${opts(S.status.styles, c.style)}</select></label>
@@ -1877,15 +1886,23 @@ function drawCreatorForm() {
         <label class="f">Clips per video<input data-k="max_clips" type="number" value="${c.max_clips}"></label>
         <label class="f span">Big text on every clip<input data-k="hook_text" maxlength="60" value="${esc(c.hook_text || "")}" placeholder="Left empty, the AI writes a different one for each clip"><small class="sub" style="font-weight:400">For a campaign that asks for a set line on every clip. It is shown exactly as typed.</small></label>
         <label class="f span">Description for every clip<textarea data-k="description_text" rows="3" maxlength="2000" placeholder="Left empty, the AI writes a different one for each clip">${esc(c.description_text || "")}</textarea><small class="sub" style="font-weight:400">Written once, used as the description of every clip of this creator, exactly as typed. It is posted as it is, without the AI's hashtags.</small></label>
-        <label class="f">Minutes of live stream to keep<input data-k="buffer_min" type="number" value="${c.buffer_min}"></label></div></div>
+        <label class="f">Minutes of live stream to keep<input data-k="buffer_min" type="number" value="${c.buffer_min}"><small class="sub">Quality mode keeps at least the review batch plus 5 minutes for analysis. Selected clips are saved separately.</small></label></div></div>
     <div class="card"><h2>Posting</h2><p class="help">${A.length ? "Choose the accounts this creator's clips go to. One account can be shared by several creators." : "No accounts are connected yet. Connect one in Settings, then come back."}</p>
       ${A.length ? `<div class="row" style="margin-bottom:16px">${A.map(a => `<label class="ck"><input type="checkbox" data-acc value="${esc(a.id)}" ${c.accounts.includes(a.id) ? "checked" : ""}>${esc(a.label)} · ${esc(a.name)}</label>`).join("")}</div>` : `<button class="btn" data-act="go" data-v="settings" style="margin-bottom:16px">${ic("cog")}Open Settings</button>`}
       <div class="fields"><label class="sw span"><input type="checkbox" data-k="autopost" ${c.autopost ? "checked" : ""}><span>Post new clips automatically<small>Clips that score high enough go out without you approving them.</small></span></label>
         <label class="f">Only auto-post clips scoring at least<input data-k="post_min_score" type="number" min="0" max="100" value="${c.post_min_score}"></label>
         <label class="f">Minutes between posts on one account<input data-k="post_gap_min" type="number" value="${c.post_gap_min}"></label>
-        <label class="f">Most posts per account per day<input data-k="daily_cap" type="number" value="${c.daily_cap}"></label>
+        <label class="f">Post spacing in seconds<input data-k="post_gap_seconds" type="number" min="0" max="86400" value="${c.post_gap_seconds || 0}"><small class="sub">0 uses the minutes setting. Upload and rendering time can delay a post.</small></label>
+        <label class="f">Most posts per account per day<input data-k="daily_cap" type="number" min="0" max="5000" value="${c.daily_cap}"><small class="sub">0 removes PeakCut's daily cap. Platform quotas still apply.</small></label>
         <label class="f">Who can see posts (YouTube, TikTok)<select data-k="privacy">${opts({public:"Public", unlisted:"Unlisted", private:"Private"}, c.privacy)}</select></label>
         <label class="f">Campaign pay per 1,000 views ($)<input data-k="rate_per_1k" type="number" step="0.1" min="0" value="${c.rate_per_1k}"></label>
+        <p class="help span">Every upload requires the creator's exact platform mention and hashtag below. PeakCut adds them to the description and blocks posting while either is missing. Credit is kept even when the rest of the description is shortened. Game hashtags are added from the Game setting or the video's detected game.</p>
+        <label class="sw span"><input type="checkbox" data-k="require_credit" ${c.require_credit ? "checked" : ""}><span>Require creator credit before publishing<small>Missing credit blocks publishing even if the credit fields are later cleared. Configuring credit fields also enables checks.</small></span></label>
+        <label class="f span">Required creator name on screen<input data-k="credit_name" value="${esc(c.credit_name || "")}" placeholder="LACY" maxlength="40"><small class="sub">Added to the clip's on-screen heading and description. Previously rendered clips must be rendered again before posting.</small></label>
+        <label class="f">Creator mention on YouTube / Instagram (required)<input data-k="credit_handle" value="${esc(c.credit_handle || "")}" placeholder="@creator" maxlength="101"></label>
+        <label class="f">Creator mention on TikTok (required for TikTok)<input data-k="credit_tiktok_handle" value="${esc(c.credit_tiktok_handle || "")}" placeholder="@creator" maxlength="101"></label>
+        <label class="f">Creator hashtag (required)<input data-k="credit_hashtag" value="${esc(c.credit_hashtag || "")}" placeholder="#creator" maxlength="101"></label>
+        <label class="f span">Extra required hashtags<input data-k="post_hashtags" value="${esc(c.post_hashtags || "")}" placeholder="#GTA6 #GTAVI #GrandTheftAutoVI"><small class="sub">Separate tags with spaces or commas. GTA 6 clips also receive #GTA6, #GTAVI, #GrandTheftAutoVI and #RockstarGames.</small></label>
         <label class="f span">Line added to every post (credit, campaign tag)<input data-k="post_footer" value="${esc(c.post_footer)}" placeholder="Clipped from @streamer"></label></div></div>
     <div class="card danger-card"><h2>Delete this creator</h2><p class="help">Removes ${esc(c.name)}, their settings and every video and clip filed under them. This cannot be undone.</p>
       <button class="btn danger" data-act="delcreator">${ic("trash")}Delete creator</button></div>
@@ -1933,10 +1950,12 @@ function nextSteps(o) {
 }
 function drawOverview() {
   const o = S.overview, box = $("#ov"); if (!o || !box) return;
+  const platformNames = {youtube:"YouTube", instagram:"Instagram", tiktok:"TikTok"};
+  const pausedPlatforms = o.paused_platforms || [];
   const sum = k => o.creators.reduce((a, r) => a + r[k], 0);
   const d14 = k => (o.daily || []).reduce((a, d) => a + d[k], 0);
   const state = r => r.state === "recording" ? `<span class="pill live"><span class="dot"></span>Recording</span>` : r.state === "waiting" ? `<span class="pill warn">Waiting for live</span>` : `<span class="pill">Idle</span>`;
-  const pst = p => p.status === "posted" ? `<span class="pill ok">Posted</span>` : p.status === "failed" ? `<span class="pill bad">Failed</span>` : p.status === "posting" ? `<span class="pill warn">Posting now</span>` : `<span class="pill warn">${clock(p.due_at)}</span>`;
+  const pst = p => p.status === "posted" ? `<span class="pill ok">Posted</span>` : p.status === "failed" ? `<span class="pill bad">Failed</span>` : p.status === "publishing" ? `<span class="pill warn">Publishing in Buffer</span>` : p.status === "posting" ? `<span class="pill warn">Posting now</span>` : `<span class="pill warn">${clock(p.due_at)}</span>`;
   const steps = nextSteps(o);
   put(box, `<div class="tiles">
       <div class="tile"><i>${ic("radio")}</i><b>${o.recording}</b><span>Recording now</span></div>
@@ -1959,6 +1978,8 @@ function drawOverview() {
       : `<div class="empty"><img src="/brand/favicon.svg" alt=""><b>No creators yet</b>Add one to give each streamer their own workspace.</div>`}</div>
     <div class="card"><div class="card-head"><div><h2>Post queue</h2><p class="sub">${o.paused ? "Paused. Recording and clipping carry on; nothing is posted." : "Queued clips go out at their scheduled time."}</p></div>
         <button class="btn ${o.paused ? "primary" : ""}" data-act="pause">${ic(o.paused ? "play" : "pause")}${o.paused ? "Resume posting" : "Pause all posting"}</button></div>
+      <div class="row" style="margin-bottom:12px">${[...new Set(S.accounts.map(a => a.platform))].map(p => `<button class="btn sm" data-act="platformpause" data-p="${esc(p)}">${pausedPlatforms.includes(p) ? "Resume" : "Pause"} ${platformNames[p] || esc(p)}</button>`).join("")}</div>
+      ${pausedPlatforms.length ? `<p class="help">Paused platforms: ${pausedPlatforms.map(p => platformNames[p] || esc(p)).join(", ")}. Their clips stay queued. Resuming also releases overdue clips.</p>` : ""}
       ${o.posts.length ? `<div class="scroll"><table class="stack"><tr><th>When</th><th>Clip</th><th>Creator</th><th>Account</th><th class="num">Views</th><th></th></tr>
       ${o.posts.map(p => `<tr><td data-l="Status">${pst(p)}</td><td data-l="Clip" class="c-main">${p.url ? `<a class="lnk" href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a>` : esc(p.title)}${p.error ? `<div class="err" style="margin:2px 0 0">${esc(p.error)}</div>` : ""}</td><td data-l="Creator">${esc(p.creator_name || "None")}</td><td data-l="Account">${esc(p.account_name)}</td><td data-l="Views" class="num">${p.views ?? "–"}</td>
         <td class="c-act" style="text-align:right">${p.status === "scheduled" ? `<button class="btn sm" data-act="pcancel" data-id="${p.id}">Cancel</button>` : p.status === "failed" ? `<button class="btn sm" data-act="pretry" data-id="${p.id}">Retry</button>` : ""}</td></tr>`).join("")}</table></div>`
@@ -2099,6 +2120,7 @@ async function drawSettings() {
       const tt = '<svg viewBox="0 0 24 24"><path fill="#fff" d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64c.3 0 .59.04.86.13v-3.5a6.37 6.37 0 0 0-.86-.05A6.34 6.34 0 0 0 3.15 15.7a6.34 6.34 0 0 0 10.86 4.43 6.3 6.3 0 0 0 1.81-4.43V8.73a8.2 8.2 0 0 0 4.77 1.52V6.8a4.85 4.85 0 0 1-1-.11z"/></svg>';
       const ok = S.status.connect || {}, admin = me.is_admin;
       const setup = admin ? await api("/api/apps").catch(() => null) : null;
+      const bf = await api("/api/buffer");
       const GUIDE = {
         youtube: ["https://console.cloud.google.com/apis/credentials", "Google Cloud",
           ["Create a project and turn on <b>YouTube Data API v3</b>.", "Create an <b>OAuth client ID</b> of type <b>Web application</b>.",
@@ -2134,7 +2156,24 @@ async function drawSettings() {
           ${card("youtube", "YouTube", yt, "#FF0000", "Post clips to your channel as Shorts.")}
           ${card("instagram", "Instagram", ig, "linear-gradient(45deg,#F58529,#DD2A7B,#8134AF)", "Post clips as Reels. Needs a Creator or Business account.")}
           ${card("tiktok", "TikTok", tt, "#000", "Post clips straight to your TikTok.")}
-        </div></section>${admin ? await ytCookiesCard(yt) : ""}`;
+        </div></section>
+        <section class="set-sec"><h2>TikTok via Buffer</h2>
+          <p class="help">Connect your TikTok account in <a href="https://publish.buffer.com" target="_blank" rel="noopener">Buffer</a>, then save your Buffer API key and <a href="https://console.cloudinary.com" target="_blank" rel="noopener">Cloudinary</a> credentials here. Selected videos are hosted at public HTTPS addresses so Buffer can publish them. Keys stay in your private local account settings.</p>
+          <div class="fields">
+            <label class="f">Buffer API key<input id="bf_buffer_key" type="password" autocomplete="off" placeholder="${bf.buffer_key ? "Saved; leave blank to keep" : "Paste API key"}"></label>
+            <label class="f">Cloudinary cloud name<input id="bf_cloud_name" value="${esc(bf.cloud_name)}" autocomplete="off"></label>
+            <label class="f">Cloudinary API key<input id="bf_cloud_key" type="password" autocomplete="off" placeholder="${bf.cloud_key ? "Saved; leave blank to keep" : "Paste API key"}"></label>
+            <label class="f">Cloudinary API secret<input id="bf_cloud_secret" type="password" autocomplete="off" placeholder="${bf.cloud_secret ? "Saved; leave blank to keep" : "Paste API secret"}"></label>
+            <label class="f span">TikTok hashtags (at most 5, including the creator hashtag)<input id="bf_hashtags" value="${esc(bf.hashtags)}" placeholder="#LACY #GTA6 #GTAVI #gta6online #gta5online"></label>
+            <label class="f">Minimum minutes between TikTok posts<input id="bf_gap_minutes" type="number" min="0" max="10080" value="${bf.gap_minutes}"><small class="sub">0 starts the next clip after the previous publication is confirmed. Saving updates waiting clips too.</small></label>
+            <label class="f">TikTok cap per rolling 24 hours<input id="bf_daily_cap" type="number" min="1" max="15" value="${bf.daily_cap}"></label>
+            <label class="f">Monthly hosting upload budget (MB)<input id="bf_monthly_mb" type="number" min="10" value="${bf.monthly_mb}"></label>
+          </div>
+          <p class="sub">YouTube keeps its own schedule. Automatic TikTok posting holds at most one waiting clip; an explicitly queued archive can contain more. Buffer posts publish publicly. Hosting usage includes storage and delivery too: check Cloudinary's dashboard before increasing the upload budget.</p>
+          <p class="sub">TikTok uploads run one at a time and pause if Buffer rejects a post or cannot confirm a submission. A faster pace can reduce reach; Buffer recommends 1–3 posts daily. Platform limits still apply.</p>
+          <div class="row"><button class="btn primary" data-act="buffersave">Save Buffer settings</button><button class="btn" data-act="bufferchannels">Find TikTok channels</button></div>
+          ${S.bufferChannels ? `<div class="fields"><label class="f">TikTok channel<select id="bf_channel">${S.bufferChannels.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("")}</select></label></div><button class="btn" data-act="bufferconnect" ${S.bufferChannels.length ? "" : "disabled"}>Connect selected channel</button>${S.bufferChannels.length ? "" : `<p class="sub">No connected TikTok channels found. Finish connecting TikTok inside Buffer first.</p>`}` : ""}
+        </section>${admin ? await ytCookiesCard(yt) : ""}`;
     }
   } catch (e) { body.innerHTML = `<div class="set-load">${esc(e.message)}</div>`; }
 }
@@ -2287,7 +2326,8 @@ document.addEventListener("change", async e => {
   if (t.closest("#cform") && t.type === "radio") { $$("#cform .plan").forEach(l => l.classList.toggle("on", l.contains(t))); return saveCreator(true); }
   if (!t.closest("#cform") || t.type !== "checkbox") return;
   if (t.dataset.k === "autopost" && t.checked && !await ask("Turn on auto-posting?", "Clips that score high enough will be posted to the ticked accounts without you seeing them first.", "Turn on")) { t.checked = false; return; }
-  saveCreator(true);
+  const saved = await saveCreator(true);
+  if (saved && t.dataset.k === "live_quality_mode") drawCreatorForm();
 });
 
 document.addEventListener("click", async e => {
@@ -2477,6 +2517,20 @@ document.addEventListener("click", async e => {
       await send("/api/apps", {platform: d.p, client_id: $("#app_id").value, client_secret: $("#app_secret").value}, "PUT");
       S.setupOpen = ""; S.status = await api("/api/status"); toast("Saved. People can connect now.", "ok"); return drawSettings();
     }
+    if (a === "buffersave") {
+      const data = {};
+      ["buffer_key", "cloud_name", "cloud_key", "cloud_secret", "hashtags", "gap_minutes", "daily_cap", "monthly_mb"].forEach(k => data[k] = $("#bf_" + k).value);
+      const result = await send("/api/buffer", data, "PUT"); S.bufferChannels = null; toast(result.rescheduled ? `Saved. Updated ${result.rescheduled} waiting clips.` : "Buffer settings saved", "ok"); return drawSettings();
+    }
+    if (a === "bufferchannels") {
+      b.disabled = true;
+      try { S.bufferChannels = await api("/api/buffer/channels"); return drawSettings(); }
+      finally { b.disabled = false; }
+    }
+    if (a === "bufferconnect") {
+      S.accounts = await send("/api/buffer/connect", {channel_id: $("#bf_channel").value});
+      toast("Connected. Pick this account in the creator's Setup to enable posting.", "ok"); return drawSettings();
+    }
     if (a === "bell") return openBell();
     if (a === "feedback") return openFeedback("bug");
     if (a === "report") return openFeedback("bug", d.ctx);
@@ -2486,6 +2540,11 @@ document.addEventListener("click", async e => {
     if (a === "csave") return void await saveCreator();
     if (a === "cdiscard") { drawCreatorForm(); return toast("Changes discarded"); }
     if (a === "pause") { await send("/api/settings", {paused:!S.overview.paused}, "PUT"); return loadOverview(); }
+    if (a === "platformpause") {
+      const paused = S.overview.paused_platforms || [];
+      const next = paused.includes(d.p) ? paused.filter(p => p !== d.p) : [...paused, d.p];
+      await send("/api/settings", {paused_platforms:next}, "PUT"); return loadOverview();
+    }
     if (a === "pcancel" || a === "pretry") { await api(`/api/posts/${d.id}/${a === "pcancel" ? "cancel" : "retry"}`, {method:"POST"}); return loadOverview(); }
     if (a === "ssave") { await saveSettings(); toast("Saved", "ok"); return drawSettings(); }
     if (a === "plansave") {
