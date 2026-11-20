@@ -1637,6 +1637,35 @@ def add_posts(body: dict = Body(...)):
     return {"queued": len(made)}
 
 
+@app.post("/api/posts/bulk")
+def add_posts_bulk(body: dict = Body(...)):
+    pairs, aids = body.get("clips"), body.get("accounts")
+    if not isinstance(pairs, list) or not 1 <= len(pairs) <= 150:
+        raise HTTPException(400, "Select between 1 and 150 ready clips.")
+    if not isinstance(aids, list) or not 1 <= len(aids) <= 20 or any(not isinstance(a, str) for a in aids):
+        raise HTTPException(400, "Choose between 1 and 20 connected accounts.")
+    aids = list(dict.fromkeys(aids))
+    if any(not accounts.get(aid) for aid in aids):
+        raise HTTPException(400, "An account is no longer connected. Choose the accounts again.")
+    # Check the whole selection first, so one missing clip does not queue half a batch.
+    ready = {}
+    for pair in pairs:
+        if not isinstance(pair, list) or len(pair) != 2 or any(not isinstance(p, str) or not p for p in pair):
+            raise HTTPException(400, "Select between 1 and 150 ready clips.")
+        jid, cid = pair
+        job = jobs.get(jid)
+        clip = next((c for c in job["clips"] if c["id"] == cid), None) if job else None
+        if not clip or clip.get("status") != "done":
+            raise HTTPException(404, "A selected clip is no longer ready. Refresh and select the clips again.")
+        ready[(jid, cid)] = (job, clip)
+    queued = clips = 0
+    for job, clip in ready.values():
+        made = posting.enqueue(job, clip, aids, now=bool(body.get("now")))
+        queued += len(made)
+        clips += bool(made)
+    return {"queued": queued, "clips": clips, "skipped": len(ready) - clips}
+
+
 @app.post("/api/posts/{pid}/{action}")
 def post_action(pid: str, action: str):
     try:

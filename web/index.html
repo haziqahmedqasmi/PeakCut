@@ -85,7 +85,7 @@ main{background:var(--bg);margin:8px 8px 8px 0;border-radius:var(--r-lg);height:
 .vb span{flex:1;min-width:0}
 .vb b{color:#5A2C06}
 @media (max-width:640px){.vb{margin:10px 16px 0;flex-wrap:wrap}}
-.topbar .titles{flex:1;min-width:0}
+.topbar .titles{flex:1 1 240px;min-width:0}
 #tpic:empty{display:none}
 #tpic img,#tpic .avatar{width:42px;height:42px;border-radius:50%;object-fit:cover;display:block;font-size:15px}
 #tpic span.avatar{background:var(--brand-soft);color:var(--brand-deep);display:grid;place-items:center;font-weight:700}
@@ -557,7 +557,8 @@ img.av{object-fit:cover}
 #selbar .btn.danger:hover{background:rgba(255,154,143,.14)}
 .danger-card{border-color:#F3C9C4}
 .danger-card h2{color:var(--bad)}
-.clip-foot{display:flex;gap:4px;align-items:center;margin-top:auto;padding-top:8px}
+.clip-foot{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:auto;padding-top:8px}
+.clip-foot>.btn{flex-shrink:0}
 
 /* ---------- live */
 .livecard{background:#fff;border:1px solid #F4C9CD;border-radius:var(--r);padding:20px;margin-bottom:28px}
@@ -612,6 +613,9 @@ dialog::backdrop{background:rgba(14,12,11,.42);animation:fadein .16s ease}
 .dlg{padding:24px;width:450px;max-width:100%;display:flex;flex-direction:column;gap:14px}
 .dlg h2{font-size:18px;font-weight:600;color:var(--brand-ink)}
 .dlg-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+.batch-post .dlg-foot{flex-wrap:wrap}
+.post-accounts{display:flex;flex-direction:column;gap:8px}
+.post-accounts label.ck{height:auto;min-height:36px;padding:8px 12px;overflow-wrap:anywhere}
 #clipdlg{width:1024px;max-height:calc(100dvh - 32px);overscroll-behavior:contain}
 .editor [hidden]{display:none!important}
 .editor-picker{display:flex;align-items:end;flex-wrap:wrap;gap:10px;margin-bottom:18px}
@@ -789,6 +793,7 @@ dialog[open]{animation:fadein .16s ease}
   main{margin:0;border-radius:0;height:100vh}
   .icon-btn.menu{display:grid}
   .topbar{padding:10px 16px;min-height:52px}
+  .topbar #actions{flex-basis:100%;justify-content:flex-start}
   .hero{padding:32px 16px 40px}
   .content{padding:20px 16px 56px}
   .edit-body{grid-template-columns:minmax(0,1fr)}
@@ -843,7 +848,7 @@ dialog[open]{animation:fadein .16s ease}
   .pick-menu{max-width:calc(100vw - 48px)}
   .content{padding:18px 14px 64px}
   .hero{padding:26px 14px 30px}.hero>p{font-size:14px;margin-bottom:16px}
-  .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:10px}
   .jt{gap:10px;align-items:flex-start}.jthumb{width:76px;border-radius:8px}.jthumb .du{font-size:10px;right:4px;bottom:4px}
   .job-head h3{font-size:14px}.job-head .sub{font-size:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .utabs{display:flex}.utabs .tabbtn{flex:1;justify-content:center;padding:0 8px}
@@ -1937,14 +1942,14 @@ function jobHtml(j) {
     ${j.error ? `<div class="err">${esc(i18n.detail(j.error))}<button class="rep" data-act="report" data-ctx="${esc(i18n.t("Video failed: ") + (j.title || j.source.name || "") + " | " + j.error)}">${i18n.html("Report this")}</button></div>` : ""}${j.ai?.note ? `<p class="sub">${esc(i18n.detail(j.ai.note))}</p>` : ""}
     ${j.clips.length ? `<div class="grid">${j.clips.map(c => clipHtml(j, c)).join("")}</div>` : ""}`;
 }
-/* ---- selecting several videos and clips: delete or download them together */
+/* ---- selecting several videos and clips */
 const sel = () => (S.sel = S.sel || new Set());
 function selParts() {
   const jobsSel = [], clipsSel = [];
   for (const k of sel()) { const p = k.split(":"); if (p[0] === "j") jobsSel.push(p[1]); else clipsSel.push([p[1], p[2]]); }
   return {jobsSel, clipsSel};
 }
-function selClips() {          // every finished clip the selection covers, for downloading
+function selClips() {          // every finished clip the selection covers
   const {jobsSel, clipsSel} = selParts(), out = new Map();
   jobsSel.forEach(id => (jobOf(id)?.clips || []).forEach(c => { if (c.status === "done") out.set(id + "." + c.id, 1); }));
   clipsSel.forEach(([j, c]) => { if (jobOf(j)?.clips.find(x => x.id === c)?.status === "done") out.set(j + "." + c, 1); });
@@ -1962,7 +1967,8 @@ function drawSelBar() {
   if (!n) return;
   put(bar, `<b>${i18n.html("{0} selected", n)}</b>
     <button class="btn sm" data-act="selall">${i18n.html("Select all")}</button>
-    <button class="btn sm primary" data-act="seldl" ${dl ? "" : "disabled"}>${ic("down")}${i18n.html("Download{0}", dl ? i18n.t(" {0} clip{1}", dl, dl === 1 ? "" : "s") : "")}</button>
+    <button class="btn sm primary" data-act="selpost" ${dl ? "" : "disabled"}>${ic("send")}${i18n.html("Post selected")}</button>
+    <button class="btn sm" data-act="seldl" ${dl ? "" : "disabled"}>${ic("down")}${i18n.html("Download{0}", dl ? i18n.t(" {0} clip{1}", dl, dl === 1 ? "" : "s") : "")}</button>
     <button class="btn sm danger" data-act="seldel">${ic("trash")}${i18n.html("Delete")}</button>
     <button class="btn sm" data-act="selclear">${i18n.html("Cancel")}</button>`);
 }
@@ -1971,6 +1977,69 @@ function zipDownload(ids) {
   if (ids.length > 150) return toast(i18n.t("That is a lot at once. Download up to 150 clips at a time."), "bad");
   toast(ids.length === 1 ? i18n.t("Preparing your clip…") : i18n.t("Preparing {0} clips as one download…", ids.length), "ok");
   const a = document.createElement("a"); a.href = "/api/clips.zip?ids=" + encodeURIComponent(ids.join(",")); a.download = ""; document.body.append(a); a.click(); a.remove();
+}
+function defaultPostAccounts(jobIds) {
+  const groups = [...new Set(jobIds)].map(id => S.creators.find(c => c.id === jobOf(id)?.creator)?.accounts || []);
+  const common = S.accounts.filter(a => groups.length && groups.every(ids => ids.includes(a.id))).map(a => a.id);
+  return common.length ? common : S.accounts.length === 1 ? [S.accounts[0].id] : [];
+}
+function postAccountChoices(selected, attribute) {
+  return S.accounts.map(a => `<label class="ck"><input type="checkbox" data-${attribute} value="${esc(a.id)}" ${selected.includes(a.id) ? "checked" : ""}>${esc(a.label)} · ${esc(a.name)}</label>`).join("");
+}
+function updatePostButtons(root, attribute = "pacc") {
+  const count = $$(`[data-${attribute}]:checked`, root).filter(i => S.accounts.some(a => a.id === i.value)).length;
+  const busy = root.dataset.posting === "true";
+  for (const button of $$("[data-act=postnow], [data-act=postqueue], [data-act=batchnow], [data-act=batchqueue]", root)) {
+    button.disabled = busy || !count || root.dataset.postReady === "false";
+  }
+  const hint = $("[data-posthint]", root);
+  if (hint) hint.textContent = count ? i18n.t("Selected accounts: {0}", count) : i18n.t("Choose at least one account below.");
+}
+function openBatchPost() {
+  const clips = selClips().map(key => key.split("."));
+  if (!clips.length) return toast(i18n.t("Select at least one ready clip."), "bad");
+  if (clips.length > 150) return toast(i18n.t("Select up to 150 clips to post at a time."), "bad");
+  const dialog = $("#formdlg"), selected = defaultPostAccounts(clips.map(([jid]) => jid));
+  dialog.postBatch = {clips};
+  dialog.dataset.posting = "false";
+  dialog.dataset.postReady = "true";
+  dialog.innerHTML = `<form method="dialog" class="dlg batch-post"><h2>${i18n.html("Post selected")}</h2>
+    <p>${i18n.html("Ready clips: {0}", clips.length)}</p>
+    <p class="help">${i18n.html("Every selected clip will go to the accounts you choose below. Clips already queued or posted to an account are skipped.")}</p>
+    ${S.accounts.length ? `<h3>${i18n.html("Choose accounts")}</h3><p class="help" data-posthint role="status"></p>
+      <div class="post-accounts">${postAccountChoices(selected, "bpacc")}</div>
+      <p class="help">${i18n.html("Add to queue follows each creator's posting interval and daily limit.")}</p>`
+      : `<p class="help">${i18n.html("No accounts connected yet. Connect one in Social networks.")}</p><button type="button" class="btn" data-act="batchsocial">${i18n.html("Open Social networks")}</button>`}
+    <p class="err" data-batch-error role="alert" hidden></p>
+    <div class="dlg-foot"><button class="btn" value="no">${i18n.html("Cancel")}</button>
+      ${S.accounts.length ? `<button type="button" class="btn" data-act="batchqueue">${i18n.html("Add to queue")}</button>
+        <button type="button" class="btn primary" data-act="batchnow">${ic("send")}${i18n.html("Post now")}</button>` : ""}</div></form>`;
+  dialog.onclose = () => { dialog.postBatch = null; };
+  dialog.returnValue = "no";
+  updatePostButtons(dialog, "bpacc");
+  dialog.showModal();
+}
+async function submitBatchPost(now) {
+  const dialog = $("#formdlg"), batch = dialog.postBatch;
+  if (!batch || dialog.dataset.posting === "true") return;
+  const accounts = $$("[data-bpacc]:checked", dialog).map(i => i.value);
+  if (!accounts.length) return updatePostButtons(dialog, "bpacc");
+  dialog.dataset.posting = "true";
+  updatePostButtons(dialog, "bpacc");
+  const error = $("[data-batch-error]", dialog);
+  error.hidden = true;
+  try {
+    const r = await send("/api/posts/bulk", {clips:batch.clips, accounts, now});
+    if (dialog.postBatch === batch) dialog.close();
+    toast(r.queued ? i18n.t("Queued {0} posts from {1} clips.", r.queued, r.clips)
+      : i18n.t("Nothing new to post. These clips are already queued or posted to the selected accounts."), r.queued ? "ok" : "");
+    await tick();
+  } catch (err) {
+    if (dialog.postBatch === batch) { error.textContent = err.message; error.hidden = false; }
+    else toast(err.message, "bad");
+  } finally {
+    if (dialog.postBatch === batch) { dialog.dataset.posting = "false"; updatePostButtons(dialog, "bpacc"); }
+  }
 }
 function askTyped(title, text, mustType, okLabel) {
   return new Promise(res => {
@@ -2740,7 +2809,8 @@ function drawClipEditor(full) {
           </div></details>
           <details${D.mode === "post" ? " open" : ""}><summary>${i18n.html("Download and post")}</summary><div class="edit-options">
             <div id="dposts" class="row" style="gap:4px"></div>
-            ${S.accounts.length ? `<div class="row">${S.accounts.map(a => `<label class="ck"><input type="checkbox" data-pacc value="${esc(a.id)}">${esc(a.label)} · ${esc(a.name)}</label>`).join("")}</div>
+            ${S.accounts.length ? `<h3>${i18n.html("Choose accounts")}</h3><p class="help" data-posthint role="status"></p>
+              <div class="row">${postAccountChoices(defaultPostAccounts([j.id]), "pacc")}</div>
               <div class="row"><button class="btn primary" data-act="postnow">${ic("send")}${i18n.html("Post now")}</button><button class="btn" data-act="postqueue">${i18n.html("Add to queue")}</button></div>`
               : `<p class="help">${i18n.html("No accounts connected yet. Connect one in Social networks.")}</p><button class="btn" data-act="go" data-v="social">${ic("plug")}${i18n.html("Open Social networks")}</button>`}
             <div class="row"><a id="edit-download" class="btn" hidden>${ic("down")}${i18n.html("Download")}</a>
@@ -2777,7 +2847,9 @@ function drawClipEditor(full) {
   }
   $("#edit-download").hidden = c.status !== "done";
   if (c.status === "done") $("#edit-download").href = `${m}${esc(c.file)}?v=${c.version}&download=1`;
-  for (const button of $$("[data-act=postnow], [data-act=postqueue]", root)) button.disabled = c.status !== "done";
+  root.dataset.postReady = String(c.status === "done");
+  root.dataset.posting = String(!!D.posting);
+  updatePostButtons(root);
   updateEditButtons();
   D.sig = sig;
   D.status = c.status;
@@ -2854,6 +2926,8 @@ function syncCaptionStyle(toggle) {
 }
 document.addEventListener("change", async e => {
   const t = e.target;
+  if (t.hasAttribute("data-pacc")) return updatePostButtons(D.root);
+  if (t.hasAttribute("data-bpacc")) return updatePostButtons($("#formdlg"), "bpacc");
   if (t.id === "editor-clip-select" && t.value) {
     S.editTarget = t.value.split("/");
     remember("editor", S.editTarget);
@@ -3084,6 +3158,9 @@ document.addEventListener("click", async e => {
     }
     if (a === "dlall") return zipDownload((jobOf(d.j)?.clips || []).filter(c => c.status === "done").map(c => d.j + "." + c.id));
     if (a === "seldl") return zipDownload(selClips());
+    if (a === "selpost") return openBatchPost();
+    if (a === "batchsocial") { $("#formdlg").close(); return go("social"); }
+    if (a === "batchnow" || a === "batchqueue") return submitBatchPost(a === "batchnow");
     if (a === "selclear") { sel().clear(); return render(); }
     if (a === "selall") {
       const cid = creatorId();
@@ -3227,12 +3304,23 @@ document.addEventListener("click", async e => {
     }
     if (a === "postnow" || a === "postqueue") {
       const editor = D;
+      if (editor.posting) return;
       const accs = $$("[data-pacc]:checked", editor.root).map(i => i.value);
-      if (!accs.length) return toast(i18n.t("Tick at least one account first."), "bad");
+      if (!accs.length) { updatePostButtons(editor.root); return $("[data-pacc]", editor.root)?.focus(); }
       if (a === "postnow" && !await ask(i18n.t("Post now?"), i18n.t("This clip goes to {0} account{1} straight away.", accs.length, accs.length > 1 ? "s" : ""), i18n.t("Post now"))) return;
       if (D !== editor) return;
-      await send("/api/posts", {job:editor.jid, clip:editor.cid, accounts:accs, now:a === "postnow"});
-      toast(a === "postnow" ? i18n.t("Posting now") : i18n.t("Added to the queue"), "ok"); return tick();
+      editor.posting = true;
+      editor.root.dataset.posting = "true";
+      updatePostButtons(editor.root);
+      try {
+        await send("/api/posts", {job:editor.jid, clip:editor.cid, accounts:accs, now:a === "postnow"});
+        toast(a === "postnow" ? i18n.t("Posting now") : i18n.t("Added to the queue"), "ok");
+        await tick();
+      } finally {
+        editor.posting = false;
+        if (D === editor) { editor.root.dataset.posting = "false"; updatePostButtons(editor.root); }
+      }
+      return;
     }
   } catch (err) { b.disabled = false; toast(err.message, "bad"); }
 });
