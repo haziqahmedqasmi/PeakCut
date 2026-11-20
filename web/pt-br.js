@@ -1377,4 +1377,10 @@ const peakcutPortuguese = {
   "Choose between 1 and 20 connected accounts.": "Escolha de 1 a 20 contas conectadas.",
   "An account is no longer connected. Choose the accounts again.": "Uma conta foi desconectada. Escolha as contas novamente.",
   "A selected clip is no longer ready. Refresh and select the clips again.": "Um clipe selecionado não está mais pronto. Atualize e selecione os clipes novamente.",
+  "Posting interval": "Intervalo entre publicações",
+  "Every {0} min": "A cada {0} min",
+  "Custom": "Personalizado",
+  "Time between posts on each account. The daily limit still applies.": "Tempo entre publicações em cada conta. O limite diário continua valendo.",
+  "Custom interval (minutes)": "Intervalo personalizado (minutos)",
+  "Enter a whole number from 5 to 1,440 minutes.": "Digite um número inteiro de 5 a 1.440 minutos.",
 };
