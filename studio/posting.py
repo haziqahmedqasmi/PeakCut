@@ -2,6 +2,7 @@
 import secrets
 import threading
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import json
@@ -59,8 +60,8 @@ def _next_slot(account_id, gap_min, cap):
     for _ in range(30):
         if sum(1 for p in mine if _day(p.get("posted_at") or p["due_at"]) == _day(t)) < cap:
             break
-        lt = time.localtime(t + 86400)
-        t = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 9, 0, 0, 0, 0, -1))  # 9:00 next day
+        next_day = datetime.fromtimestamp(t).date() + timedelta(days=1)
+        t = datetime.combine(next_day, datetime.min.time()).timestamp()
     return t
 
 

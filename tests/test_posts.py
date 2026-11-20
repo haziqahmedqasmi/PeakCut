@@ -4,6 +4,8 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import datetime
+from unittest.mock import patch
 
 sys.path.insert(0, ".")
 os.environ.update(PEAKCUT_DATA=tempfile.mkdtemp(prefix="pc-posts-"), DATABASE_URL="",
@@ -66,6 +68,24 @@ class BatchPosts(unittest.TestCase):
         before = time.time()
         self.assertEqual(self.post(now=True).status_code, 200)
         self.assertTrue(all(before <= p["due_at"] <= time.time() for p in posting._posts))
+
+    def test_queue_has_no_overnight_posting_window(self):
+        cases = [
+            ("2026-11-20 19:00", 10, "2026-11-20 19:30"),
+            ("2026-11-20 19:00", 1, "2026-11-21 00:00"),
+            ("2026-11-20 23:50", 1, "2026-11-21 00:20"),
+            ("2026-12-31 19:00", 1, "2027-01-01 00:00"),
+        ]
+        for start, cap, second in cases:
+            with self.subTest(start=start, cap=cap):
+                posting._posts.clear()
+                creators.update(self.job["creator"], {"daily_cap": cap})
+                now = datetime.strptime(start, "%Y-%m-%d %H:%M").timestamp()
+                expected = datetime.strptime(second, "%Y-%m-%d %H:%M").timestamp()
+                with patch("studio.posting.time.time", return_value=now):
+                    for clip in self.job["clips"][:2]:
+                        posting.enqueue(self.job, clip, ["youtube"])
+                self.assertEqual([p["due_at"] for p in posting._posts], [now, expected])
 
     def test_invalid_batches_have_no_partial_effect(self):
         invalid = [
