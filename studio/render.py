@@ -240,17 +240,22 @@ PIP_MARGIN = 26
 
 
 def _filter(layout, fg_h, facecam=None):
+    # Every layout starts from the same two steps. setpts puts the first frame at the beginning: after a seek,
+    # ffmpeg hands over its first frame still carrying the timestamp it had in the file (a keyframe can be a
+    # second or two before the moment asked for), and fps would then fill the gap from zero by repeating that
+    # frame. That is a still picture at the start of the clip, and more frames than the clip has seconds.
+    head = f"[0:v]setpts=PTS-STARTPTS,fps={config.OUT_FPS}"
     if layout == "gameplay" and facecam:
         # The game fills the screen, and the webcam sits in the top corner of it, so a viewer sees
         # the play and the face at the same time.
         fx, fy, fw, fh = (int(v) for v in facecam)
         if fw > 8 and fh > 8:
             pip_h = max(2, int(round(PIP_W * fh / fw)))
-            return (f"[0:v]fps={config.OUT_FPS},split=2[base][fc];"
+            return (f"{head},split=2[base][fc];"
                     f"[base]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1[b];"
                     f"[fc]crop={fw}:{fh}:{fx}:{fy},scale={PIP_W}:{pip_h},setsar=1[p];"
                     f"[b][p]overlay={W - PIP_W - PIP_MARGIN}:{PIP_MARGIN}[v0];")
-    fill = f"[0:v]fps={config.OUT_FPS},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}"
+    fill = f"{head},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}"
     if layout == "crop" or (layout == "gameplay" and not facecam):
         return fill + ",setsar=1[v0];"
     if layout == "left":
@@ -258,12 +263,12 @@ def _filter(layout, fg_h, facecam=None):
     if layout == "right":
         return fill + ":in_w-out_w:0,setsar=1[v0];"
     if layout == "fit":
-        return f"[0:v]fps={config.OUT_FPS},scale={W}:{fg_h},pad={W}:{H}:0:(oh-ih)/2:black,setsar=1[v0];"
+        return f"{head},scale={W}:{fg_h},pad={W}:{H}:0:(oh-ih)/2:black,setsar=1[v0];"
     if layout == "split":
         half = f"scale={W}:{H // 2}:force_original_aspect_ratio=increase,crop={W}:{H // 2}"
-        return (f"[0:v]fps={config.OUT_FPS},split=2[l][r];[l]crop=iw/2:ih:0:0,{half}[t];"
+        return (f"{head},split=2[l][r];[l]crop=iw/2:ih:0:0,{half}[t];"
                 f"[r]crop=iw/2:ih:iw/2:0,{half}[u];[t][u]vstack,setsar=1[v0];")
-    return (f"[0:v]fps={config.OUT_FPS},split=2[a][b];"
+    return (f"{head},split=2[a][b];"
             f"[a]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=6:2,"
             f"scale={W}:{H},eq=brightness=-0.14:saturation=1.15[bg];"
             f"[b]scale={W}:{fg_h}:force_original_aspect_ratio=increase,crop={W}:{fg_h}[fg];"
