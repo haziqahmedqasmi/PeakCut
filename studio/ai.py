@@ -61,13 +61,21 @@ def _from_dashboard() -> dict:
 
 
 def current() -> dict:
-    """Provider, models, address and key: what the dashboard saved, or else what .env says."""
+    """Provider, models, address and key: what the dashboard saved, or else what .env says.
+    `slow` and `wait` are the "go slowly" settings for free services (see wait_turn)."""
     d = _from_dashboard()
     p = str(d.get("provider") or config.AI_PROVIDER or "").strip().lower()
-    return {"provider": ALIASES.get(p, p),
+    p = ALIASES.get(p, p)
+    try:
+        wait = max(0, min(600, int(d.get("wait", DEFAULT_WAIT))))
+    except (TypeError, ValueError):
+        wait = DEFAULT_WAIT
+    return {"provider": p,
             "models": list(d["models"]) if d.get("provider") else list(config.AI_MODELS),
             "base_url": (str(d.get("base_url") or "") if d.get("provider") else config.AI_BASE_URL).rstrip("/"),
-            "key": str(d["key"]) if d.get("provider") and "key" in d else config.ai_key()}
+            "key": str(d["key"]) if d.get("provider") and "key" in d else config.ai_key(),
+            "slow": bool(d["slow"]) if d.get("provider") and "slow" in d else p == "custom",
+            "wait": wait}
 
 
 def provider() -> str:
@@ -75,7 +83,45 @@ def provider() -> str:
 
 
 def models() -> list:
+    """The models that were chosen. Empty for a custom service that picks its own (see use_models)."""
     return current()["models"]
+
+
+def use_models() -> list:
+    """The models to ask, in order. A custom service (a router of free models, for one) may be left to choose
+    for itself: then its own automatic entry is used."""
+    ms = models()
+    if ms or provider() != "custom":
+        return ms
+    return [_auto_model(current())]
+
+
+def shown_model() -> str:
+    """The model's name for the pages: what was chosen, or "automatic" when the service picks."""
+    c = current()
+    return c["models"][0] if c["models"] else ("automatic" if c["provider"] == "custom" else "")
+
+
+_auto = {"for": None, "name": "", "at": 0.0}
+AUTO_NAMES = ("auto", "free-router", "router", "free", "default")    # what routers of free models call their "pick for me"
+
+
+def _auto_model(c) -> str:
+    """The id a custom service uses for "choose for me": looked up from its own list, and kept for ten minutes.
+    If the list cannot be read the usual name is tried, and the service will say if it does not know it."""
+    import time
+    now = time.time()
+    if _auto["for"] == c["base_url"] and _auto["name"] and now - _auto["at"] < 600:
+        return _auto["name"]
+    name = AUTO_NAMES[0]
+    try:
+        found = list_models("custom", c["base_url"], c["key"])
+        lower = {m.lower(): m for m in found}
+        name = next((lower[n] for n in AUTO_NAMES if n in lower), found[0] if found else name)
+    except Exception:  # noqa: BLE001
+        pass
+    _auto.update({"for": c["base_url"], "name": name, "at": now})
+    return name
 
 
 def key() -> str:
@@ -93,7 +139,44 @@ def base_url() -> str:
 
 def ready() -> bool:
     c = current()
-    return bool(c["provider"] in PROVIDERS and c["models"] and base_url() and (c["key"] or c["provider"] in NO_KEY))
+    has_model = bool(c["models"]) or c["provider"] == "custom"
+    return bool(c["provider"] in PROVIDERS and has_model and base_url() and (c["key"] or c["provider"] in NO_KEY))
+
+
+# ---------------------------------------------------------------- going slowly, for free services
+DEFAULT_WAIT = 60
+_turn = threading.Lock()
+_last_call = [0.0]
+
+
+def pace_seconds() -> int:
+    """How long to leave between requests when the service is a slow, free one. 0 when it is not."""
+    c = current()
+    return c["wait"] if c["slow"] else 0
+
+
+def wait_turn(stop=None, on_wait=None):
+    """Hold until the pause since the last request is over. Free services tire quickly, so with "go slowly" on
+    the work is spread out: one request, a minute's rest, the next. `stop` is asked once a second so a
+    cancelled video does not sit waiting; `on_wait(seconds)` is told once how long this wait will be."""
+    import time
+    w = pace_seconds()
+    if not w:
+        return
+    with _turn:
+        left = _last_call[0] + w - time.time()
+        if left > 0.5 and on_wait:
+            on_wait(int(left))
+        while left > 0 and not (stop and stop()):
+            time.sleep(min(1.0, left))
+            left = _last_call[0] + w - time.time()
+        _last_call[0] = time.time()
+
+
+def note_call():
+    """A request has just finished: the rest starts from now."""
+    import time
+    _last_call[0] = time.time()
 
 
 def public() -> dict:
@@ -102,21 +185,23 @@ def public() -> dict:
     c = current()
     return {"provider": c["provider"], "models": c["models"], "base_url": c["base_url"], "has_key": bool(c["key"]),
             "key_hint": c["key"][-4:] if len(c["key"]) >= 12 else "", "ready": ready(), "label": label(),
+            "model": shown_model(), "slow": c["slow"], "wait": c["wait"],
             "saved_here": bool(_from_dashboard().get("provider")),
             "providers": [{"id": k, "label": v[0], "address": v[1], "needs_key": k not in NO_KEY, "key_url": v[3], "example": v[4]}
                           for k, v in PROVIDERS.items()]}
 
 
-def save(provider_id: str, model_ids, address: str = "", new_key=None) -> dict:
+def save(provider_id: str, model_ids, address: str = "", new_key=None, slow=None, wait=None) -> dict:
     """Save the choice made in the dashboard. `new_key` None keeps the key that is already there (the page never
-    has it to send back); an empty string removes it."""
+    has it to send back); an empty string removes it. A custom service may be saved with no model: it then
+    chooses for itself. `slow` and `wait` are the "go slowly" settings; None keeps what is there."""
     p = ALIASES.get(str(provider_id or "").strip().lower(), str(provider_id or "").strip().lower())
     if p not in PROVIDERS:
         raise ValueError("Choose one of the AI services in the list.")
     if isinstance(model_ids, str):
         model_ids = model_ids.split(",")
     ms = [str(m).strip()[:120] for m in (model_ids or []) if str(m).strip()][:5]
-    if not ms:
+    if not ms and p != "custom":
         raise ValueError("Enter the model to use.")
     if any(not re.fullmatch(r"[\w.\-:/@]+", m) for m in ms):
         raise ValueError("A model id has letters, digits and . - : / only.")
@@ -129,10 +214,16 @@ def save(provider_id: str, model_ids, address: str = "", new_key=None) -> dict:
     k = old["key"] if new_key is None and old["provider"] == p else str(new_key or "").strip()[:400]
     if not k and p not in NO_KEY:
         raise ValueError("Paste the key for this service.")
+    keep = bool(slow) if slow is not None else (old["slow"] if old["provider"] == p else p == "custom")
+    try:
+        pause = old["wait"] if wait in (None, "") else max(0, min(600, int(wait)))
+    except (TypeError, ValueError):
+        raise ValueError("The wait between requests is a number of seconds.")
     with _lock:
         f = _file()
         tmp = f.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"provider": p, "models": ms, "base_url": address, "key": k}), encoding="utf-8")
+        tmp.write_text(json.dumps({"provider": p, "models": ms, "base_url": address, "key": k, "slow": keep, "wait": pause}),
+                       encoding="utf-8")
         try:
             os.chmod(tmp, 0o600)        # the key is only for whoever runs the server
         except OSError:
@@ -178,11 +269,12 @@ def list_models(provider_id=None, address=None, with_key=None) -> list:
 
 def test() -> dict:
     """One tiny request with the settings in use, to prove the key, the address and the model all work."""
-    ms = models()
     if not ready():
         raise ValueError("Save a service, a model and a key first.")
+    ms = use_models()
     out, sent, wrote = call(ms[0], 'Answer with a JSON array that holds the single string "ok".', {"type": "ARRAY", "items": {"type": "STRING"}})
-    return {"ok": True, "model": ms[0], "tokens": sent + wrote, "answer": str(out)[:80]}
+    note_call()
+    return {"ok": True, "model": ms[0] if models() else f"{ms[0]} (chosen automatically)", "tokens": sent + wrote, "answer": str(out)[:80]}
 
 
 class AIError(RuntimeError):
@@ -200,9 +292,15 @@ problem = {"text": "", "at": 0.0}       # why the AI last failed, for the dashbo
 def explain(e) -> str:
     """What went wrong with an AI call, in words the owner can act on."""
     text, low = str(e), str(e).lower()
-    name = (models() or ["?"])[0]
+    name = shown_model() or "?"
     m = re.match(r"HTTP (\d{3})\b", text)
     status = m.group(1) if m else ""
+    # a router that has no keys of its own, or has used up its free models, is not a refused key of yours
+    if "no_providers_configured" in low or "no usable provider key" in low or "no usable key" in low:
+        return (f"{label()} answered, but it has no working keys of its own to pass the request on. Open {label()}'s own "
+                "dashboard and add keys for the free services it uses, then test again.")
+    if "routing_exhausted" in low or "all models exhausted" in low:
+        return f"{label()} has used up every free model for now. Wait a little, or add more keys to {label()}, then try again."
     if status in ("401", "403") or "api key" in low or "api_key" in low or "unauthorized" in low or "permission" in low:
         return f"{label()} refused the key. Paste a working key under Settings, AI."
     if "no longer available" in low or "deprecated" in low or "retired" in low or "discontinued" in low:
@@ -211,6 +309,8 @@ def explain(e) -> str:
     # "404" inside some other message must not be reported as an unknown model.
     if (status == "404" and "model" in low) or (not status and ("404" in text or "not found" in low or "does not exist" in low or "unknown model" in low or "not_found" in low)) \
             or (status and "is not found for api version" in low):
+        if not models() and provider() == "custom":
+            return f"{label()} did not accept its automatic model. Open Settings, AI, press Find models and pick one from the list."
         return f"{label()} doesn't know the model \"{name}\". Open Settings, AI, press Find models and pick one from the list."
     if "429" in text or "quota" in low or "rate limit" in low or "exhausted" in low:
         return f"{label()} says the key has hit its limit or has no credit left. Check the account with {label()}, or try again later."
@@ -339,9 +439,9 @@ def see(prompt: str, image: bytes, timeout: float | None = None) -> tuple[str, i
     Nothing is broken by a service that cannot look at pictures, or a model that is only text: the answer
     comes back empty, or says something the caller does not understand, and the caller carries on without
     it. The picture is a JPEG, passed as base64 inside the ordinary message."""
-    if not ready() or not image or not models():
+    if not ready() or not image:
         return "", 0, 0
-    model = models()[0]
+    model = use_models()[0]
     b64 = base64.b64encode(image).decode()
     how = PROVIDERS[provider()][2]
     if how == "gemini":
@@ -465,10 +565,15 @@ def _openai(model, prompt, schema, timeout=None):
     body = {"model": model, "messages": [{"role": "user", "content": _wrapped(prompt, schema)}], "stream": False}
     # Most services accept these two extras; a few models refuse one of them, so they are dropped on a refusal.
     extras = [{"temperature": 0.4, "response_format": {"type": "json_object"}}, {"response_format": {"type": "json_object"}}, {}]
+    if provider() == "custom":
+        # A router that rotates between free models may land on one that cannot do JSON mode, and then fails the whole
+        # request. The prompt already asks for JSON only, and the answer is read leniently, so nothing extra is sent.
+        extras = [{}]
     r = None
     for extra in extras:
         r = httpx.post(f"{base_url()}/chat/completions", json={**body, **extra}, headers=headers, timeout=timeout or 180)
-        if r.status_code not in (400, 422):
+        # a refusal of an extra setting is usually a 400 or 422, but some routers answer 429 or 503 that mention it
+        if r.status_code not in (400, 422) and not (r.status_code in (429, 503) and "response_format" in r.text):
             break
     if r.status_code != 200:
         _fail(r, model)

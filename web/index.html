@@ -1747,7 +1747,8 @@ function jobHtml(j) {
                 j.took ? "made in " + fmt(j.took) : "", j.kind === "live" ? "recording, " + j.stage.toLowerCase() : ""].filter(Boolean).map(esc).join(" · ");
   const pic = j.thumb ? `<img src="/media/${esc(j.id)}/thumb.jpg" alt="" loading="lazy">` : ic(j.source?.type === "file" ? "film" : "link");
   return `<div class="job-head"><div class="jt"><span class="jthumb">${pic}${j.duration ? `<span class="du">${fmt(j.duration)}</span>` : ""}</span><div style="min-width:0"><h3>${esc(j.title || j.source.name)}</h3><p class="sub">${meta}</p></div></div>
-      <div class="row" style="flex-wrap:nowrap;gap:4px">${busy ? "" : `
+      <div class="row" style="flex-wrap:nowrap;gap:4px">${busy ? `
+        <button class="btn sm icon ghost" data-act="canceljob" data-j="${j.id}" title="Cancel this video" aria-label="Cancel and delete this video" style="color:var(--red,#e05)">&#x2715; Cancel</button>` : `
         ${j.clips.some(c => c.status === "done") ? `<button class="btn sm icon ghost" data-act="dlall" data-j="${j.id}" title="Download all clips of this video" aria-label="Download all clips of this video">${ic("down")}</button>` : ""}
         <button class="btn sm icon ghost" data-act="deljob" data-j="${j.id}" title="Delete" aria-label="Delete this video and its clips">${ic("trash")}</button>
         <label class="selck" title="Select this video and its clips"><input type="checkbox" data-sel="j:${j.id}" ${sel().has("j:" + j.id) ? "checked" : ""} aria-label="Select this video"></label>`}</div></div>
@@ -2026,6 +2027,11 @@ function aiHints() {
   $("#ai_model").placeholder = pv.example ? "For example " + pv.example : "The model id, exactly as the service names it";
   $("#ai_base").placeholder = pv.address || "http://127.0.0.1:1234/v1";
   $("#ai_basewrap").hidden = pv.id !== "custom" && !(same && k.base_url);
+  if (pv.id === "custom") {      // a router of free models picks the model itself, so none is needed
+    $("#ai_model").placeholder = "Leave empty and the service chooses for itself";
+    $("#ai_modelhint").textContent = "Optional. A service that rotates between free models (for example a free router) chooses by itself when this is empty. Or pick one with Find models.";
+  }
+  $("#ai_waitwrap").hidden = !$("#ai_slow").checked;
 }
 async function drawSettings() {
   const box = $("#sform"); if (!box) return;
@@ -2038,13 +2044,16 @@ async function drawSettings() {
     if (tab === "ai") {
       const k = S.ai = await api("/api/ai");
       body.innerHTML = `<section class="set-sec"><h2>AI</h2><p class="help">PeakCut uses an AI model to pick the moments worth clipping and to write hooks, titles and captions. Use your own key from any of these services. You pay that service directly. Without a key, clips are picked by loudness.</p>
-          <div class="ai-state">${k.ready ? `<span class="pill ok">${ic("check")}Ready</span><span class="sub">${esc(k.label)} · ${esc(k.models[0] || "")}</span>` : `<span class="pill warn">Not set up</span><span class="sub">Choose a service, paste your key and pick a model.</span>`}</div>
+          <div class="ai-state">${k.ready ? `<span class="pill ok">${ic("check")}Ready</span><span class="sub">${esc(k.label)} · ${esc(k.model || k.models[0] || "")}${k.slow ? " · slow mode" : ""}</span>` : `<span class="pill warn">Not set up</span><span class="sub">Choose a service, paste your key and pick a model.</span>`}</div>
           <div class="ai-form">
             <label class="f">AI service<select id="ai_provider">${k.providers.map(x => `<option value="${esc(x.id)}" ${x.id === k.provider ? "selected" : ""}>${esc(x.label)}</option>`).join("")}</select></label>
             <label class="f">Key<input id="ai_key" type="password" autocomplete="off" spellcheck="false"><span class="hint" id="ai_keyhint"></span></label>
             <label class="f" id="ai_basewrap">Address<input id="ai_base" value="${esc(k.base_url || "")}" spellcheck="false"><span class="hint">Where the service answers. Only needed for a custom service.</span></label>
             <label class="f">Model<span class="with"><input id="ai_model" list="ai_models" value="${esc(k.models.join(", "))}" spellcheck="false"><button class="btn" type="button" data-act="aimodels">Find models</button></span>
-              <datalist id="ai_models"></datalist><span class="hint">A fast, inexpensive model is the right choice. Add a second one after a comma to fall back on.</span></label>
+              <datalist id="ai_models"></datalist><span class="hint" id="ai_modelhint">A fast, inexpensive model is the right choice. Add a second one after a comma to fall back on.</span></label>
+            <label class="f" style="flex-direction:row;align-items:center;gap:10px"><input type="checkbox" id="ai_slow" ${k.slow ? "checked" : ""}><span>Go slowly, for free services</span></label>
+            <span class="hint" style="margin-top:-10px">One clip per request, with a rest in between, so a free service does not run out. The number of clips you ask for is the number you get. It is slower: allow a minute or two per clip.</span>
+            <label class="f" id="ai_waitwrap">Rest between requests, in seconds<input id="ai_wait" type="number" min="0" max="600" step="5" value="${esc(k.wait)}"></label>
           </div>
           <div class="row" style="margin-top:20px"><button class="btn primary" data-act="aisave">Save and test</button>${k.ready ? `<button class="btn" data-act="aitest">Test again</button>` : ""}</div></section>`;
       aiHints();
@@ -2269,7 +2278,12 @@ document.addEventListener("change", async e => {
     if (t.id === "o_captions") t.dataset.overridden = "true";
     syncCaptionStyle(t);
   }
-  if (t.id === "ai_provider") { $("#ai_models").innerHTML = ""; if (S.ai && t.value !== S.ai.provider) { $("#ai_model").value = ""; $("#ai_base").value = ""; } return aiHints(); }
+  if (t.id === "ai_provider") {
+    $("#ai_models").innerHTML = "";
+    if (S.ai && t.value !== S.ai.provider) { $("#ai_model").value = ""; $("#ai_base").value = ""; $("#ai_slow").checked = t.value === "custom"; }
+    return aiHints();
+  }
+  if (t.id === "ai_slow") return aiHints();
   if (t.dataset.sel) {
     const k = t.dataset.sel;
     if (t.checked) sel().add(k); else sel().delete(k);
@@ -2309,7 +2323,7 @@ document.addEventListener("click", async e => {
     if (a === "aisave" || a === "aitest") {
       b.disabled = true;
       try {
-        if (a === "aisave") await send("/api/ai", {provider: $("#ai_provider").value, models: $("#ai_model").value, base_url: $("#ai_base").value, key: $("#ai_key").value}, "PUT");
+        if (a === "aisave") await send("/api/ai", {provider: $("#ai_provider").value, models: $("#ai_model").value, base_url: $("#ai_base").value, key: $("#ai_key").value, slow: $("#ai_slow").checked, wait: $("#ai_wait").value}, "PUT");
         let ok = null, why = "";
         try { ok = await send("/api/ai/test"); } catch (err) { why = err.message; }
         S.status = await api("/api/status"); drawShell(); await drawSettings();
@@ -2411,6 +2425,22 @@ document.addEventListener("click", async e => {
     if (a === "deljob") {
       if (!await ask("Delete this video?", "The video and all of its clips are permanently deleted. This cannot be undone.", "Delete", true)) return;
       await api(`/api/jobs/${d.j}`, {method:"DELETE"}); toast("Deleted"); return tick();
+    }
+    if (a === "canceljob") {
+      const j = jobOf(d.j);
+      const title = j?.title || j?.source?.name || "this video";
+      if (!await ask("Cancel processing?", `Stop clipping "${title}" and delete it. Any clips already made will be lost.`, "Cancel & Delete", true)) return;
+      try {
+        await api(`/api/jobs/${d.j}/cancel`, {method:"POST"});
+        toast("Cancelled — deleting…");
+        await new Promise(r => setTimeout(r, 1200));
+        try { await api(`/api/jobs/${d.j}`, {method:"DELETE"}); } catch (_) {}
+        toast("Deleted");
+        return tick();
+      } catch (err) {
+        toast(err.detail || "Could not cancel. Try again in a moment.", "bad");
+      }
+      return;
     }
     if (a === "chadd") {
       const k = d.p, v = $("#chan_" + k)?.value.trim();

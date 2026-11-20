@@ -1008,6 +1008,17 @@ def delete_job(jid: str):
     return {"ok": True}
 
 
+@app.post("/api/jobs/{jid}/cancel")
+def cancel_job(jid: str):
+    """Cancel a queued or running job. The pipeline stops at the next safe checkpoint."""
+    job = _job_or_404(jid)
+    if job["status"] not in ("queued", "running"):
+        raise HTTPException(409, "This video is not currently being processed.")
+    if not jobs.cancel(jid):
+        raise HTTPException(409, "Could not cancel this video.")
+    return {"ok": True}
+
+
 def _pairs(v, limit=300) -> list:
     """[[video id, clip id], ...] from the page, checked."""
     out = []
@@ -1330,7 +1341,8 @@ def ai_put(request: Request, body: dict = Body(...)):
     k = body.get("key")
     try:
         out = ai.save(body.get("provider"), body.get("models"), body.get("base_url") or "",
-                      None if k is None or (isinstance(k, str) and not k.strip() and not body.get("remove_key")) else str(k))
+                      None if k is None or (isinstance(k, str) and not k.strip() and not body.get("remove_key")) else str(k),
+                      slow=body.get("slow"), wait=body.get("wait"))
     except (ValueError, TypeError) as e:
         raise HTTPException(400, str(e))
     usage.forget_all()

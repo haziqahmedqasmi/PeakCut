@@ -106,6 +106,7 @@ _jobs: dict = {}
 _by_user: dict = {}                       # user -> {job id: job}: listing one person's videos never scans everyone's
 _lock = threading.RLock()
 on_clip_ready: list = []   # callbacks (job, clip), run once when a clip first finishes
+_cancelled: set = set()    # job ids that have been cancelled: checked by the pipeline to stop early
 
 DEFAULTS = {"max_clips": 6, "min_len": 15, "max_len": 60, "style": "bounce", "layout": "blur", "quality": 720,
             "range_start": None, "range_end": None, "captions": True, "hook_text": "", "description_text": ""}
@@ -365,6 +366,27 @@ def delete(jid):
         ctx.bump(job["user"])
         shutil.rmtree(job["dir"], ignore_errors=True)
     return bool(job)
+
+
+def cancel(jid) -> bool:
+    """Cancel a queued or running job. The pipeline checks is_cancelled() and stops early.
+    Returns True if the job existed and was cancellable, False otherwise."""
+    with _lock:
+        job = _jobs.get(jid)
+        if not job or job["user"] != ctx.uid():
+            return False
+        if job["status"] not in ("queued", "running"):
+            return False
+        _cancelled.add(jid)
+        job.update(status="error", stage="Cancelled", error="Cancelled by you.")
+    save(job)
+    ctx.bump(job.get("user"))
+    return True
+
+
+def is_cancelled(jid) -> bool:
+    """True if this job has been cancelled. Checked inside the pipeline to stop early."""
+    return jid in _cancelled
 
 
 def request_render(jid, cid, changes: dict):
@@ -641,6 +663,8 @@ def _run_job(job):
     wav.unlink(missing_ok=True)
     if src["type"] == "url":
         audio_file.unlink(missing_ok=True)
+    if is_cancelled(job["id"]):
+        return
     if not job["duration"]:
         job["duration"] = len(audio) / 16000
     lo = int((o["range_start"] or 0) * 16000)
@@ -745,6 +769,8 @@ def _run_job(job):
     for bi, (a, b) in enumerate(blocks):
         if bi < done_blocks:
             continue                      # transcribed and checked by the AI before the restart
+        if is_cancelled(job["id"]):
+            break
         shift = a / 16000
         where = f" (minute {round((a - lo) / 16000 / 60)} of {round(span / 60)})" if len(blocks) > 1 else ""
         if yt:
@@ -768,7 +794,11 @@ def _run_job(job):
         quota = max(1, math.ceil(left / (len(blocks) - bi)))
         s0 = int((a - lo) / 16000)
         found, ai = brain.find_clips(bw, db[s0: s0 + int((b - a) / 16000) + 1], (b - a) / 16000, job["title"],
-                                     job["uploader"], quota, int(o["min_len"]), int(o["max_len"]), notes.append, game=game)
+                                     job["uploader"], quota, int(o["min_len"]), int(o["max_len"]), notes.append, game=game,
+                                     stop=lambda: is_cancelled(job["id"]),
+                                     status=lambda s, where=where: _set(job, stage=f"{s}{where}"))
+        if is_cancelled(job["id"]):       # cancelled while the AI was being waited on: nothing more is started
+            break
         tokens += ai.get("tokens", 0)
         model = ai.get("model") or model
         if ai.get("note"):
@@ -806,6 +836,8 @@ def _run_job(job):
         job["ai"] = {"model": model, "tokens": tokens, "note": "", "log": notes[-5:]}
         job["done_blocks"] = bi + 1       # a restart from here on carries on with the next part
         save(job)
+    if is_cancelled(job["id"]):
+        return
     if futures:
         _set(job, stage="Finishing the clips", progress=max(job["progress"], 0.92))
     _wait_for_clips(job, futures, began, renders._max_workers)
