@@ -196,7 +196,8 @@ class Session:
         try:
             box = facecam.detect(src, ask=brain.look_for_facecam)
         except Exception:  # noqa: BLE001 - a missing facecam is not a failure
-            return None
+            return None                         # the look did not finish, so the next clip tries again
+        self.facecam_checked = True             # the look finished: there is a webcam or there is not
         if not box or box.get("conf") != "high":
             return None
         self.job["facecam"] = [box["x"], box["y"], box["w"], box["h"]]
@@ -689,12 +690,11 @@ class Session:
             return
         finally:
             lst.unlink(missing_ok=True)
-        # Only the gameplay layout uses a webcam, and only once the clip's own file is written: the
-        # webcam is looked for in it, once per stream.
-        if clip.get("layout") == "gameplay":
+        # Only the layouts with a webcam in them use one, and only once the clip's own file is written:
+        # the webcam is looked for in it, once per stream.
+        if clip.get("layout") in ("gameplay", "bands"):
             if not self.facecam_checked:
                 self.facecam_box = self._find_facecam(src)
-                self.facecam_checked = True
             if self.facecam_box:
                 clip["facecam"] = self.facecam_box
         dur = segs[-1][2] - segs[0][1]

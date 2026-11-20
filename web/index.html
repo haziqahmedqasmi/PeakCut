@@ -397,6 +397,12 @@ img.av{object-fit:cover}
 .lay-prev.fit .ph{background:#000}.lay-prev.fit .ph::before{display:none}
 .lay-prev.split .ph i{top:0;height:23px;transform:none}
 .lay-prev.split .ph::before{inset:25px 0 0 0;filter:none;opacity:1;background:linear-gradient(135deg,#FFB27A,#FF8B33)}
+.lay-prev.bands .ph i{left:2px;right:2px;top:5px;height:23px;transform:none}
+.lay-prev.bands .ph::after{content:"";position:absolute;left:9px;right:9px;top:31px;height:10px;background:#FFD3B8;border-radius:2px}
+.lay-shot{display:flex;align-items:center;gap:12px;margin:-2px 0 12px}
+.lay-shot[hidden]{display:none}
+.lay-shot img{height:170px;border-radius:8px;border:1px solid var(--line);background:#1E1612}
+.lay-shot .help{margin:0}
 .seg{display:flex;gap:4px;background:#fff;border-radius:10px;padding:4px}
 .composer.compact .seg{background:var(--muted)}
 .seg button{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 6px;border:0;border-radius:7px;background:transparent;color:var(--dim);font-size:13px;font-weight:600;cursor:pointer;transition:background-color .15s ease,color .15s ease}
@@ -1403,7 +1409,7 @@ function drawAdd(variant) {
     </div></div></form>`;
   drawAtt();
 }
-const LAYOUT_SHORT = {blur:"Blurred fill", zoom:"Zoomed in", crop:"Fill screen", left:"Keep left", right:"Keep right", fit:"Black bars", split:"Split screen", gameplay:"Gameplay + facecam"};
+const LAYOUT_SHORT = {blur:"Blurred fill", zoom:"Zoomed in", crop:"Fill screen", left:"Keep left", right:"Keep right", fit:"Black bars", split:"Split screen", gameplay:"Gameplay + facecam", bands:"Whole game + cam"};
 /* The language spoken in the video picks which speech model writes the transcript. Languages other than English
    need their model downloaded once (Settings → Speech models). */
 const LANG_NATIVE = {ar:"العربية"};
@@ -2224,6 +2230,7 @@ function drawClipDlg(full) {
         <label class="sw"><input type="checkbox" data-f="captions" data-caption-toggle ${c.captions === false ? "" : "checked"}>Generate captions</label>
         <div class="two"><label class="f">Caption style<select data-f="style" data-caption-style ${c.captions === false ? "disabled" : ""}>${opts(S.status.styles, c.style)}</select></label>
           <label class="f">Layout<select data-f="layout">${opts(S.status.layouts, c.layout)}</select></label></div>
+        ${c.status === "done" || c.status === "error" ? `<div class="lay-shot" id="layshot" hidden><img id="layprev" alt="A frame of this clip in the chosen layout" hidden><span class="help" id="laywait"></span></div>` : ""}
         <div class="two"><label class="f">Start (seconds)<input data-f="start" type="number" step="0.5" value="${c.start}"></label>
           <label class="f">End (seconds)<input data-f="end" type="number" step="0.5" value="${c.end}"></label></div>
         <div class="row" style="justify-content:space-between;align-items:center"><h3>Post text</h3>
@@ -2244,6 +2251,32 @@ function drawClipDlg(full) {
   } else if (D.sig !== sig) $("#stage").innerHTML = stage;
   D.sig = sig;
   put($("#dposts"), postPills(c));
+  if (full && $("#layprev")) showLayoutPreview(c.layout || "blur");
+}
+let layToken = 0;
+async function showLayoutPreview(layout) {
+  // A preview is drawn only when the layout picked in the editor is not the clip's own: opening a finished clip
+  // must not run an ffmpeg render (or a webcam search) just to show the picture it already is.
+  const img = $("#layprev"), wait = $("#laywait"), box = $("#layshot");
+  if (!img || !wait || !box || !D.jid || !D.cid) return;
+  const c = jobOf(D.jid)?.clips.find(x => x.id === D.cid);
+  const tok = ++layToken;
+  if (layout === (c?.layout || "blur")) {
+    img.hidden = true; box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  img.hidden = true;
+  wait.hidden = false; wait.textContent = "Drawing a preview of this layout…";
+  try {
+    const r = await send(`/api/jobs/${D.jid}/clips/${D.cid}/preview`, {layout});
+    if (tok !== layToken) return;
+    img.src = `/media/${D.jid}/${r.preview}?v=${Date.now()}`;
+    img.hidden = false; wait.hidden = true;
+  } catch (e) {
+    if (tok !== layToken) return;
+    img.hidden = true; wait.textContent = e.message || "Could not draw a preview.";
+  }
 }
 function postText() {   // the post text as it is in the clip editor right now
   const v = k => $(`#clipdlg [data-f="${k}"]`).value;
@@ -2318,6 +2351,7 @@ document.addEventListener("change", async e => {
     return;
   }
   if (t.id === "o_hook" || t.id === "o_desc") t.dataset.typed = "1";
+  if (t.dataset.f === "layout" && t.closest("#clipdlg")) return showLayoutPreview(t.value);
   if (t.hasAttribute("data-caption-toggle")) {
     if (t.id === "o_captions") t.dataset.overridden = "true";
     syncCaptionStyle(t);

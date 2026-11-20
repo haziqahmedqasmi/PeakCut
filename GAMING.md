@@ -63,16 +63,24 @@ use people instead of messages:
 If the names cannot be read, the old behaviour is kept — messages are counted
 as messages.
 
-## 3. The facecam is found, and the game fills the screen
+## 3. The facecam is found, and the game keeps its whole width
 
 A gaming stream is a 16:9 game with a small webcam picture in one corner. PeakCut's
 "blur" layout puts the whole 16:9 frame into a band with blurred fill above and
 below — fine for a talking head, poor for a game, where the play is a thin strip
 of the picture.
 
-The new **gameplay** layout fills the 1080x1920 frame with the game (centre
-cropped, the same as "Fill screen") and puts the webcam in the top corner of it,
-so the viewer sees the play and the face at once.
+The **bands** layout gives the game a band of its own across the full 1080 width
+and puts the webcam in a band under it, with the same moment of the stream blurred
+behind both. Nothing of the game and nothing of the webcam is cut off, and the
+captions sit under the webcam where they cover neither.
+
+The **gameplay** layout fills the 1080x1920 screen with the game (centre cropped,
+the same as "Fill screen") and puts the webcam in the top corner of it, so the
+viewer sees the play and the face at once. It is the biggest the game can be on a
+phone, and it costs the sides of the picture — a 16:9 stream keeps about a third of
+its width. It is worth choosing when the play is all in the middle of the screen,
+or when someone asks for the largest picture.
 
 To do that, PeakCut has to know where the webcam is. `studio/facecam.py` finds it
 by the one thing a webcam always has and a game almost never has: **a straight
@@ -102,14 +110,17 @@ of the measured rectangles is the webcam, and if it matches none of them its own
 is put onto the real borders and checked like any other candidate. A model that
 only reads text, a service that refuses pictures, or an answer that is nonsense all
 leave the measurement alone. If the model looks and says there is no webcam, that is
-believed: a stream with no webcam is cropped, which still looks right.
+believed: the clip is made in the "blur" layout, which keeps every pixel.
 
 That one frame is a small JPEG of the stream, and it goes to the AI service you
 configured, the same service the transcript already goes to. With no AI set, no
 picture leaves the machine and the borders are measured on their own.
 
-Only a sure answer is used. If the webcam is not found, the layout falls back to
-"Fill screen", which is still the right shape for a game.
+Only a sure answer is used. If the webcam is not found, a bands clip is made in the
+"blur" layout instead, which shows the whole frame and cuts nothing: a game that is
+not covered matters more than a game that is large. The "gameplay" layout, asked for
+by name, keeps filling the screen without a webcam — it only loses the corner
+picture.
 
 | | |
 |---|---|
@@ -139,7 +150,7 @@ sponsor reading.
 A launch-night roster of game streamers uses:
 
 ```json
-{ "style": "hype", "layout": "gameplay", "min_len": 15, "max_len": 60,
+{ "style": "hype", "layout": "bands", "min_len": 15, "max_len": 60,
   "max_clips": 6, "min_score": 65, "auto_watch": false, "buffer_min": 10,
   "live_per_hour": 4, "ai_every_min": 3, "ai_only_on_spike": true }
 ```

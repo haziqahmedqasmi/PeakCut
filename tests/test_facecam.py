@@ -68,6 +68,32 @@ try:
     check("the box is the right size", abs(box[2] - 300) <= 1 and abs(box[3] - 170) <= 1, True)
     check("a job with no video finds no webcam", jobs._facecam({"source_path": os.path.join(work, "nope.mp4")}), None)
 
+    # ---- a clip made before its layout was changed gets the webcam when it is re-made
+    from unittest.mock import patch
+    job = {"source_path": cam}
+    blurred = {"layout": "blur"}
+    check("a blurred clip is not made to look for a webcam", jobs._facecam_for(job, blurred), None)
+    check("and no look is remembered", "facecam_checked" in job, False)
+    changed = {"layout": "bands"}
+    found = jobs._facecam_for(job, changed)
+    check("a bands clip finds the webcam when it is re-made", bool(found), True)
+    check("the clip keeps the webcam for next time", changed.get("facecam"), found)
+    check("the look is made only once per video", job.get("facecam_checked"), True)
+    check("a clip that already has a webcam is left alone",
+          jobs._facecam_for({"source_path": os.path.join(work, "nope.mp4")}, {"layout": "gameplay", "facecam": [1, 2, 300, 170]}),
+          [1, 2, 300, 170])
+    missed = {"source_path": plain}
+    check("a video with no webcam remembers that too", jobs._facecam(missed), None)
+    check("so it is not looked at again", missed.get("facecam_checked"), True)
+    # a look that fails (a missing speech/AI service, a busy machine) must not stop the next one
+    broken = {"source_path": cam}
+    with patch.object(facecam, "detect", side_effect=RuntimeError("the look broke")):
+        check("a look that fails finds nothing", jobs._facecam(broken), None)
+    check("a failed look is not remembered", "facecam_checked" in broken, False)
+    check("so the next clip looks again", bool(jobs._facecam(broken)), True)
+    check("the look's bookkeeping is never sent to the page",
+          "facecam_checked" in jobs.public({"source": {}, "clips": [], "facecam_checked": True}), False)
+
     # ---- a webcam that is square and runs along one edge, not into a corner
     sq = make("cam_sq.mp4", "color=c=0xC08050:size=360x355:rate=25", where="920:165")
     box = facecam.detect(sq)
@@ -102,15 +128,29 @@ try:
     with patch.object(_ai, "see", return_value=("I am a text model.", 0, 0)):
         check("an answer that is neither is not believed", brain.look_for_facecam(b"jpeg")["looked"], False)
 
-    # ---- the layout: the game fills the screen and the webcam sits in the corner
+    # ---- the gameplay layout: the game fills the screen and the webcam sits in the corner
     f = render._filter("gameplay", 1920, [0, 0, 300, 170])
     check("the game fills the screen", "scale=1080:1920" in f and "crop=1080:1920" in f, True)
     check("the webcam is cropped out of the source", "crop=300:170:0:0" in f, True)
-    check("the webcam is put in the corner", "overlay=" in f, True)
+    check("the webcam is put in the corner", "overlay=674:26" in f, True)
     check("without a webcam the game simply fills the screen",
           "scale=1080:1920" in render._filter("gameplay", 1920, None) and "overlay=" not in render._filter("gameplay", 1920, None), True)
-    check("the layout is offered to the user", "gameplay" in render.LAYOUTS, True)
-    # the heading must not run under the webcam picture
+    check("the layouts are offered to the user", "gameplay" in render.LAYOUTS and "bands" in render.LAYOUTS, True)
+
+    # ---- the bands layout: the game keeps its whole width, the webcam gets a band under it
+    g = render._filter("bands", 608, [0, 0, 300, 170])
+    check("the game keeps every pixel across", "scale=1080:608" in g and "crop=1080:1920" not in g, True)
+    check("the webcam is cut out of the source in bands", "crop=300:170:0:0" in g, True)
+    check("the game and the webcam each get a band", g.count("overlay=") == 2, True)
+    check("the webcam is centred under the game", "overlay=310:" in g, True)
+
+    # the fallbacks: a band needs a webcam, and a gameplay clip without one still fills the screen
+    check("no webcam: bands keep every pixel", render.layout_for({"layout": "bands"}, 1920, 1080)[0], "blur")
+    check("no webcam: gameplay still fills the screen", render.layout_for({"layout": "gameplay"}, 1920, 1080)[0], "crop")
+    check("a vertical stream is never put in bands",
+          render.layout_for({"layout": "bands", "facecam": [0, 0, 300, 170]}, 1080, 1920)[0], "gameplay")
+
+    # the heading must not run under the webcam picture in the gameplay layout
     pip_h = 380 * 376 / 363
     check("the heading goes below the webcam picture", render._hook_y("gameplay", 300, [0, 0, 363, 376]) > 26 + pip_h, True)
     check("another picture moves the heading with it",
