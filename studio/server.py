@@ -23,8 +23,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 
 from . import admin as admins
 from . import account, load
-from . import (accounts, ai, alerts, auth, brain, config, creators, ctx, db, jobs, live, media, posting,
-               profiles, render, safe, transcribe, usage)
+from . import (accounts, ai, alerts, auth, brain, config, creators, ctx, db, jobs, live, logs, media, posting,
+               profiles, render, safe, transcribe, usage, vault)
 
 from . import tools as _tools  # noqa: E402
 
@@ -59,6 +59,7 @@ async def _more_threads():
 
 @app.on_event("startup")
 def _startup():
+    logs.setup()
     db.init()
     for f in (config.TMP_DIR / "uploads").glob("*"):      # uploads cut short by a restart
         try:
@@ -66,6 +67,10 @@ def _startup():
         except OSError:
             pass
     render.install_fonts()
+    try:
+        accounts.seal_existing()      # secrets an older version saved as plain text are locked now (studio/vault.py)
+    except Exception as e:  # noqa: BLE001 - never stops the server from starting
+        print(f"  Could not lock saved secrets: {e}", flush=True)
     if _tools.missing():
         print("\n  " + _tools.HELP + "\n", flush=True)
     if not transcribe.REMOTE and config.env("PEAKCUT_FETCH_MODEL", "1") != "0":     # the speech model: fetched now, in the background, if it was never downloaded
@@ -1615,9 +1620,7 @@ def yt_cookies_put(request: Request, body: dict = Body(...)):
             raise HTTPException(400, "That doesn't look like a cookies.txt file with YouTube cookies in it. Export it "
                                      "from a browser signed in to YouTube, with an extension such as \"Get cookies.txt LOCALLY\".")
         text = text if text.startswith("# Netscape") else "# Netscape HTTP Cookie File\n" + text
-        f.write_text(text, encoding="utf-8")
-        with contextlib.suppress(OSError):
-            f.chmod(0o600)
+        vault.write_private(f, text)     # yt-dlp needs the plain file, so it is protected by permissions from the first byte
     media._yt_refused_until = 0.0        # try YouTube again straight away
     return yt_cookies_get(request)
 

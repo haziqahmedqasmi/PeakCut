@@ -54,9 +54,35 @@ def _check_password_rules(password: str):
 
 
 # ---------------------------------------------------------------- rate limiting (per address and per email)
+_SHARED = ("signup:", "verify:", "forgot", "reset-ip:", "login", "pw:", "google:")   # the ones that guard passwords and email
+_pruned = 0.0
+
+
+def _throttle_db(key: str, limit: int, window: int, now: float):
+    """The same rule, counted in the database: every process and every restart sees the same attempts, so
+    starting a second copy (or restarting) does not give an attacker a fresh allowance."""
+    global _pruned
+    with db.engine.begin() as c:
+        t = db.rate_hits
+        n = c.execute(sa.select(sa.func.count()).select_from(t).where(sa.and_(t.c.key == key, t.c.t > now - window))).scalar()
+        if n >= limit:
+            raise AuthError("Too many attempts. Wait a few minutes and try again.")
+        c.execute(t.insert().values(key=key, t=now))
+        if now - _pruned > 600:        # forget what is older than any window used
+            _pruned = now
+            c.execute(t.delete().where(t.c.t < now - 86400))
+
+
 def throttle(key: str, limit: int, window: int):
     """Raise if `key` has been used more than `limit` times in the last `window` seconds."""
     now, key = time.time(), key[:200]
+    if key.startswith(_SHARED):
+        try:
+            return _throttle_db(key, limit, window, now)
+        except AuthError:
+            raise
+        except Exception:  # noqa: BLE001 - the database cannot be asked: count in memory instead
+            pass
     with _lock:
         if len(_attempts) > 20000:     # never let the store of attempts grow without limit
             for k in [k for k, v in _attempts.items() if not v or v[-1] < now - 3600]:

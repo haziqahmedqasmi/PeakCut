@@ -1,4 +1,5 @@
 """Turns a time range into a vertical clip: 9:16 layout, bouncy word captions, hook title, cover."""
+import os
 import re
 import shutil
 import subprocess
@@ -278,7 +279,36 @@ def _hook_y(layout, hook_y, facecam=None):
     return hook_y
 
 
-_qsv_ok = None
+# Video cards that can make the clip faster than the processor: tried in this order, each only if this ffmpeg has it,
+# and one that fails once (no card, old driver) is left out from then on. The processor (x264) is always the last
+# resort, so a clip is made either way.
+_HW = (("nvenc", "h264_nvenc", ["yuv420p", "-c:v", "h264_nvenc", "-cq", "23", "-preset", "p4", "-rc", "vbr", "-b:v", "0"]),
+       ("videotoolbox", "h264_videotoolbox", ["yuv420p", "-c:v", "h264_videotoolbox", "-q:v", "65"]),
+       ("qsv", "h264_qsv", ["nv12", "-c:v", "h264_qsv", "-global_quality", "23", "-preset", "fast"]))
+_hw_state: dict = {}          # label -> True (worked) / False (failed once)
+_listed = None
+
+
+def _ffmpeg_has() -> str:
+    global _listed
+    if _listed is None:
+        try:
+            p = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True, timeout=20,
+                               encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
+            _listed = p.stdout
+        except Exception:  # noqa: BLE001
+            _listed = ""
+    return _listed
+
+
+def encoders_to_try() -> list:
+    """The encoders to try for one clip, best first, ending with the processor."""
+    if os.environ.get("PEAKCUT_HW_ENCODE", "1").strip().lower() in ("0", "false", "no", "off"):
+        found = []
+    else:
+        listed = _ffmpeg_has()
+        found = [(label, enc) for label, name, enc in _HW if _hw_state.get(label) is not False and name in listed]
+    return found + [("x264", ["yuv420p", "-c:v", "libx264", "-crf", "21", "-preset", "veryfast"])]
 RENDER_SECONDS = 600      # one clip's video encode; far beyond normal, so a frozen encoder is stopped, not waited on
 
 
@@ -307,7 +337,6 @@ def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, sr
 
 
 def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layout, fg_h, ass: str, face=None, meta=None) -> dict:
-    global _qsv_ok
     (work / f"{name}.ass").write_text(ass, encoding="utf-8")
     (work / "f").mkdir()
     for f in config.FONTS_DIR.glob("*.ttf"):
@@ -320,21 +349,18 @@ def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layo
         if v:
             base += ["-metadata", f"{k}={v}"]
     base += ["-movflags", "+faststart", "-pix_fmt"]
-    encoders = []
-    if _qsv_ok is not False:
-        encoders.append(("qsv", ["nv12", "-c:v", "h264_qsv", "-global_quality", "23", "-preset", "fast"]))
-    encoders.append(("x264", ["yuv420p", "-c:v", "libx264", "-crf", "21", "-preset", "veryfast"]))
+    encoders = encoders_to_try()
     err = None
     for label, enc in encoders:
         p = subprocess.run(base + enc + [f"{name}.mp4"], cwd=work, capture_output=True, text=True,
                            encoding="utf-8", errors="replace", creationflags=NO_WINDOW, timeout=RENDER_SECONDS)
         if p.returncode == 0:
-            if label == "qsv":
-                _qsv_ok = True
+            if label != "x264":
+                _hw_state[label] = True
             break
         err = p.stderr[-1200:]
-        if label == "qsv":
-            _qsv_ok = False
+        if label != "x264":
+            _hw_state[label] = False
     else:
         raise RuntimeError(f"Render failed: {err}")
     cover_t = min(1.2, (end - start) / 2)

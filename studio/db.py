@@ -112,6 +112,23 @@ admin_log = sa.Table(                                                         # 
 )
 
 
+posts = sa.Table(                                                             # clips queued for, or already sent to, an account
+    "posts", meta,
+    sa.Column("id", sa.String(40), primary_key=True),
+    sa.Column("user_id", sa.String(40), nullable=False, server_default="", index=True),
+    sa.Column("status", sa.String(12), nullable=False, server_default="", index=True),   # scheduled | posting | posted | failed | cancelled
+    sa.Column("due_at", sa.Float, nullable=False, server_default="0", index=True),
+    sa.Column("data", sa.Text, nullable=False),                               # the whole post, as JSON: new details need no new column
+)
+rate_hits = sa.Table(                                                         # sign-in and sign-up attempts, kept across restarts
+    "rate_hits", meta,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("key", sa.String(200), nullable=False),
+    sa.Column("t", sa.Float, nullable=False),
+    sa.Index("rate_hits_key_t", "key", "t"),
+)
+
+
 def init():
     meta.create_all(engine)
 

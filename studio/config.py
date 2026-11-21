@@ -128,8 +128,15 @@ YT_TRANSCRIPT = env("PEAKCUT_YT_TRANSCRIPT", "1") != "0"
 # YouTube account get past that: an admin pastes them under Settings, Connected apps, and they are kept in this file.
 YT_COOKIES = Path(env("PEAKCUT_YT_COOKIES") or DATA_DIR / "youtube-cookies.txt")
 # the compact model for processors; a machine with a graphics card sets PEAKCUT_ASR_MODEL to the full-precision one
-ASR_MODEL_NAME = env("PEAKCUT_ASR_MODEL", "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8")
+_ASR_MODEL_DEFAULT = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
+ASR_MODEL_NAME = env("PEAKCUT_ASR_MODEL", _ASR_MODEL_DEFAULT)
 ASR_MODEL_DIR = MODELS_DIR / ASR_MODEL_NAME
+# The fingerprint (SHA-256) of the English archive, checked before it is unpacked, so what is downloaded can't change
+# unless this code changes. It belongs to the default model only: choosing a different model with PEAKCUT_ASR_MODEL
+# needs its own PEAKCUT_ASR_MODEL_SHA256 (or none, to skip the check for that model).
+ASR_MODEL_SHA256 = (env("PEAKCUT_ASR_MODEL_SHA256") if env("PEAKCUT_ASR_MODEL_SHA256") is not None else (
+    "6fc4426b54aa549a0019b8a75b8dea59164e71790a37ac56a045ad57f915f714" if ASR_MODEL_NAME == _ASR_MODEL_DEFAULT else "")
+).strip().lower()
 # Arabic: NVIDIA's FastConformer, converted for PeakCut with tools/export_arabic_model.py. Downloaded only when asked for.
 ASR_MODEL_AR = env("PEAKCUT_ASR_MODEL_AR", "sherpa-onnx-nemo-fastconformer-ar-int8")
 # The address names one fixed version of the file (a commit), not "the latest", and the file's fingerprint (SHA-256)
@@ -201,6 +208,11 @@ MAX_VIDEO_HOURS = _limit("PEAKCUT_MAX_VIDEO_HOURS")              # longest video
 MAX_LIVE_HOURS = _limit("PEAKCUT_MAX_LIVE_HOURS")                # a recording stops by itself after this long
 MAX_USER_GB = _limit("PEAKCUT_MAX_USER_GB")                      # disk space one account may fill
 MAX_CREATORS = int(_limit("PEAKCUT_MAX_CREATORS"))               # creators one account may add
+# Posting: how many clips may be uploading at once (never two to the same account), how many tries a post gets, and how
+# long to wait after each failed one (seconds; the last value is used for every try after those).
+POST_WORKERS = max(1, int(env("PEAKCUT_POST_WORKERS") or "4"))
+POST_TRIES = max(1, int(env("PEAKCUT_POST_TRIES") or "5"))
+POST_BACKOFF = (120, 600, 2700, 10800)
 ALLOWED_SITES = tuple(s.strip().lower() for s in env(
     "PEAKCUT_ALLOWED_SITES", "youtube.com,youtu.be,twitch.tv,kick.com").split(",") if s.strip())
 
@@ -213,6 +225,11 @@ AI_BASE_URL = env("PEAKCUT_AI_BASE_URL", "").rstrip("/")                      # 
 
 def ai_key() -> str:
     return _secret("PEAKCUT_AI_KEY", "PEAKCUT_AI_KEY_FILE", r"\S{8,}")
+
+
+def secret_key() -> str:
+    """The key that locks saved secrets (studio/vault.py), or "" to let PeakCut keep one in the data folder."""
+    return _secret("PEAKCUT_SECRET_KEY", "PEAKCUT_SECRET_KEY_FILE", r"\S{16,}")
 
 
 def ai_ready() -> bool:

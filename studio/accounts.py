@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from . import config, ctx
+from . import config, ctx, vault
 
 _lock = threading.RLock()
 _states: dict = {}   # one-time values for the connect redirects: state -> (user id, when, platform)
@@ -41,25 +41,62 @@ def _dir() -> Path:
     return d
 
 
+# Which fields of each file are secrets. They are kept locked in the file (studio/vault.py) and open only in memory.
+_SEALED = {"accounts.json": ("access_token", "refresh_token", "token"), "settings.json": SECRET_KEYS}
+
+
+def _lock_fields(name, data, how):
+    """A copy of `data` with this file's secret fields passed through `how` (vault.seal or vault.unseal)."""
+    fields = _SEALED.get(name)
+    if not fields:
+        return data
+    one = lambda d: {k: (how(v) if k in fields and isinstance(v, str) else v) for k, v in d.items()} if isinstance(d, dict) else d  # noqa: E731
+    return [one(x) for x in data] if isinstance(data, list) else one(data)
+
+
 def _read(name, default):
     f = _dir() / name
     if not f.exists():
         return default
     try:
-        return json.loads(f.read_text(encoding="utf-8"))
+        return _lock_fields(name, json.loads(f.read_text(encoding="utf-8")), vault.unseal)
     except ValueError:
         return default
+
+
+def _replace_locked(f: Path, locked) -> None:
+    tmp = f.with_name(f.name + ".tmp")
+    vault.write_private(tmp, json.dumps(locked, indent=1))
+    tmp.replace(f)
+
+
+def seal_existing() -> int:
+    """Lock the secrets an older version saved as plain text (posting tokens, the Discord and Telegram settings, the
+    platform apps' secrets). Done once at start; running it again changes nothing. Returns how many files it changed."""
+    changed = 0
+    with _lock:
+        files = [(f, lambda raw, n=f.name: _lock_fields(n, raw, vault.seal)) for u in config.USERS_DIR.glob("*/accounts")
+                 for f in (u / "accounts.json", u / "settings.json") if f.is_file()]
+        if _apps_file().is_file():
+            files.append((_apps_file(), lambda raw: _lock_apps(raw) if isinstance(raw, dict) else raw))
+        for f, lock in files:
+            try:
+                raw = json.loads(f.read_text(encoding="utf-8"))
+                locked = lock(raw)
+                if locked != raw:
+                    _replace_locked(f, locked)
+                    changed += 1
+            except (OSError, ValueError):
+                continue                    # an unreadable file is left exactly as it is
+        _apps_seen["at"] = None
+    return changed
 
 
 def _write(name, data):
     with _lock:
         d = _dir()
         tmp = d / (name + ".tmp")
-        tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
-        try:
-            tmp.chmod(0o600)                 # these hold posting tokens: readable by the app only
-        except OSError:
-            pass
+        vault.write_private(tmp, json.dumps(_lock_fields(name, data, vault.seal), indent=1))   # these hold posting tokens
         tmp.replace(d / name)
         if name == "settings.json":
             _settings_mem[ctx.uid()] = {**SETTING_DEFAULTS, **data}
@@ -90,8 +127,17 @@ def _apps_saved() -> dict:
             data = json.loads(f.read_text(encoding="utf-8")) if at else {}
         except (OSError, ValueError):
             data = {}
-        _apps_seen.update(at=at, data=data if isinstance(data, dict) else {})
+        data = data if isinstance(data, dict) else {}
+        for v in data.values():
+            if isinstance(v, dict) and isinstance(v.get("secret"), str):
+                v["secret"] = vault.unseal(v["secret"])      # locked in the file, open only in memory
+        _apps_seen.update(at=at, data=data)
     return _apps_seen["data"]
+
+
+def _lock_apps(data: dict) -> dict:
+    return {k: ({**v, "secret": vault.seal(v["secret"])} if isinstance(v, dict) and isinstance(v.get("secret"), str) else v)
+            for k, v in data.items()}
 
 
 def app_keys(name: str) -> tuple:
@@ -144,11 +190,7 @@ def save_app(platform: str, cid: str, secret: str) -> dict:
         data = dict(_apps_saved())
         data[name] = {"id": cid, "secret": secret}
         tmp = _apps_file().with_suffix(".tmp")
-        tmp.write_text(json.dumps(data), encoding="utf-8")
-        try:
-            tmp.chmod(0o600)
-        except OSError:
-            pass
+        vault.write_private(tmp, json.dumps(_lock_apps(data)))
         tmp.replace(_apps_file())
         _apps_seen["at"] = None
     return apps_public()
@@ -295,9 +337,44 @@ def remove(aid):
         _write("accounts.json", [a for a in _all() if a["id"] != aid])
 
 
+class PostError(RuntimeError):
+    """A failed call to a platform. `permanent` says that trying again will not help (a video the platform
+    rejected, an account whose access was taken away); `wait` is how many seconds the platform asked us to wait
+    before trying again, when it said so. Anything that is neither (a dropped connection, a busy platform) is
+    simply tried again later. It is still a RuntimeError, so code that catches those keeps working."""
+
+    def __init__(self, message, permanent=False, wait=None):
+        super().__init__(message)
+        self.permanent = permanent
+        self.wait = wait
+
+
+QUOTA_WAIT = 3600          # a platform that says "quota" or "slow down" without saying for how long: try again in an hour
+_QUOTA = re.compile(r"quota|rate.?limit|too many|try again later|temporarily", re.I)
+
+
+def _retry_after(r):
+    """The wait a platform asked for in a Retry-After header (seconds), or None."""
+    try:
+        v = float((getattr(r, "headers", None) or {}).get("Retry-After", ""))
+        return v if 0 < v < 86400 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def http_failure(code: int, text: str, what: str, r=None) -> PostError:
+    """The error for a platform's answer with this status: busy platforms and limits are tried again, refusals
+    (bad request, no access, not found) are not."""
+    msg = f"{what} failed ({code}): {str(text)[:300]}"
+    limited = bool(_QUOTA.search(str(text)[:2000]))
+    if code in (408, 429) or code >= 500 or (code == 403 and limited):
+        return PostError(msg, permanent=False, wait=_retry_after(r) or (QUOTA_WAIT if code in (403, 429) else None))
+    return PostError(msg, permanent=code in (400, 401, 403, 404, 410, 422))
+
+
 def _check(r, what):
     if r.status_code >= 400:
-        raise RuntimeError(f"{what} failed ({r.status_code}): {r.text[:300]}")
+        raise http_failure(r.status_code, r.text, what, r)
     return r
 
 
@@ -435,10 +512,10 @@ def instagram_upload(acc, path: Path, caption: str, job_id: str = ""):
         if st.get("status_code") in ("FINISHED", "PUBLISHED"):
             break
         if st.get("status_code") in ("ERROR", "EXPIRED"):
-            raise RuntimeError(f"Instagram rejected the video: {st.get('status', st['status_code'])}")
+            raise PostError(f"Instagram rejected the video: {st.get('status', st['status_code'])}", permanent=True)
         time.sleep(6)
     else:
-        raise RuntimeError("Instagram took too long to process the video.")
+        raise PostError("Instagram took too long to process the video.")
     pub = _check(httpx.post(f"{IG}/{uid}/media_publish", data={"creation_id": box["id"]}, headers=auth, timeout=60),
                  "Publishing on Instagram").json()
     link = ""
@@ -469,7 +546,11 @@ def _tt(r, what):
     if r.status_code >= 400 or (err and err.get("code") not in (None, "ok")) or (isinstance(data.get("error"), str)):
         code = err.get("code") or data.get("error") or r.status_code
         msg = err.get("message") or data.get("error_description") or r.text[:200]
-        e = RuntimeError(f"{what} failed ({code}): {msg}")
+        text = f"{what} failed ({code}): {msg}"
+        # TikTok's own codes: a limit on how much may be posted is tried again later, a refusal never is
+        e = http_failure(r.status_code, text, what, r) if r.status_code >= 400 else PostError(
+            text, permanent=not re.search(r"rate|limit|too_many|spam|busy|timeout", str(code), re.I))
+        e.args = (text,)
         e.code = code
         raise e
     return data
@@ -560,16 +641,16 @@ def tiktok_upload(acc, path: Path, caption: str, privacy: str = "public"):
             r = httpx.put(box["upload_url"], content=part, timeout=900, headers={
                 "Content-Type": "video/mp4", "Content-Length": str(len(part)), "Content-Range": f"bytes {first}-{last}/{size}"})
             if r.status_code not in (200, 201, 206):
-                raise RuntimeError(f"Uploading to TikTok failed ({r.status_code}): {r.text[:200]}")
+                raise http_failure(r.status_code, r.text[:200], "Uploading to TikTok", r)
     for _ in range(120):
         st = _tt_post(acc, "/post/publish/status/fetch/", {"publish_id": box["publish_id"]}, "Checking the TikTok post")
         if st.get("status") == "PUBLISH_COMPLETE":
             break
         if st.get("status") == "FAILED":
-            raise RuntimeError(f"TikTok did not publish the video: {st.get('fail_reason') or 'no reason given'}")
+            raise PostError(f"TikTok did not publish the video: {st.get('fail_reason') or 'no reason given'}", permanent=True)
         time.sleep(5)
     else:
-        raise RuntimeError("TikTok took too long to publish the video.")
+        raise PostError("TikTok took too long to publish the video.")
     ids = st.get("publicaly_available_post_id") or st.get("publicly_available_post_id") or []
     user = info.get("creator_username") or ""
     url = f"https://www.tiktok.com/@{user}/video/{ids[0]}" if ids and user else ""
