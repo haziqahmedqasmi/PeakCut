@@ -153,6 +153,7 @@ check("Arabic can be removed when nothing uses it", (c.delete("/api/speech/ar", 
 downloads.clear()
 check("a video can be marked as Russian", jobs.clean_options({"lang": "ru"}), {"lang": "ru"})
 check("Russian captions keep their words instead of being translated", brain.needs_translation("ru"), False)
+check("Russian videos get Russian text in clip scouting rules", "If the video is in Russian,\n  write them in Russian." in brain.RULES, True)
 check("Russian words in caption fixes are verified correctly", brain._same_word("привет", "Привет!"), True)
 check("Russian word swaps are rejected", brain._same_word("привет", "космос"), False)
 ru_tokens = ["▁При", "вет", "▁мир", "!"]

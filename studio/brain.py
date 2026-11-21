@@ -62,9 +62,10 @@ Rules:
 - description: one or two sentences.
 - hashtags: 5 tags without the # sign.
 - highlight_words: 3 to 6 single words spoken in the clip that carry the punch.
-- Write hook, title, description, hashtags and highlight_words in English. If the video is in Hindi or Urdu,
-  you may write them the way people type Hindi and Urdu in Roman letters (Hinglish: "yaar ye kya hai"), never
-  in Devanagari or Urdu script. For any other language, write them in English.
+- Write hook, title, description, hashtags and highlight_words in English. If the video is in Russian,
+  write them in Russian. If the video is in Hindi or Urdu, you may write them the way people type Hindi
+  and Urdu in Roman letters (Hinglish: "yaar ye kya hai"), never in Devanagari or Urdu script. For any
+  other language, write them in English.
 - category: one of funny, fail, clutch, rage, shock, take, story, other.
 - reason: one short sentence on why it works.
 {language}
