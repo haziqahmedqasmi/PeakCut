@@ -27,11 +27,14 @@ MODELS = {
            "Parakeet TDT 0.6b v2 by NVIDIA (CC-BY-4.0)", ""),
     "ar": ("Arabic", config.ASR_MODEL_AR, config.ASR_MODEL_AR_URL, 107,
            "FastConformer Arabic by NVIDIA (CC-BY-4.0)", config.ASR_MODEL_AR_SHA256),
+    "ru": ("Russian", config.ASR_MODEL_RU, config.ASR_MODEL_RU_URL, 490,
+           "Parakeet TDT 0.6b v3 by NVIDIA (CC-BY-4.0)", config.ASR_MODEL_RU_SHA256),
 }
 DEFAULT = "en"
 WAIT = 60   # seconds of silence from the connection before giving up, so a stalled download cannot hang everything
 
-_locks = {lang: threading.Lock() for lang in MODELS}
+# One lock per model folder, not per language: two languages may use the same multilingual model.
+_locks = {m[1]: threading.Lock() for m in MODELS.values()}
 state = {lang: {"doing": False, "percent": 0, "error": ""} for lang in MODELS}
 
 
@@ -77,7 +80,7 @@ def ensure(lang: str = DEFAULT, start: bool = True) -> None:
             return
         raise RuntimeError(f"{label(lang)} needs its speech model, which isn't on this computer yet. "
                            "Add it in Settings → Speech models (an admin can do this), then try again.")
-    with _locks[lang]:
+    with _locks[MODELS[lang][1]]:
         if not ready(lang):
             _fetch(lang)
 
@@ -145,7 +148,7 @@ def start(lang: str) -> None:
 
     def run():
         try:
-            with _locks[lang]:
+            with _locks[MODELS[lang][1]]:
                 if not ready(lang):
                     _fetch(lang)
         except Exception:  # noqa: BLE001 - the reason is kept in state[lang]["error"]
@@ -160,7 +163,11 @@ def remove(lang: str) -> None:
     from . import transcribe
     if lang == DEFAULT:
         raise ValueError("The English speech model is always kept.")
-    with _locks[lang]:
+    other = next((k for k, m in MODELS.items() if k != lang and m[1] == MODELS[lang][1] and k == DEFAULT), "")
+    if other:
+        raise RuntimeError(f"The {label(lang)} speech model is the same download as the {label(other)} one, "
+                           "so it can't be removed on its own.")
+    with _locks[MODELS[lang][1]]:
         if state[lang]["doing"]:
             raise RuntimeError(f"The {label(lang)} speech model is still downloading.")
         if not transcribe.unload(lang):

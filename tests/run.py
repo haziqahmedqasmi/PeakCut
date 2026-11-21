@@ -72,7 +72,7 @@ def main() -> int:
                 ("the storage folder: full drive, open, move", ["tests/test_storage.py"]),
                 ("security: visitor address, email addresses, Google sign-in, prompts", ["tests/test_hardening.py"]),
                 ("long logs, the machine monitor, failed recordings, admin day totals", ["tests/test_robustness.py"]),
-                ("speech models for other languages: Arabic, downloads, the second machine", ["tests/test_speech.py"]),
+                ("speech models for other languages: Arabic and Russian, downloads, the second machine", ["tests/test_speech.py"]),
                 ("post text: write again with AI, edit, post without re-making", ["tests/test_post_text.py"]),
                 ("live recording stops and empty stream URLs", ["tests/test_live.py"])]
         for name, args in runs:
