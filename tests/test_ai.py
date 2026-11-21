@@ -66,7 +66,7 @@ check("gemini: answer and tokens", out == [CLIP] and (sent, wrote) == (100, 30),
 check("gemini: key in the header, schema passed as is", seen[0][2].get("x-goog-api-key") == "test-key-123456"
       and seen[0][1]["generationConfig"]["responseSchema"] is brain.SCHEMA and seen[0][0].endswith("/model-a:generateContent"))
 
-for name, host in (("openai", "api.openai.com"), ("xai", "api.x.ai"), ("grok", "api.x.ai"), ("groq", "api.groq.com"), ("openrouter", "openrouter.ai")):
+for name, host in (("openai", "api.openai.com"), ("chatanywhere", "api.chatanywhere.tech"), ("xai", "api.x.ai"), ("grok", "api.x.ai"), ("groq", "api.groq.com"), ("openrouter", "openrouter.ai")):
     use(name)
     out, sent, wrote = ai.call("model-a", "hello", brain.SCHEMA)
     check(f"{name}: answer unwrapped from a code fence, tokens read", out == [CLIP] and (sent, wrote) == (90, 20), str((out, sent, wrote)))

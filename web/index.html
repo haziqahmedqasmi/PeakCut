@@ -2060,7 +2060,9 @@ function aiHints() {
   $("#ai_keyhint").innerHTML = pv.key_url ? `${pv.needs_key ? "Get a key at" : "Set it up at"} <a href="${esc(pv.key_url)}" target="_blank" rel="noopener">${esc(pv.key_url.replace("https://", ""))}</a>. The key stays on this server and is never shown again.` : "The key stays on this server and is never shown again.";
   $("#ai_model").placeholder = pv.example ? "For example " + pv.example : "The model id, exactly as the service names it";
   $("#ai_base").placeholder = pv.address || "http://127.0.0.1:1234/v1";
-  $("#ai_basewrap").hidden = pv.id !== "custom" && !(same && k.base_url);
+  $("#ai_basewrap").hidden = pv.id !== "custom" && pv.id !== "chatanywhere" && !(same && k.base_url);
+  const bh = $("#ai_basehint");
+  if (bh) bh.textContent = pv.id === "chatanywhere" ? "Default: https://api.chatanywhere.tech/v1 (or https://api.chatanywhere.org/v1 for global)" : "Where the service answers. Only needed for a custom service.";
 }
 async function drawSettings() {
   const box = $("#sform"); if (!box) return;
@@ -2077,7 +2079,7 @@ async function drawSettings() {
           <div class="ai-form">
             <label class="f">AI service<select id="ai_provider">${k.providers.map(x => `<option value="${esc(x.id)}" ${x.id === k.provider ? "selected" : ""}>${esc(x.label)}</option>`).join("")}</select></label>
             <label class="f">Key<input id="ai_key" type="password" autocomplete="off" spellcheck="false"><span class="hint" id="ai_keyhint"></span></label>
-            <label class="f" id="ai_basewrap">Address<input id="ai_base" value="${esc(k.base_url || "")}" spellcheck="false"><span class="hint">Where the service answers. Only needed for a custom service.</span></label>
+            <label class="f" id="ai_basewrap">Address<input id="ai_base" value="${esc(k.base_url || "")}" spellcheck="false"><span class="hint" id="ai_basehint">Where the service answers. Only needed for a custom service.</span></label>
             <label class="f">Model<span class="with"><input id="ai_model" list="ai_models" value="${esc(k.models.join(", "))}" spellcheck="false"><button class="btn" type="button" data-act="aimodels">Find models</button></span>
               <datalist id="ai_models"></datalist><span class="hint">A fast, inexpensive model is the right choice. Add a second one after a comma to fall back on.</span></label>
           </div>

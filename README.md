@@ -84,6 +84,7 @@ PEAKCUT_AI_KEY=your-key-here
 |---|---|---|
 | `gemini` | Google Gemini | https://aistudio.google.com/apikey |
 | `openai` | OpenAI | https://platform.openai.com/api-keys |
+| `chatanywhere` | ChatAnywhere | https://docs.chatanywhere.tech |
 | `xai` | Grok (xAI) | https://console.x.ai |
 | `groq` | Groq | https://console.groq.com/keys |
 | `openrouter` | OpenRouter (many models, one key) | https://openrouter.ai/keys |

@@ -19,6 +19,9 @@ BASE = f"http://127.0.0.1:{PORT}"
 
 
 def main() -> int:
+    sys.path.insert(0, str(ROOT))
+    from studio import tools
+    tools.setup()
     data = Path(tempfile.mkdtemp(prefix="peakcut-test-"))
     env = {**os.environ, "PEAKCUT_DATA": str(data), "PEAKCUT_PORT": str(PORT), "PEAKCUT_PUBLIC_URL": BASE,
            "PEAKCUT_HOST": "127.0.0.1", "PEAKCUT_AUTO_RELOAD": "0", "DATABASE_URL": "",

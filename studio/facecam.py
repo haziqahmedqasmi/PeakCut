@@ -94,7 +94,7 @@ def _peaks(profile: np.ndarray, limit: int) -> list[tuple[int, float]]:
     med = float(np.median(profile)) or 1.0
     out = []
     for i in range(1, len(profile) - 1):
-        if profile[i] >= profile[i - 1] and profile[i] > profile[i + 1] and profile[i] > EDGE * med:
+        if profile[i] >= profile[i - 1] and profile[i] > profile[i + 1] and profile[i] > max(EDGE * med, 20.0):
             out.append((i, float(profile[i] / med)))
     return sorted(out, key=lambda p: -p[1])[:limit]
 
