@@ -202,4 +202,5 @@ post, and for following the terms of the sites you fetch from and post to.
 ## Licence
 
 [MIT](LICENSE). Caption fonts in `studio/fonts/` (Anton, Archivo Black, Poppins) are under the SIL Open Font
-License; the licence texts are in the same folder.
+License; the licence texts are in the same folder.Fork of PeakCut by haziqahmedqasmi (MIT). Added: local video file input.
+
