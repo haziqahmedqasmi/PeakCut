@@ -72,9 +72,9 @@ class BatchPosts(unittest.TestCase):
     def test_queue_has_no_overnight_posting_window(self):
         cases = [
             ("2026-11-20 19:00", 10, "2026-11-20 19:30"),
-            ("2026-11-20 19:00", 1, "2026-11-21 00:00"),
+            ("2026-11-20 19:00", 1, "2026-11-20 19:30"),
             ("2026-11-20 23:50", 1, "2026-11-21 00:20"),
-            ("2026-12-31 19:00", 1, "2027-01-01 00:00"),
+            ("2026-12-31 19:00", 1, "2026-12-31 19:30"),
         ]
         for start, cap, second in cases:
             with self.subTest(start=start, cap=cap):
@@ -85,6 +85,36 @@ class BatchPosts(unittest.TestCase):
                 with patch("studio.posting.time.time", return_value=now):
                     for clip in self.job["clips"][:2]:
                         posting.enqueue(self.job, clip, ["youtube"])
+                self.assertEqual([p["due_at"] for p in posting._posts], [now, expected])
+
+    def test_new_posts_continue_after_the_last_scheduled_video(self):
+        creators.update(self.job["creator"], {"daily_cap": 1})
+        scheduled = datetime(2026, 11, 20, 20, 35).timestamp()
+        with patch("studio.posting.time.time", return_value=scheduled):
+            posting.enqueue(self.job, self.job["clips"][0], ["youtube"])
+        creators.update(self.job["creator"], {"post_gap_min": 5})
+        earlier = datetime(2026, 11, 20, 19).timestamp()
+        with patch("studio.posting.time.time", return_value=earlier):
+            response = self.post(clips=self.pairs[1:], accounts=["youtube", "instagram"])
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual([p["due_at"] for p in posting._posts], [
+            scheduled, datetime(2026, 11, 20, 20, 40).timestamp(), earlier])
+
+    def test_daily_limit_only_applies_when_the_user_enables_it(self):
+        now = datetime(2026, 11, 20, 19).timestamp()
+        for enabled, expected in ((True, datetime(2026, 11, 21).timestamp()),
+                                  (False, datetime(2026, 11, 20, 19, 30).timestamp())):
+            with self.subTest(enabled=enabled):
+                posting._posts.clear()
+                response = self.client.put(f"/api/creators/{self.job['creator']}",
+                                           json={"daily_cap_enabled": enabled, "daily_cap": 1},
+                                           headers={"Origin": "http://localhost"})
+                self.assertEqual(response.status_code, 200, response.text)
+                # Read settings back from disk, as happens after a restart.
+                creators.forget(self.owner.id)
+                with patch("studio.posting.time.time", return_value=now):
+                    response = self.post()
+                self.assertEqual(response.status_code, 200, response.text)
                 self.assertEqual([p["due_at"] for p in posting._posts], [now, expected])
 
     def test_invalid_batches_have_no_partial_effect(self):

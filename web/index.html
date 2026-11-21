@@ -2008,7 +2008,7 @@ function openBatchPost() {
     <p class="help">${i18n.html("Every selected clip will go to the accounts you choose below. Clips already queued or posted to an account are skipped.")}</p>
     ${S.accounts.length ? `<h3>${i18n.html("Choose accounts")}</h3><p class="help" data-posthint role="status"></p>
       <div class="post-accounts">${postAccountChoices(selected, "bpacc")}</div>
-      <p class="help">${i18n.html("Add to queue follows each creator's posting interval and daily limit.")}</p>`
+      <p class="help">${i18n.html("Add to queue follows each creator's posting interval and any enabled daily limit.")}</p>`
       : `<p class="help">${i18n.html("No accounts connected yet. Connect one in Social networks.")}</p><button type="button" class="btn" data-act="batchsocial">${i18n.html("Open Social networks")}</button>`}
     <p class="err" data-batch-error role="alert" hidden></p>
     <div class="dlg-foot"><button class="btn" value="no">${i18n.html("Cancel")}</button>
@@ -2135,9 +2135,10 @@ function drawCreatorForm() {
         <label class="f">${i18n.html("Posting interval")}<select id="post-interval">
           ${postIntervals.map(minutes => `<option value="${minutes}" ${Number(c.post_gap_min) === minutes ? "selected" : ""}>${i18n.html("Every {0} min", minutes)}</option>`).join("")}
           <option value="custom" ${customPostInterval ? "selected" : ""}>${i18n.html("Custom")}</option>
-        </select><small class="sub" style="font-weight:400">${i18n.html("Time between posts on each account. The daily limit still applies.")}</small></label>
+        </select><small class="sub" style="font-weight:400">${i18n.html("New posts follow the last scheduled video on each account, using this interval.")}</small></label>
         <label class="f" id="custom-post-interval" ${customPostInterval ? "" : "hidden"}>${i18n.html("Custom interval (minutes)")}<input data-k="post_gap_min" type="number" min="5" max="1440" step="1" required value="${c.post_gap_min}"><small class="sub" style="font-weight:400">${i18n.html("Enter a whole number from 5 to 1,440 minutes.")}</small></label>
-        <label class="f">${i18n.html("Most posts per account per day")}<input data-k="daily_cap" type="number" value="${c.daily_cap}"></label>
+        <label class="sw span"><input type="checkbox" data-k="daily_cap_enabled" ${c.daily_cap_enabled ? "checked" : ""}><span>${i18n.html("Limit posts per account per day")}<small>${i18n.html("Off by default. Turn on to set a daily limit.")}</small></span></label>
+        <label class="f" id="daily-post-limit" ${c.daily_cap_enabled ? "" : "hidden"}>${i18n.html("Most posts per account per day")}<input data-k="daily_cap" type="number" min="1" max="50" step="1" required value="${c.daily_cap}" ${c.daily_cap_enabled ? "" : "disabled"}></label>
         <label class="f">${i18n.html("Who can see posts (YouTube, TikTok)")}<select data-k="privacy">${opts({public:i18n.t("Public"), unlisted:i18n.t("Unlisted"), private:i18n.t("Private")}, c.privacy)}</select></label>
         <label class="f">${i18n.html("Campaign pay per 1,000 views ($)")}<input data-k="rate_per_1k" type="number" step="0.1" min="0" value="${c.rate_per_1k}"></label>
         <label class="f span">${i18n.html("Line added to every post (credit, campaign tag)")}<input data-k="post_footer" value="${esc(c.post_footer)}" placeholder="Clipped from @streamer"></label></div></div>
@@ -2150,6 +2151,8 @@ const dirty = on => $("#savebar")?.classList.toggle("on", on);
 async function saveCreator(quiet) {
   const postInterval = $("#cform [data-k='post_gap_min']");
   if (postInterval && !postInterval.reportValidity()) return false;
+  const dailyLimit = $("#cform [data-k='daily_cap']");
+  if (dailyLimit && !dailyLimit.reportValidity()) return false;
   try { await send(`/api/creators/${creatorId()}`, creatorForm(), "PUT"); dirty(false); if (!quiet) toast(i18n.t("Saved"), "ok"); await tick(); return true; }
   catch (e) { toast(e.message, "bad"); return false; }
 }
@@ -2995,6 +2998,11 @@ document.addEventListener("change", async e => {
     if (custom) input.focus(); else input.value = t.value;
     dirty(true);
     return;
+  }
+  if (t.dataset.k === "daily_cap_enabled") {
+    const field = $("#daily-post-limit");
+    field.hidden = !t.checked;
+    field.querySelector("input").disabled = !t.checked;
   }
   if (t.dataset.k === "ai_every_min" && $("#costhint")) $("#costhint").textContent = costHint(Number(t.value));
   if (t.name === "mainch") return;  // saved by its own click handler
