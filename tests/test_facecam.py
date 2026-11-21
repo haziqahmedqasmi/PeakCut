@@ -43,11 +43,13 @@ try:
     check("its height is right", abs((box or {}).get("h", 0) - 170) <= 1, True)
     check("it is sure of it", (box or {}).get("conf"), "high")
 
-    # ---- the same box in another corner
+    # ---- the same box on the right side, 50 pixels up from the bottom: not in the corner
     cam_br = make("cam_br.mp4", "color=c=0xC08050:size=300x170:rate=25", where="980:500")
     box = facecam.detect(cam_br)
-    check("a webcam in the bottom-right is found too", (box or {}).get("corner"), "bottom-right")
+    check("a webcam on the right, above the bottom, is found too", (box or {}).get("corner"), "right")
     check("its position is right", abs((box or {}).get("x", 0) - 980) <= 1, True)
+    # the game below it is not taken for part of the webcam
+    check("it stops where the picture stops", abs((box or {}).get("h", 0) - 170) <= 2, True)
 
     # ---- a video with no webcam in it: nothing that stays still, so nothing is found
     plain = os.path.join(work, "plain.mp4")

@@ -154,30 +154,123 @@ def _plausible(x0, y0, x1, y1, still, light, game, share=STILL_SHARE):
     return moving
 
 
-def _local(vpeaks, hpeaks, still, light):
-    """Every rectangle the strong straight lines can make, that still looks like a camera.
+def _edge_maps(frames: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(change across each column boundary, change across each row boundary), pixel by pixel.
 
-    Returns them best first: the one whose weakest border is the strongest, and of those the bigger."""
+    The median over the frames, like `_profiles`, but not yet added up, so a border can be measured
+    over just the stretch of the picture it runs along."""
+    f = frames.astype(np.int16)
+    ex = np.median(np.abs(np.diff(f, axis=2)), axis=0).astype(np.float32)   # H x (W-1)
+    ey = np.median(np.abs(np.diff(f, axis=1)), axis=0).astype(np.float32)   # (H-1) x W
+    return ex, ey
+
+
+def _lines(ex, ey, vpeaks, hpeaks, rounds: int = 2, keep: int = 16):
+    """Every straight line that could be a side of the webcam: ({x: strength}, {y: strength}).
+
+    A webcam a fifth of the frame tall has side borders only a fifth of the frame long. Added up down the
+    whole height, the game's own edges drown them out: a small webcam in a busy game had its top and
+    bottom found but never its sides, or the other way round. So, besides the lines that stand out over
+    the whole frame, the columns are measured again between every two rows that could be a webcam's top
+    and bottom, and the rows between every two columns. A line found that way can itself bound the next
+    band, so this is done twice. Nothing here assumes which corner or edge the webcam is on."""
+    xs = _thin({float(x): s for x, s in vpeaks}, keep)
+    ys = _thin({float(y): s for y, s in hpeaks}, keep)
+    for _ in range(rounds):
+        nx, ny = dict(xs), dict(ys)
+        yb = sorted({0.0, float(H)} | set(ys))
+        for j, y0 in enumerate(yb):
+            for y1 in yb[j + 1:]:
+                if MIN_SIZE <= (y1 - y0) / H <= MAX_SIZE:
+                    band = ex[int(y0) + 1:max(int(y0) + 2, int(y1) - 1)].sum(axis=0)  # off the top and bottom
+                    for x, sc in _peaks(band, 6):
+                        nx[float(x)] = max(nx.get(float(x), 0.0), sc)
+        xb = sorted({0.0, float(W)} | set(xs))
+        for i, x0 in enumerate(xb):
+            for x1 in xb[i + 1:]:
+                if MIN_SIZE <= (x1 - x0) / W <= MAX_SIZE:
+                    band = ey[:, int(x0) + 1:max(int(x0) + 2, int(x1) - 1)].sum(axis=1)
+                    for y, sc in _peaks(band, 6):
+                        ny[float(y)] = max(ny.get(float(y), 0.0), sc)
+        xs, ys = _thin(nx, keep), _thin(ny, keep)
+    return xs, ys
+
+
+def _thin(lines: dict, keep: int, gap: float = 3.0) -> dict:
+    """The strongest lines, one per place: a line a pixel or two from a stronger one is the same edge.
+
+    Without this, one busy edge in the game (a pillar, a seam) fills the whole list with copies of
+    itself, and a webcam's quieter border never gets on it."""
+    out = {}
+    for x, sc in sorted(lines.items(), key=lambda kv: -kv[1]):
+        if all(abs(x - y) > gap for y in out):
+            out[x] = sc
+            if len(out) >= keep:
+                break
+    return out
+
+
+GAP = 2                     # pixels left alone either side of a border line, as it can be a pixel or two out
+STRIP = 3                   # how deep, on the small grid, the picture is looked at on each side of a border
+CONTRAST = 2.0              # how much more the game outside a border must move than the webcam inside it
+
+
+def _sides(x0, y0, x1, y1, still, cut):
+    """How clearly this rectangle is a picture set into the game: the weakest of its borders, or None.
+
+    Just inside every side of a webcam the picture is still (a room); just outside every side that is not
+    the frame's own edge, the game is moving. A line inside the webcam (a shelf, the edge of a lamp, the
+    person's shoulder) has the still room on both sides of it, and a box that reaches past the webcam has
+    the moving game just inside its border, so neither passes. Returns the weakest outside/inside ratio."""
+    a, b, c, d = int(x0), int(y0), int(x1), int(y1)
+    g, k = GAP, STRIP
+    if c - a < 2 * (k + g) + 2 or d - b < 2 * (k + g) + 2:
+        return None
+    worst = 99.0
+    # (strip just inside, strip just outside or None when the side is the frame's own edge). Each strip
+    # keeps GAP pixels off the line, so a line found a pixel or two off still reads both sides right.
+    for inside, outside in (
+            (still[b:d, a + g:a + g + k], still[b:d, max(0, a - g - k):a - g] if a - g > 0 else None),
+            (still[b:d, c - g - k:c - g], still[b:d, c + g:c + g + k] if c + g < W else None),
+            (still[b + g:b + g + k, a:c], still[max(0, b - g - k):b - g, a:c] if b - g > 0 else None),
+            (still[d - g - k:d - g, a:c], still[d + g:d + g + k, a:c] if d + g < H else None)):
+        inner = float(np.median(inside))
+        if inner > cut:
+            return None                # the game reaches inside this side: the box is too big
+        if outside is not None and outside.size:
+            worst = min(worst, float(np.median(outside)) / (inner + 1.0))
+    return worst if worst >= CONTRAST else None
+
+
+def _local(vpeaks, hpeaks, still, light, lines=None):
+    """Every rectangle the straight lines can make, that looks like a camera set into the game.
+
+    `lines` are the candidate sides from `_lines`; without them only the lines that stand out over the
+    whole frame are used. Returns them best first: the box whose borders most clearly separate a still
+    picture from the moving game, then the one with the strongest weakest line, then the bigger."""
     game = float(np.median(still))
-    xs = sorted({0.0, float(W)} | {float(x) for x, _ in vpeaks[:10]})
-    ys = sorted({0.0, float(H)} | {float(y) for y, _ in hpeaks[:10]})
-    vs = {float(x): s for x, s in vpeaks}
-    hs = {float(y): s for y, s in hpeaks}
+    cut = max(STILL_MIN, STILL_FRAC * game)
+    vs, hs = lines if lines else ({float(x): s for x, s in vpeaks}, {float(y): s for y, s in hpeaks})
+    xs = sorted({0.0, float(W)} | set(vs))
+    ys = sorted({0.0, float(H)} | set(hs))
     out = []
     for i, x0 in enumerate(xs):
-        wx = [vs[v] for v in (x0,) if v in vs]
         for x1 in xs[i + 1:]:
-            wscore = wx + [vs[v] for v in (x1,) if v in vs]
+            if not (MIN_SIZE <= (x1 - x0) / W <= MAX_SIZE):
+                continue
+            wscore = [vs[v] for v in (x0, x1) if v in vs]
             for j, y0 in enumerate(ys):
-                hy0 = [hs[v] for v in (y0,) if v in hs]
                 for y1 in ys[j + 1:]:
-                    score = wscore + hy0 + [hs[v] for v in (y1,) if v in hs]
+                    score = wscore + [hs[v] for v in (y0, y1) if v in hs]
                     if len(score) < 2:
                         continue       # a box needs two borders of its own, or it is just the frame
                     moving = _plausible(x0, y0, x1, y1, still, light, game)
                     if moving is None:
                         continue
-                    key = (min(score), (x1 - x0) * (y1 - y0))
+                    clear = _sides(x0, y0, x1, y1, still, cut)
+                    if clear is None:
+                        continue
+                    key = (min(clear, 4.0), min(score), (x1 - x0) * (y1 - y0))
                     out.append({"key": key, "x": x0, "y": y0, "x1": x1, "y1": y1,
                                 "score": round(min(score), 2), "moving": moving})
     return sorted(out, key=lambda c: c["key"], reverse=True)
@@ -351,7 +444,8 @@ def detect(path: str | Path, ask=None) -> dict | None:
             return None                    # it looked, and there is no webcam on this stream
     vx, hy = _profiles(frames)
     vpeaks, hpeaks = _peaks(vx, 40), _peaks(hy, 40)
-    found = _local(vpeaks, hpeaks, still, light) if (vpeaks and hpeaks) else []
+    lines = _lines(*_edge_maps(frames), vpeaks, hpeaks) if (vpeaks or hpeaks) else None
+    found = _local(vpeaks, hpeaks, still, light, lines) if lines and (lines[0] or lines[1]) else []
     if looked and hinted:
         # The model is better than any measurement at saying "that is a person", and worse at saying
         # exactly where the lines are. So it picks which of the measured boxes it is, and only if it
