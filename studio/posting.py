@@ -1,5 +1,6 @@
 """Post queue: decides when each finished clip goes to which account, posts it, and tracks views."""
 import secrets
+import math
 import threading
 import time
 from pathlib import Path
@@ -152,7 +153,7 @@ def _run():
                     if accounts.settings()["paused"]:
                         continue
                     with _lock:
-                        if p["status"] != "scheduled":
+                        if p["status"] != "scheduled" or p["due_at"] > time.time():
                             continue
                         p["status"] = "posting"
                     _post(p)
@@ -198,6 +199,29 @@ def cancel(pid):
     _mirror(p)
 
 
+def reschedule(pid, due_at, expected_due_at):
+    """Move one waiting post, unless its schedule or posting state has changed."""
+    if isinstance(due_at, bool) or not isinstance(due_at, (int, float)) or not math.isfinite(due_at):
+        raise ValueError("Choose a valid date and time.")
+    with _lock:
+        p = next((p for p in _mine() if p["id"] == pid), None)
+        if not p or p["status"] != "scheduled" or p["due_at"] <= time.time():
+            raise ValueError("This post is no longer waiting for a future time. Refresh the queue.")
+        if p["due_at"] != expected_due_at:
+            raise ValueError("This post's time has changed. Refresh the queue and try again.")
+        if due_at <= time.time():
+            raise ValueError("Choose a future date and time.")
+        old_due_at = p["due_at"]
+        p["due_at"] = due_at
+        try:
+            _save()
+        except Exception:
+            p["due_at"] = old_due_at
+            raise
+        ctx.bump()
+    _mirror(p)
+
+
 def retry(pid):
     with _lock:
         p = next((p for p in _mine() if p["id"] == pid), None)
@@ -228,9 +252,10 @@ def overview() -> dict:
             "queued": sum(1 for p in ps if p["status"] in OPEN), "failed": sum(1 for p in ps if p["status"] == "failed"),
             "views": views, "earnings": round(views / 1000 * c["rate_per_1k"], 2)})
     names = {c["id"]: c["name"] for c in all_cs}
-    queue = sorted((p for p in _posts if p["status"] in OPEN), key=lambda p: p["due_at"])
+    queue = [p for p in _posts if p["status"] in OPEN]
     done = sorted((p for p in _posts if p["status"] in ("posted", "failed")), key=lambda p: -(p.get("posted_at") or p["due_at"]))[:15]
-    show = [{**{k: v for k, v in p.items() if k != "user"}, "creator_name": names.get(p["creator"], "")} for p in queue + done]
+    show = [{**{k: v for k, v in p.items() if k != "user"}, "creator_name": names.get(p["creator"], "")}
+            for p in sorted(queue + done, key=lambda p: p["due_at"])]
     # last 14 days, oldest first, for the home graph
     days = [_day(time.time() - 86400 * i) for i in range(13, -1, -1)]
     made, posted, views = {d: 0 for d in days}, {d: 0 for d in days}, {d: 0 for d in days}

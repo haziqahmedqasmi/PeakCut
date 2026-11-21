@@ -1645,6 +1645,15 @@ def post_action(pid: str, action: str):
     return {"ok": True}
 
 
+@app.put("/api/posts/{pid}/schedule")
+def post_schedule(pid: str, body: dict = Body(...)):
+    try:
+        posting.reschedule(pid, body.get("due_at"), body.get("expected_due_at"))
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    return {"ok": True}
+
+
 @app.post("/api/alerts/test")
 def test_alert():
     if not alerts.configured():
