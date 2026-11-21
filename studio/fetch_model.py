@@ -24,7 +24,7 @@ _SHERPA = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
 # The folder name must also be the one folder inside the downloaded .tar.bz2.
 MODELS = {
     "en": ("English", config.ASR_MODEL_NAME, _SHERPA + config.ASR_MODEL_NAME + ".tar.bz2", 480,
-           "Parakeet TDT 0.6b v2 by NVIDIA (CC-BY-4.0)", ""),
+           "Parakeet TDT 0.6b v2 by NVIDIA (CC-BY-4.0)", config.ASR_MODEL_SHA256),
     "ar": ("Arabic", config.ASR_MODEL_AR, config.ASR_MODEL_AR_URL, 107,
            "FastConformer Arabic by NVIDIA (CC-BY-4.0)", config.ASR_MODEL_AR_SHA256),
 }
@@ -132,9 +132,11 @@ def _fetch(lang: str):
                            "Check the internet connection and free disk space, then try again, or run "
                            f"python -m studio.fetch_model {lang} to see what goes wrong. What it reported: {st['error']}") from e
     finally:
-        st["doing"] = False
+        # Cleaned up before the model is called "not downloading": anything that waits for "ready" or "not busy"
+        # then never sees the archive or the unpacking folder still lying around.
         tmp.unlink(missing_ok=True)
         shutil.rmtree(part, ignore_errors=True)
+        st["doing"] = False
 
 
 def start(lang: str) -> None:

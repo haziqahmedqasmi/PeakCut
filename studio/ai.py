@@ -19,7 +19,7 @@ import threading
 
 import httpx
 
-from . import config
+from . import config, vault
 
 # name -> (label shown on the pages, address, how it is spoken to, where to get a key, an example model id)
 PROVIDERS = {
@@ -56,8 +56,27 @@ def _from_dashboard() -> dict:
             data = json.loads(f.read_text(encoding="utf-8")) if at else {}
         except (OSError, ValueError):
             data = {}
-        _saved.update(at=at, data=data if isinstance(data, dict) else {})
+        data = data if isinstance(data, dict) else {}
+        raw = data.get("key")
+        if isinstance(raw, str) and raw:
+            data["key"] = vault.unseal(raw)          # kept locked in the file, open only in memory
+            if not vault.is_sealed(raw):
+                at = _seal_old_file(data) or at      # a key saved as plain text by an older version: locked now
+        _saved.update(at=at, data=data)
     return _saved["data"]
+
+
+def _seal_old_file(data: dict):
+    """Write ai.json again with its key locked. Returns the file's new time stamp, or None if it could not be done
+    (the plain file is then simply left as it was, and read the same way)."""
+    f = _file()
+    tmp = f.with_suffix(".mig")
+    try:
+        vault.write_private(tmp, json.dumps({**data, "key": vault.seal(data["key"])}))
+        tmp.replace(f)
+        return f.stat().st_mtime_ns
+    except OSError:
+        return None
 
 
 def current() -> dict:
@@ -132,11 +151,8 @@ def save(provider_id: str, model_ids, address: str = "", new_key=None) -> dict:
     with _lock:
         f = _file()
         tmp = f.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"provider": p, "models": ms, "base_url": address, "key": k}), encoding="utf-8")
-        try:
-            os.chmod(tmp, 0o600)        # the key is only for whoever runs the server
-        except OSError:
-            pass
+        # the key is locked (studio/vault.py) and the file is readable only by whoever runs the server
+        vault.write_private(tmp, json.dumps({"provider": p, "models": ms, "base_url": address, "key": vault.seal(k)}))
         tmp.replace(f)
         _saved["at"] = None
     return public()

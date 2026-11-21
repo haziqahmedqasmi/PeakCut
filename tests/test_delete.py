@@ -56,13 +56,14 @@ with ctx.as_user(a.id):
 udir = config.user_dir(a.id)
 from studio import posting
 posting._posts.extend([{"id": "pa", "user": a.id, "status": "scheduled", "due_at": 0}, {"id": "pb", "user": b.id, "status": "scheduled", "due_at": 0}])
+posting._save()
 check("the account is deleted", account.delete_account(a.id)["ok"] and auth.get_user(a.id) is None and not udir.exists())
 with db.engine.connect() as cn:
     left = {t.name: cn.execute(sa.select(sa.func.count()).select_from(t).where(t.c.user_id == a.id)).scalar() for t in db.meta.sorted_tables if "user_id" in t.c}
 check("nothing of theirs is left in the database", not any(left.values()), str(left))
 check("the other account is untouched", auth.get_user(b.id) is not None and config.user_dir(b.id).exists())
 check("posts waiting for the deleted account are gone, the other account's stay",
-      [p["id"] for p in posting._posts] == ["pb"] and "pa" not in posting._FILE.read_text(encoding="utf-8"))
+      [p["id"] for p in posting._posts] == ["pb"] and not [r for r in db.engine.connect().execute(sa.select(db.posts.c.id)).scalars() if r == "pa"])
 a2, _ = auth._create("A@example.com", "A again", password_hash="x")
 check("the same email can sign up again afterwards, as a new account", a2.id != a.id)
 print("ALL PASSED" if not fails else f"{len(fails)} failed")

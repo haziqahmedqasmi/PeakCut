@@ -1,6 +1,6 @@
 """The errors people hit on a fresh install: ffmpeg not found ("[WinError 2]"), the speech model not downloaded,
 and an AI model name the service does not know. Runs against the code directly; nothing is downloaded."""
-import io, os, shutil, sys, tarfile, tempfile
+import hashlib, io, os, re, shutil, subprocess, sys, tarfile, tempfile
 from pathlib import Path
 os.environ["PEAKCUT_DATA"] = tempfile.mkdtemp(prefix="pc-tools-"); os.environ["DATABASE_URL"] = ""
 os.environ.pop("PEAKCUT_MODELS", None)          # this test makes and removes a model: only ever inside its own folder
@@ -56,11 +56,25 @@ def model_bytes():
     with tarfile.open(fileobj=out, mode="w:bz2") as t:
         t.add(src, arcname=config.ASR_MODEL_NAME)
     return out.getvalue()
+ARCHIVE = model_bytes()
+real_en = fetch_model.MODELS["en"]
+check("the English archive has a known fingerprint, so its download is checked", real_en[5], lambda h: re.fullmatch(r"[0-9a-f]{64}", h))
+check("...and a different PEAKCUT_ASR_MODEL does not inherit it",
+      subprocess.run([sys.executable, "-c", "from studio import config; print(repr(config.ASR_MODEL_SHA256))"],
+                     env={**os.environ, "PEAKCUT_ASR_MODEL": "some-other-model"}, capture_output=True, text=True).stdout.strip(), "''")
 seen = {}
 def fake_open(req, timeout=None):
     seen["timeout"] = timeout
-    return Stream(model_bytes())
+    return Stream(ARCHIVE)
 fetch_model.urllib.request.urlopen = fake_open
+try:
+    fetch_model.ensure(); said = ""
+except RuntimeError as e:
+    said = str(e)
+check("an English file with the wrong fingerprint is refused and nothing is unpacked",
+      ("not the one it expects" in said, fetch_model.ready(), sorted(p.name for p in config.MODELS_DIR.iterdir()) == [d.name]), (True, False, True))
+# From here on the stand-in archive is "the real file": its fingerprint is the one expected.
+fetch_model.MODELS["en"] = real_en[:5] + (hashlib.sha256(ARCHIVE).hexdigest(),)
 fetch_model.ensure()
 check("the model is downloaded by itself and put in place whole", (fetch_model.ready(), sorted(p.name for p in d.iterdir())),
       (True, ["decoder.int8.onnx", "encoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"]))
@@ -77,7 +91,7 @@ except RuntimeError as e:
 check("no internet: said in plain words, and no half model left behind", ("internet" in said, fetch_model.ready(), d.exists()), (True, False, False))
 check("the real reason is shown too, so it can be fixed", "getaddrinfo failed" in said, True)
 check("and so is how to try again by hand", "python -m studio.fetch_model" in said, True)
-fetch_model.urllib.request.urlopen = lambda req, timeout=None: Stream(model_bytes(), stall=True)
+fetch_model.urllib.request.urlopen = lambda req, timeout=None: Stream(ARCHIVE, stall=True)
 try:
     fetch_model.ensure(); said = ""
 except RuntimeError as e:

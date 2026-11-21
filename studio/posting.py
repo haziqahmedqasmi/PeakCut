@@ -1,19 +1,22 @@
 """Post queue: decides when each finished clip goes to which account, posts it, and tracks views."""
+import random
 import secrets
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import json
 
-from . import accounts, alerts, config, creators, ctx, jobs, live
+import sqlalchemy as sa
 
+from . import accounts, alerts, config, creators, ctx, db, jobs, live, logs
+
+log = logs.get("posting")
 _lock = threading.RLock()
-_FILE = config.DATA_DIR / "posts.json"
-try:
-    _posts: list = json.loads(_FILE.read_text(encoding="utf-8")) if _FILE.exists() else []
-except ValueError:
-    _posts = []
+_FILE = config.DATA_DIR / "posts.json"      # where older versions kept the posts: read once, then moved into the database
+_posts: list = []                           # the working copy; the database holds the same posts (see _save and _load)
+_snap: dict = {}                            # post id -> the JSON last written for it, so only what changed is written
 
 
 def _mine() -> list:
@@ -22,11 +25,86 @@ def _mine() -> list:
 OPEN = ("scheduled", "posting")
 
 
+def _row(p) -> dict:
+    return {"user_id": str(p.get("user") or ""), "status": str(p.get("status") or "")[:12], "due_at": float(p.get("due_at") or 0),
+            "data": json.dumps(p, sort_keys=True)}
+
+
 def _save():
+    """Write what changed since the last save to the database: only the posts that differ from what is already
+    there, not the whole list. A failed write keeps everything in memory and is tried again by the next save."""
     with _lock:
-        tmp = _FILE.with_suffix(".tmp")
-        tmp.write_text(json.dumps(_posts, indent=1), encoding="utf-8")
-        tmp.replace(_FILE)
+        now = {p["id"]: json.dumps(p, sort_keys=True) for p in _posts if p.get("id")}
+        changed = [p for p in _posts if p.get("id") and _snap.get(p["id"]) != now[p["id"]]]
+        gone = [i for i in _snap if i not in now]
+        if not changed and not gone:
+            return
+        try:
+            with db.engine.begin() as c:
+                for p in changed:
+                    vals = _row(p)
+                    if not c.execute(db.posts.update().where(db.posts.c.id == p["id"]).values(**vals)).rowcount:
+                        c.execute(db.posts.insert().values(id=p["id"], **vals))
+                if gone:
+                    c.execute(db.posts.delete().where(db.posts.c.id.in_(gone)))
+        except Exception:  # noqa: BLE001
+            log.exception("posting step failed")
+            return
+        for i in gone:
+            _snap.pop(i, None)
+        _snap.update({p["id"]: now[p["id"]] for p in changed})
+
+
+def _load():
+    """Read the posts from the database, and move in the ones an older version kept in posts.json (once: that file
+    is then renamed, and the posts are in the database from then on)."""
+    with _lock:
+        try:
+            with db.engine.connect() as c:
+                rows = c.execute(sa.select(db.posts.c.data)).scalars().all()
+        except Exception:  # noqa: BLE001 - no table yet: nothing saved so far
+            rows = []
+        loaded = []
+        for text in rows:
+            try:
+                p = json.loads(text)
+                if isinstance(p, dict) and p.get("id"):
+                    loaded.append(p)
+            except ValueError:
+                continue
+        _posts[:] = loaded
+        _snap.clear()
+        _snap.update({p["id"]: json.dumps(p, sort_keys=True) for p in loaded})
+        if _FILE.is_file():
+            try:
+                old = json.loads(_FILE.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                old = None
+            if isinstance(old, list):
+                have = {p["id"] for p in _posts}
+                _posts.extend(p for p in old if isinstance(p, dict) and p.get("id") and p["id"] not in have)
+                _save()
+                try:
+                    _FILE.replace(_FILE.with_name("posts.json.moved"))
+                except OSError:
+                    pass
+
+
+def _claim(p) -> bool:
+    """Take a scheduled post for this process, in the database, in one step: of two processes that both see it as
+    due, only one gets True, so a clip is never sent twice. If the database cannot be asked, posting goes ahead."""
+    try:
+        vals = _row(dict(p, status="posting"))
+        with db.engine.begin() as c:
+            t = db.posts
+            if c.execute(t.update().where(sa.and_(t.c.id == p["id"], t.c.status == "scheduled")).values(**vals)).rowcount:
+                return True
+            if c.execute(sa.select(t.c.status).where(t.c.id == p["id"])).first() is None:
+                c.execute(t.insert().values(id=p["id"], **vals))      # not written yet: it is ours
+                return True
+            return False
+    except Exception:  # noqa: BLE001
+        return True
 
 
 def forget(uid: str):
@@ -85,6 +163,8 @@ def enqueue(job, clip, account_ids, now=False) -> list:
         _save()
     for p in made:
         _mirror(p)
+    if made:
+        _wake.set()               # one may be due this moment: no waiting for the next look
     return made
 
 
@@ -107,15 +187,24 @@ def _caption(clip, creator):
     return "\n\n".join(x for x in (clip.get("description", ""), tags, creator.get("post_footer", "")) if x)
 
 
+def retry_delay(tries: int, wait=None) -> float:
+    """Seconds to wait before post number `tries`+1: longer after each failure (2 minutes, 10, 45, then 3 hours),
+    a little different each time so many failed posts do not all come back at the same moment, and never less than
+    the platform itself asked for."""
+    steps = config.POST_BACKOFF
+    base = steps[min(max(tries, 1), len(steps)) - 1] * random.uniform(0.8, 1.2)
+    return max(base, float(wait or 0))
+
+
 def _post(p):
     job = jobs.get(p["job"])
     clip = next((c for c in job["clips"] if c["id"] == p["clip"]), None) if job else None
     acc = accounts.get(p["account"])
     try:
         if not clip or clip.get("status") != "done":
-            raise RuntimeError("The clip no longer exists or is not finished.")
+            raise accounts.PostError("The clip no longer exists or is not finished.", permanent=True)
         if not acc:
-            raise RuntimeError("That account was disconnected.")
+            raise accounts.PostError("That account was disconnected.", permanent=True)
         path = Path(job["dir"]) / "clips" / clip["file"]
         creator = creators.get(job["creator"]) or dict(creators.DEFAULTS, name="clips")
         title, cap = clip.get("title") or clip.get("hook") or "Clip", _caption(clip, creator)
@@ -126,14 +215,18 @@ def _post(p):
         elif acc["platform"] == "tiktok":
             rid, url = accounts.tiktok_upload(acc, path, f"{title}\n\n{cap}", creator["privacy"])
         else:
-            raise RuntimeError("That kind of account is no longer supported.")
+            raise accounts.PostError("That kind of account is no longer supported.", permanent=True)
         p.update(status="posted", posted_at=time.time(), remote_id=rid, url=url, error=None)
         creators.log(p["creator"], f"Posted to {acc['name']}: {title}")
     except Exception as e:  # noqa: BLE001
         p["tries"] += 1
         p["error"] = str(e)[-300:]
-        if p["tries"] < 3 and clip and acc:
-            p.update(status="scheduled", due_at=time.time() + 600)  # try again in 10 minutes
+        # A refusal (a rejected video, access taken away) is not tried again: it would fail the same way. Anything
+        # else (a dropped connection, a busy platform, a limit) is, later each time, up to POST_TRIES tries.
+        if not getattr(e, "permanent", False) and p["tries"] < config.POST_TRIES and clip and acc:
+            delay = retry_delay(p["tries"], getattr(e, "wait", None))
+            p.update(status="scheduled", due_at=time.time() + delay)
+            creators.log(p["creator"], f"Post to {p['account_name']} failed, trying again in {round(delay / 60)} min: {p['error'][:150]}")
         else:
             p["status"] = "failed"
             creators.log(p["creator"], f"Post failed on {p['account_name']}: {p['error']}")
@@ -142,22 +235,71 @@ def _post(p):
     _mirror(p)
 
 
+# Uploads run on a few workers, so one slow upload (a big clip, a platform that takes minutes to say yes) does not hold
+# up everyone else's. Two clips for the same account never go at once: platforms limit that, and the order stays right.
+_wake = threading.Event()        # set when something is due now, or an upload has finished: look again straight away
+_busy: set = set()               # (user, account) with an upload running right now
+_pool = None
+
+
+def _get_pool():
+    global _pool
+    if _pool is None:
+        _pool = ThreadPoolExecutor(config.POST_WORKERS, thread_name_prefix="post")
+    return _pool
+
+
+def _work(p, key):
+    try:
+        with ctx.as_user(p["user"]):
+            _post(p)
+    except Exception:  # noqa: BLE001
+        log.exception("posting step failed")
+    finally:
+        with _lock:
+            _busy.discard(key)
+        _wake.set()
+
+
+def _dispatch() -> int:
+    """Start every post that is due and has a free worker and a free account, oldest first. Returns how many started."""
+    pool, started = _get_pool(), 0
+    with _lock:
+        due = sorted((p for p in _posts if p["status"] == "scheduled" and p["due_at"] <= time.time() and p.get("user")),
+                     key=lambda p: p["due_at"])
+    for p in due:
+        key = (p["user"], p["account"])
+        with _lock:
+            if len(_busy) >= config.POST_WORKERS:
+                break
+            if key in _busy or p["status"] != "scheduled":
+                continue
+        try:
+            with ctx.as_user(p["user"]):
+                if accounts.settings()["paused"]:
+                    continue
+        except Exception:  # noqa: BLE001
+            continue
+        with _lock:
+            if p["status"] != "scheduled" or key in _busy or len(_busy) >= config.POST_WORKERS:
+                continue
+            if not _claim(p):             # another process has taken it
+                continue
+            p["status"] = "posting"
+            _busy.add(key)
+        pool.submit(_work, p, key)
+        started += 1
+    return started
+
+
 def _run():
     while True:
-        time.sleep(15)
-        due = [p for p in list(_posts) if p["status"] == "scheduled" and p["due_at"] <= time.time() and p.get("user")]
-        for p in due:
-            try:
-                with ctx.as_user(p["user"]):
-                    if accounts.settings()["paused"]:
-                        continue
-                    with _lock:
-                        if p["status"] != "scheduled":
-                            continue
-                        p["status"] = "posting"
-                    _post(p)
-            except Exception:  # noqa: BLE001
-                pass
+        _wake.wait(15)
+        _wake.clear()
+        try:
+            _dispatch()
+        except Exception:  # noqa: BLE001
+            log.exception("posting step failed")
 
 
 def _stats_for(recent):
@@ -206,6 +348,37 @@ def retry(pid):
         p.update(status="scheduled", due_at=time.time(), tries=0, error=None)
         _save()
     _mirror(p)
+    _wake.set()
+
+
+def score_check(posts, min_posts: int = 12) -> dict:
+    """How well the AI's score has predicted views on posts that have been up for a while.
+
+    Returns {"n", "agree", "suggested"}: `agree` is the share of pairs of clips where the higher score also got
+    more views (0.5 is no better than a coin; 1.0 is always right), and `suggested` is the lowest score from which
+    the clips did at least as well as the typical one, or None when there is not enough to say. It is only shown
+    as advice: nothing is changed by it."""
+    rows = [(float(p["score"]), float(p["views"])) for p in posts
+            if p.get("status") == "posted" and p.get("views") is not None and p.get("score")]
+    if len(rows) < min_posts:
+        return {"n": len(rows), "agree": None, "suggested": None}
+    won = tie = 0
+    for i, (s1, v1) in enumerate(rows):
+        for s2, v2 in rows[i + 1:]:
+            if s1 == s2 or v1 == v2:
+                continue
+            tie += 1
+            won += (s1 > s2) == (v1 > v2)
+    agree = round(won / tie, 2) if tie else None
+    typical = sorted(v for _, v in rows)[len(rows) // 2]
+    suggested = None
+    if agree is not None and agree >= 0.55:        # the score means something here: find where it starts to pay
+        for cut in sorted({s for s, _ in rows}):
+            above = sorted(v for s, v in rows if s >= cut)
+            if len(above) >= max(4, len(rows) // 4) and above[len(above) // 2] >= typical:
+                suggested = int(cut)
+                break
+    return {"n": len(rows), "agree": agree, "suggested": suggested}
 
 
 def overview() -> dict:
@@ -226,7 +399,8 @@ def overview() -> dict:
             "posted_today": sum(1 for p in ps if p["status"] == "posted" and _day(p["posted_at"]) == today),
             "posted_total": sum(1 for p in ps if p["status"] == "posted"),
             "queued": sum(1 for p in ps if p["status"] in OPEN), "failed": sum(1 for p in ps if p["status"] == "failed"),
-            "views": views, "earnings": round(views / 1000 * c["rate_per_1k"], 2)})
+            "views": views, "earnings": round(views / 1000 * c["rate_per_1k"], 2),
+            "score_check": score_check(ps)})
     names = {c["id"]: c["name"] for c in all_cs}
     queue = sorted((p for p in _posts if p["status"] in OPEN), key=lambda p: p["due_at"])
     done = sorted((p for p in _posts if p["status"] in ("posted", "failed")), key=lambda p: -(p.get("posted_at") or p["due_at"]))[:15]
@@ -262,6 +436,7 @@ def digest_text() -> str:
 
 
 def start():
+    _load()
     with _lock:
         for p in _posts:
             if p["status"] == "posting":  # interrupted mid-upload last time
