@@ -106,6 +106,14 @@ offers to download it. Set a creator's language on their Setup page so their liv
 It understands Modern Standard Arabic and everyday dialects, and the AI turns English words said in between
 back into English. Captions on the clips are in English.
 
+### Videos in Russian
+
+Russian works the same way: add the Russian speech model once in **Settings → Speech models** (about 490 MB), or
+choose **Russian** under Options when adding a video. It is NVIDIA's multilingual Parakeet model, which also hears
+Ukrainian and 23 other European languages, and it works out which language is being spoken by itself. Russian
+captions keep the words that were said rather than translating them; they are drawn in Cyrillic once the bundled
+caption fonts include Cyrillic letters, and until then they are spelled in Latin letters, as before.
+
 ## Settings
 
 Everything is set through environment variables, normally in a `.env` file next to this README.
@@ -144,8 +152,9 @@ python -m studio.admin grant you@example.com
 | `deploy/`, `Dockerfile`, `docker-compose.yml` | One-server deployment with PostgreSQL and automatic HTTPS |
 
 Video work is done with `ffmpeg` and `yt-dlp`. Speech is transcribed with `sherpa-onnx` and NVIDIA's Parakeet
-model (English) and FastConformer Arabic model, both released by NVIDIA under the Creative Commons Attribution 4.0
-licence (CC-BY-4.0). The Arabic model was converted for sherpa-onnx with `tools/export_arabic_model.py`.
+models (English, and the multilingual one for Russian) and FastConformer Arabic model, all released by NVIDIA under
+the Creative Commons Attribution 4.0 licence (CC-BY-4.0). The Arabic model was converted for sherpa-onnx with
+`tools/export_arabic_model.py`.
 Data is kept per user: accounts in the database (SQLite on your own computer, PostgreSQL on a server), videos and
 clips in each user's own folder. [AGENTS.md](AGENTS.md) is a short map of the code for contributors and AI coding
 assistants.

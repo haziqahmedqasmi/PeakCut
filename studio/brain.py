@@ -62,9 +62,10 @@ Rules:
 - description: one or two sentences.
 - hashtags: 5 tags without the # sign.
 - highlight_words: 3 to 6 single words spoken in the clip that carry the punch.
-- Write hook, title, description, hashtags and highlight_words in English. If the video is in Hindi or Urdu,
-  you may write them the way people type Hindi and Urdu in Roman letters (Hinglish: "yaar ye kya hai"), never
-  in Devanagari or Urdu script. For any other language, write them in English.
+- Write hook, title, description, hashtags and highlight_words in English. If the video is in Russian,
+  write them in Russian. If the video is in Hindi or Urdu, you may write them the way people type Hindi
+  and Urdu in Roman letters (Hinglish: "yaar ye kya hai"), never in Devanagari or Urdu script. For any
+  other language, write them in English.
 - category: one of funny, fail, clutch, rage, shock, take, story, other.
 - reason: one short sentence on why it works.
 {language}
@@ -154,7 +155,7 @@ def _tidy(c, s, e, game=None):
 
 def _same_word(old, new):
     """A caption fix may respell a word or turn it into digits. It may not swap in different words."""
-    a, b = re.sub(r"[^a-z0-9]", "", old.lower()), re.sub(r"[^a-z0-9]", "", new.lower())
+    a, b = re.sub(r"[^\w]|_", "", old.lower()), re.sub(r"[^\w]|_", "", new.lower())
     return (not b) or (any(ch.isdigit() for ch in b) and len(new) <= 12) or difflib.SequenceMatcher(None, a, b).ratio() >= 0.45
 
 
@@ -540,8 +541,9 @@ def judge_signals(z, chat, start, now, unit="messages", timeout=None):
 
 
 FIX_SCHEMA = {"type": "ARRAY", "items": {"type": "STRING"}}
-# Languages whose captions keep the words that were said: English as it is, Hindi and Urdu in Roman letters.
-KEEP_LANGS = ("en", "hi", "ur")
+# Languages whose captions keep the words that were said, rather than translating them: English, Hindi and Urdu
+# (in Roman letters), and Russian.
+KEEP_LANGS = ("en", "hi", "ur", "ru")
 
 
 def needs_translation(lang: str) -> bool:
@@ -584,10 +586,10 @@ def translate_caption_words(words: list, lang: str = "", title: str = "") -> lis
 
 
 def english_captions(words: list, lang: str, title: str = "", youtube_english=None) -> list:
-    """Captions for a clip, always in English letters:
-    English stays as it was said, Hindi and Urdu become Roman letters (the same words, tidied by the AI), and any
-    other language is translated into English: YouTube's own English captions first, then the AI. With neither,
-    the words as heard (Arabic and similar scripts still spelled in Roman letters)."""
+    """Captions for a clip: English stays as it was said, Hindi and Urdu become Roman letters (the same words,
+    tidied by the AI), Russian keeps its words, and any other language is translated into English: YouTube's own
+    English captions first, then the AI. With neither, the words as heard (Arabic and similar scripts still spelled
+    in Roman letters)."""
     if not needs_translation(lang):
         return fix_caption_words(words, title, lang)
     if youtube_english:
@@ -621,7 +623,8 @@ def _fix_caption_words(words: list, title: str = "", lang: str = "") -> list:
         return words
     # The Hindi and Urdu rule is only given for those videos. On an English video it is one more thing a small
     # model can get wrong (turning English into something else).
-    hindi = (lang or "").lower().startswith(("hi", "ur")) or any(roman.needs_roman(w["w"]) for w in words)
+    hindi = (lang or "").lower().startswith(("hi", "ur")) or any(
+        roman.has_hindi(w["w"]) or bool(roman.OTHER_SCRIPT.search(w["w"])) for w in words)
     hinglish = ("If a word is Hindi or Urdu (in Devanagari or Urdu script, or already "
                 "in Roman letters), write that same word in Roman letters the way people type Hindi in chats (Hinglish): "
                 "'चूना' -> 'choona', 'जो' -> 'jo', 'उसको' -> 'usko', 'یار' -> 'yaar', 'کیا' -> 'kya'. Never translate it into "

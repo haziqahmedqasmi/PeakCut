@@ -1,6 +1,6 @@
-"""Speech models for other spoken languages (Arabic first): downloading one only when asked, removing it, choosing
-the language for a video or a creator, Arabic words, and the second machine never using the wrong language's model.
-Runs against the code directly, with its own empty data folder; nothing is downloaded."""
+"""Speech models for other spoken languages (Arabic and Russian): downloading one only when asked, removing it,
+choosing the language for a video or a creator, Arabic and Russian words, and the second machine never using the
+wrong language's model. Runs against the code directly, with its own empty data folder; nothing is downloaded."""
 import hashlib
 import io
 import os
@@ -16,7 +16,10 @@ from pathlib import Path
 os.environ["PEAKCUT_DATA"] = tempfile.mkdtemp(prefix="pc-speech-")
 os.environ.pop("PEAKCUT_MODELS", None)          # models are made and removed: only ever inside this test's folder
 os.environ.update(DATABASE_URL="", PEAKCUT_ACCOUNTS="0", PEAKCUT_FETCH_MODEL="0", PEAKCUT_AI_KEY="", PEAKCUT_AI_KEY_FILE="",
-                  PEAKCUT_PUBLIC_URL="http://127.0.0.1:8765")
+                  PEAKCUT_PUBLIC_URL="http://127.0.0.1:8765",
+                  # the shipped models, whatever this computer's .env says: each language needs its own folder here
+                  PEAKCUT_ASR_MODEL="sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8",
+                  PEAKCUT_ASR_MODEL_RU="sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8")
 sys.path.insert(0, ".")
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -67,20 +70,29 @@ def fake_open(url, timeout=None):
     return Answer(ARCHIVES[lang] + (b"changed" if lang in tampered else b""))
 
 
-# ---- the list of models, and where Arabic comes from
-check("English and Arabic are known", sorted(fetch_model.MODELS), ["ar", "en"])
+# ---- the list of models, and where Arabic and Russian come from
+check("English, Arabic and Russian are known", sorted(fetch_model.MODELS), ["ar", "en", "ru"])
 check("Arabic is downloaded from its own address, not English's", fetch_model.MODELS["ar"][2] != fetch_model.MODELS["en"][2], True)
 check("Arabic's address names one fixed version of the file, not the latest",
       fetch_model.MODELS["ar"][2], lambda u: "/resolve/main/" not in u and re.search(r"/resolve/[0-9a-f]{40}/", u))
 check("Arabic's fingerprint is known, so the download is checked", fetch_model.MODELS["ar"][5], lambda h: re.fullmatch(r"[0-9a-f]{64}", h))
+check("Russian is the multilingual Parakeet model", fetch_model.MODELS["ru"][1], "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8")
+check("Russian is downloaded from its own address, not English's", fetch_model.MODELS["ru"][2] != fetch_model.MODELS["en"][2], True)
+check("Russian's fingerprint is known, so the download is checked", fetch_model.MODELS["ru"][5], lambda h: re.fullmatch(r"[0-9a-f]{64}", h))
 mirror = subprocess.run([sys.executable, "-c", "from studio import fetch_model as f; print(f.MODELS['ar'][2]); print(f.MODELS['ar'][5])"],
                         env={**os.environ, "PEAKCUT_ASR_MODEL_AR_URL": "https://mirror.example/ar.tar.bz2"},
                         capture_output=True, text=True).stdout.split()
 check("a mirror set with PEAKCUT_ASR_MODEL_AR_URL is used, and still checked against the same fingerprint",
       mirror, ["https://mirror.example/ar.tar.bz2", fetch_model.MODELS["ar"][5]])
+mirror_ru = subprocess.run([sys.executable, "-c", "from studio import fetch_model as f; print(f.MODELS['ru'][2]); print(f.MODELS['ru'][5])"],
+                           env={**os.environ, "PEAKCUT_ASR_MODEL_RU_URL": "https://mirror.example/ru.tar.bz2"},
+                           capture_output=True, text=True).stdout.split()
+check("a mirror set with PEAKCUT_ASR_MODEL_RU_URL is used, and still checked against the same fingerprint",
+      mirror_ru, ["https://mirror.example/ru.tar.bz2", fetch_model.MODELS["ru"][5]])
 real_ar = fetch_model.MODELS["ar"]
-# From here on the stand-in archive is "the real file": its fingerprint is the one expected.
+# From here on the stand-in archives are "the real files": their fingerprints are the ones expected.
 fetch_model.MODELS["ar"] = real_ar[:5] + (hashlib.sha256(ARCHIVES["ar"]).hexdigest(),)
+fetch_model.MODELS["ru"] = fetch_model.MODELS["ru"][:5] + (hashlib.sha256(ARCHIVES["ru"]).hexdigest(),)
 fetch_model.urllib.request.urlopen = fake_open
 check("each language has its own folder", fetch_model.folder("ar") != fetch_model.folder("en"), True)
 check("nothing is here to begin with", (fetch_model.status("en"), fetch_model.status("ar")), ("missing", "missing"))
@@ -101,8 +113,8 @@ check("...and so does loading the model for transcribing", ("Speech models" in s
 
 # ---- the routes: list, download, remove
 r = c.get("/api/speech").json()["models"]
-check("the page lists both languages with their size", [(m["lang"], m["state"], m["size_mb"] > 0) for m in r],
-      [("en", "missing", True), ("ar", "missing", True)])
+check("the page lists all three languages with their size", [(m["lang"], m["state"], m["size_mb"] > 0) for m in r],
+      [("en", "missing", True), ("ar", "missing", True), ("ru", "missing", True)])
 check("an unknown language is refused", c.post("/api/speech/xx", headers=ORIGIN).status_code, 400)
 check("another website cannot start a download", c.post("/api/speech/ar", headers={"Origin": "https://evil.example"}).status_code, 403)
 check("...and nothing was downloaded", downloads, [])
@@ -136,6 +148,34 @@ transcribe._pool("ar").made += 1                  # pretend a video is transcrib
 check("a model in use is not removed", (c.delete("/api/speech/ar", headers=ORIGIN).status_code, fetch_model.ready("ar")), (409, True))
 transcribe._pool("ar").made -= 1
 check("Arabic can be removed when nothing uses it", (c.delete("/api/speech/ar", headers=ORIGIN).status_code, fetch_model.folder("ar").exists()), (200, False))
+
+# ---- Russian: its own multilingual model, and words that stay Russian
+downloads.clear()
+check("a video can be marked as Russian", jobs.clean_options({"lang": "ru"}), {"lang": "ru"})
+check("Russian captions keep their words instead of being translated", brain.needs_translation("ru"), False)
+check("Russian videos get Russian text in clip scouting rules", "If the video is in Russian,\n  write them in Russian." in brain.RULES, True)
+check("Russian words in caption fixes are verified correctly", brain._same_word("привет", "Привет!"), True)
+check("Russian word swaps are rejected", brain._same_word("привет", "космос"), False)
+ru_tokens = ["▁При", "вет", "▁мир", "!"]
+ru_words = transcribe._words(ru_tokens, [0.0, 0.1, 0.3, 0.5], 0, 32000)
+check("Russian pieces join into words, punctuation kept", [w["w"] for w in ru_words], ["Привет", "мир!"])
+check("the owner can start the Russian download", c.post("/api/speech/ru", headers=ORIGIN).status_code, 200)
+for _ in range(100):
+    if fetch_model.status("ru") == "ready":
+        break
+    time.sleep(0.05)
+check("Russian arrives whole, in its own folder",
+      (fetch_model.ready("ru"), fetch_model.folder("ru") != fetch_model.folder("en")), (True, True))
+check("English was not touched", fetch_model.ready("en"), False)
+check("nothing is left over from the Russian download", sorted(p.name for p in config.MODELS_DIR.iterdir()),
+      [fetch_model.MODELS["ru"][1]])
+real_ru = fetch_model.MODELS["ru"]
+fetch_model.MODELS["ru"] = real_ru[:1] + (fetch_model.MODELS["en"][1],) + real_ru[2:]
+check("a model shared with another language is not removed",
+      c.delete("/api/speech/ru", headers=ORIGIN).status_code, 409)
+fetch_model.MODELS["ru"] = real_ru
+check("Russian can be removed when nothing uses it",
+      (c.delete("/api/speech/ru", headers=ORIGIN).status_code, fetch_model.folder("ru").exists()), (200, False))
 
 # ---- choosing the language
 check("a video can be marked as Arabic", jobs.clean_options({"lang": "ar"}), {"lang": "ar"})
