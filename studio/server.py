@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import math
 import os
 import re
 import shutil
@@ -746,6 +747,24 @@ def link_preview(request: Request, url: str = ""):
         raise HTTPException(422, "Couldn't open that video. Check the link is public and complete.")
 
 
+@app.post("/api/jobs/{jid}/areas")
+def set_areas(jid: str, body: dict = Body(...)):
+    """The gameplay and webcam boxes, chosen before any clip is made. Fractions of the frame, 0 to 1."""
+    job = _job_or_404(jid)
+    try:
+        for k in ("camx", "camy", "camw", "camh", "gamex", "gamey", "gamew", "gameh"):
+            v = float(body.get(k))
+            if not math.isfinite(v):
+                raise ValueError
+            job["options"][k] = max(0.0, min(1.0, v))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Drag both boxes onto the picture first.")
+    job["areas_ready"] = True
+    jobs.save(job)
+    jobs.release_areas(jid)
+    return jobs.public(job)
+
+
 @app.post("/api/jobs")
 def create_from_link(body: dict = Body(...)):
     _need_verified()
@@ -1121,9 +1140,11 @@ def delete_my_account(request: Request, body: dict = Body(...)):
 
 @app.get("/media/{jid}/{name}")
 def media_file(jid: str, name: str, download: int = 0):
-    if not re.fullmatch(r"[\w\-]+\.(mp4|jpg)", name):
+    if not re.fullmatch(r"[\w\-]+(\.(src|pick))?\.(mp4|jpg)", name):
         raise HTTPException(404)
     job = _job_or_404(jid)
+    if name.endswith(".pick.jpg"):
+        _pick_frame(job, name[:-9])
     f = Path(job["dir"]) / "clips" / name
     if not f.is_file():
         raise HTTPException(404)
@@ -1134,6 +1155,24 @@ def media_file(jid: str, name: str, download: int = 0):
         if clip:
             save_as = account.clip_title_name(clip, Path(name).stem) + ".mp4"
     return FileResponse(f, filename=save_as if download else None, headers={"Cache-Control": "private, max-age=300"})
+
+
+def _pick_frame(job, cid: str):
+    """One frame of the original video, so the webcam and gameplay boxes are drawn on the real picture."""
+    clip = next((c for c in job.get("clips", []) if c.get("id") == cid), None)
+    if not clip or not re.fullmatch(r"[\w\-]+", cid):
+        raise HTTPException(404)
+    out = Path(job["dir"]) / "clips" / f"{cid}.pick.jpg"
+    if out.is_file():
+        return
+    src = Path(clip["src"]) if clip.get("src") and Path(clip["src"]).is_file() else Path(job.get("source_path") or "")
+    if not src.is_file():
+        raise HTTPException(404, "The original video is no longer on disk, so the frame cannot be shown.")
+    t = 1.0 if clip.get("src") else max(0.0, float(clip.get("start") or 0) + 1.0)
+    try:
+        media.run(["ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", str(src), "-frames:v", "1", "-q:v", "3", str(out)])
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(404, "The original frame could not be shown.") from e
 
 
 # ================================================================ creators and live recording

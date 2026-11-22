@@ -102,20 +102,23 @@ try:
     with patch.object(_ai, "see", return_value=("I am a text model.", 0, 0)):
         check("an answer that is neither is not believed", brain.look_for_facecam(b"jpeg")["looked"], False)
 
-    # ---- the layout: the game fills the screen and the webcam sits in the corner
-    f = render._filter("gameplay", 1920, [0, 0, 300, 170])
-    check("the game fills the screen", "scale=1080:1920" in f and "crop=1080:1920" in f, True)
-    check("the webcam is cropped out of the source", "crop=300:170:0:0" in f, True)
-    check("the webcam is put in the corner", "overlay=" in f, True)
+    # ---- the layout: gameplay fills the top half, the webcam fills the bottom half
+    f = render._filter("gameplay", 1920, [10, 20, 300, 170])
+    check("the gameplay fills the top half", "scale=1080:960" in f and "vstack" in f, True)
+    check("the webcam is cropped out of the source", "crop=300:170:10:20" in f, True)
+    check("the webcam is not a small corner picture", "overlay=" not in f, True)
     check("without a webcam the game simply fills the screen",
           "scale=1080:1920" in render._filter("gameplay", 1920, None) and "overlay=" not in render._filter("gameplay", 1920, None), True)
     check("the layout is offered to the user", "gameplay" in render.LAYOUTS, True)
-    # the heading must not run under the webcam picture
-    pip_h = 380 * 376 / 363
-    check("the heading goes below the webcam picture", render._hook_y("gameplay", 300, [0, 0, 363, 376]) > 26 + pip_h, True)
-    check("another picture moves the heading with it",
-          render._hook_y("gameplay", 300, [0, 0, 300, 170]) < render._hook_y("gameplay", 300, [0, 0, 363, 376]), True)
+    check("the heading stays at the top of the gameplay", render._hook_y("gameplay", 230, [0, 0, 363, 376]), 230)
     check("without a webcam the heading stays at the top", render._hook_y("crop", 300, None), 300)
+    g = render._filter("gamecam", 1920, [10, 20, 400, 220])
+    check("the whole game is fitted into the top, not cut in half", "force_original_aspect_ratio=decrease" in g and "iw/2" not in g, True)
+    check("the empty space behind the game is a blurred copy of the video", "boxblur=6:2" in g, True)
+    check("the chosen webcam fills the bottom", "crop=400:220:10:20" in g and "vstack" in g, True)
+    picked = render._filter("gamecam", 1920, [10, 20, 400, 220], [0, 0, 1280, 500])
+    check("the gameplay box is the top picture", "crop=1280:500:0:0" in picked, True)
+    check("this layout is offered on its own", "gamecam" in render.LAYOUTS, True)
 finally:
     shutil.rmtree(work, ignore_errors=True)      # the pictures are big; they must not be left behind
 
