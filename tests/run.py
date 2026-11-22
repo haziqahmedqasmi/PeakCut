@@ -56,6 +56,7 @@ def main() -> int:
                 ("no sign-in, and the AI key from the dashboard", ["tests/test_local.py"]),
                 ("Hindi and Urdu captions in Roman letters", ["tests/test_roman.py"]),
                 ("turning captions off and back on", ["tests/test_captions.py"]),
+                ("word censorship in captions and audio", ["tests/test_censorship.py"]),
                 ("editing clips from the original video", ["tests/test_clip_edits.py"]),
                 ("connecting YouTube, Instagram and TikTok", ["tests/test_connect.py"]),
                 ("posting clips in batches", ["tests/test_posts.py"]),

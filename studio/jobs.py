@@ -470,7 +470,10 @@ def render_one(job, clip, words):
             near = _caption_words(job, clip, words, off) if clip.get("captions", True) else []
             local = dict(clip, start=clip["start"] - off, end=clip["end"] - off,
                          hook=roman.to_roman(clip.get("hook") or ""))
-            out = render.render_clip(src, d / "clips", clip["id"], local, near, job["width"], job["height"])
+            speech = [dict(w, s=w["s"] - off, e=w["e"] - off) for w in words
+                      if w["e"] > clip["start"] and w["s"] < clip["end"]]
+            out = render.render_clip(src, d / "clips", clip["id"], local, near, job["width"], job["height"],
+                                     speech_words=speech)
         clip.update(out, status="done", version=clip.get("version", 0) + 1, error=None)
         post = {k: clip[k] for k in ("title", "description", "hashtags", "hook", "start", "end", "score")}
         if clip.get("segments"):
@@ -495,7 +498,7 @@ def _render_sequence(job, clip, words):
     src, low, high = editor_source(job, clip)
     url = editor_remote(job)
     d = Path(job["dir"])
-    inputs, captions, fetched, prepared = [], [], {}, {}
+    inputs, captions, speech, fetched, prepared = [], [], [], {}, {}
     elapsed = 0.0
     with tempfile.TemporaryDirectory(prefix="pk-src") as temp:
         for index, (start, end) in enumerate(clip["segments"]):
@@ -510,6 +513,9 @@ def _render_sequence(job, clip, words):
             else:
                 raise RuntimeError("The original video is no longer available for editing.")
             cut = round(elapsed + duration, 2)
+            speech.extend(dict(w, s=max(w["s"], start) - start + elapsed,
+                               e=min(w["e"], end) - start + elapsed, cut=cut, cut_start=elapsed)
+                          for w in words if w["e"] > start and w["s"] < end)
             if clip.get("captions", True):
                 if (start, end) not in prepared:
                     prepared[start, end] = _caption_words(job, dict(clip, start=start, end=end), words, 0)
@@ -521,7 +527,7 @@ def _render_sequence(job, clip, words):
         source = inputs[0][0]
         dimensions = job if job.get("width") and job.get("height") else media.probe(source)
         return render.render_clip(source, d / "clips", clip["id"], local, captions,
-                                  dimensions["width"], dimensions["height"], segments=inputs)
+                                  dimensions["width"], dimensions["height"], segments=inputs, speech_words=speech)
 
 
 def _caption_words(job, clip, words, off):

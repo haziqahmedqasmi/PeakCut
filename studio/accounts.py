@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from . import config, ctx
+from . import censorship, config, ctx
 
 _lock = threading.RLock()
 _states: dict = {}   # one-time values for the connect redirects: state -> (user id, when, platform)
@@ -25,7 +25,7 @@ _states: dict = {}   # one-time values for the connect redirects: state -> (user
 SECRET_KEYS = ("discord_webhook", "telegram_token")
 SETTING_DEFAULTS = {"discord_webhook": "", "telegram_token": "", "telegram_chat": "", "paused": False,
                     "digest_hour": 8, "last_digest": "", "tour_done": False, "caption_language": "en",
-                    "clip_templates": {}}
+                    "clip_templates": {}, "censorship_mode": "off", "censorship_words": ""}
 
 YT_SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly"
 IG = "https://graph.instagram.com"
@@ -258,6 +258,11 @@ def save_settings(patch: dict) -> dict:
             elif k == "caption_language":
                 if v not in ("en", "pt-BR"):
                     raise ValueError("Choose English or Brazilian Portuguese for captions.")
+            elif k == "censorship_mode":
+                if v not in ("off", "captions", "audio", "both"):
+                    raise ValueError("Choose a valid censorship mode.")
+            elif k == "censorship_words":
+                v = censorship.normalize_words(v)
             else:
                 v = str(v).strip()[:300]
                 if k == "discord_webhook" and v and not v.startswith("https://discord.com/api/webhooks/"):

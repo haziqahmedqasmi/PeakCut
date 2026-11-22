@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from . import config, roman
+from . import accounts, censorship, config, roman
 from .media import NO_WINDOW, run
 
 W, H = config.OUT_W, config.OUT_H
@@ -265,16 +265,25 @@ _qsv_ok = None
 RENDER_SECONDS = 600      # one clip's video encode; far beyond normal, so a frozen encoder is stopped, not waited on
 
 
-def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, src_w: int, src_h: int, *, segments=None) -> dict:
+def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, src_w: int, src_h: int, *, segments=None,
+                speech_words=None) -> dict:
     """Writes <name>.mp4, <name>.jpg and <name>.ass into out_dir. Returns file names."""
     out_dir.mkdir(parents=True, exist_ok=True)
     start, end = clip["start"], clip["end"]
+    settings = accounts.settings()
+    mode, listed = settings["censorship_mode"], settings["censorship_words"]
+    mute = censorship.mute_ranges(speech_words if speech_words is not None else words, listed, start, end) \
+        if mode in ("audio", "both") else []
+    hook = clip.get("hook", "")
+    if mode in ("captions", "both"):
+        words = [dict(w, w=censorship.mask_text(w["w"], listed)) for w in words]
+        hook = censorship.mask_text(hook, listed)
     layout, fg_h, hook_y, cap_y = geometry(src_w, src_h, clip.get("layout", "blur"))
     face = clip.get("facecam")
     if layout == "gameplay" and not (face and len(face) == 4):
         layout = "crop"     # no webcam found: the game fills the screen, which is still the right shape
     hook_y = _hook_y(layout, hook_y, face)
-    ass = build_ass(words if clip.get("captions", True) else [], start, end, clip.get("hook", ""), clip.get("style", "bounce"),
+    ass = build_ass(words if clip.get("captions", True) else [], start, end, hook, clip.get("style", "bounce"),
                     clip.get("highlight_words", []), hook_y, cap_y)
     # The clip is made in a short work folder and moved into place afterwards. The caption step of ffmpeg cannot
     # open files whose full path is longer than 260 characters on Windows, which a data folder deep inside other
@@ -284,8 +293,8 @@ def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, sr
     try:
         if segments:
             return _render_in(work, src, out_dir, name, start, end, layout, fg_h, ass, face=face,
-                              sequence=(segments, src_w, src_h))
-        return _render_in(work, src, out_dir, name, start, end, layout, fg_h, ass, face=face)
+                              sequence=(segments, src_w, src_h), mute=mute)
+        return _render_in(work, src, out_dir, name, start, end, layout, fg_h, ass, face=face, mute=mute)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -308,22 +317,23 @@ def _join_segments(segments, width, height):
 
 
 def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layout, fg_h, ass: str, face=None,
-               sequence=None) -> dict:
+               sequence=None, mute=None) -> dict:
     global _qsv_ok
     (work / f"{name}.ass").write_text(ass, encoding="utf-8")
     (work / "f").mkdir()
     for f in config.FONTS_DIR.glob("*.ttf"):
         shutil.copyfile(f, work / "f" / f.name)
     base = ["ffmpeg", "-y", "-v", "error"]
+    sound_filter = censorship.audio_filter(mute or [])
     if sequence:
         inputs, fc = _join_segments(*sequence)
         base += ["-filter_complex_threads", "2", *inputs]
-        fc += _filter(layout, fg_h, face, "sequence") + "[sound]loudnorm=I=-14:TP=-1.5:LRA=11[normalized];"
+        fc += _filter(layout, fg_h, face, "sequence") + f"[sound]{sound_filter}[normalized];"
         audio = ["-map", "[normalized]", "-t", f"{end - start:.2f}"]
     else:
         base += ["-ss", f"{start:.2f}", "-t", f"{end - start:.2f}", "-i", str(src)]
         fc = _filter(layout, fg_h, face)
-        audio = ["-map", "0:a:0", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11"]
+        audio = ["-map", "0:a:0", "-af", sound_filter]
     fc += f"[v0]ass={name}.ass:fontsdir=f[v]"
     base += ["-filter_complex", fc, "-map", "[v]", *audio,
              "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-movflags", "+faststart", "-pix_fmt"]

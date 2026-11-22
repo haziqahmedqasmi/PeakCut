@@ -1382,7 +1382,7 @@ function pathFor(v, tab) {
 function fromPath(path) {
   const m = path.match(/^\/app\/creators\/([^/]+)(?:\/(setup|activity|clips))?\/?$/);
   if (m) return ["c:" + decodeURIComponent(m[1]), m[2] || "clips"];
-  const st = path.match(/^\/app\/settings(?:\/(ai|subscription|profile|security|apps|storage|language))?\/?$/);
+  const st = path.match(/^\/app\/settings(?:\/(ai|subscription|profile|security|apps|storage|language|censorship))?\/?$/);
   if (st) return st[1] === "apps" ? ["social", null] : ["settings", st[1] || null];
   const ed = path.match(/^\/app\/editor(?:\/([\w-]+)\/([\w-]+))?\/?$/);
   if (ed) return ["editor", ed[1] ? ed.slice(1) : null];
@@ -2281,6 +2281,7 @@ const setTabs = () => [
   ...(S.status.accounts === false ? [] : [["profile", i18n.t("Profile"), "user", i18n.t("Your name, email and how you sign in")],
                                           ["security", i18n.t("Security"), "lock", i18n.t("Password and signing out")]]),
   ["language", i18n.t("Language"), "language", i18n.t("Change the interface and caption languages")],
+  ["censorship", i18n.t("Word censorship"), "lock", i18n.t("Hide words in captions or silence them in audio")],
   ...(S.status.user?.is_admin ? [["storage", i18n.t("Storage"), "folder", i18n.t("Where videos and clips are kept")]] : [])];
 function aiHints() {
   const k = S.ai, sel = $("#ai_provider"); if (!k || !sel) return;
@@ -2391,6 +2392,21 @@ async function drawSettings() {
     <div class="set-body" id="setbody"><div class="set-load">${i18n.html("Loading…")}</div></div></div>`;
   const body = $("#setbody");
   try {
+    if (tab === "censorship") {
+      const s = await api("/api/settings");
+      if (!body.isConnected) return;
+      body.innerHTML = `<section class="set-sec"><h2>${i18n.html("Word censorship")}</h2>
+        <p class="help">${i18n.html("Choose words to hide in captions and opening text, or silence in audio. Applies when you make or re-make a clip. Existing exports stay as they are.")}</p>
+        <div class="ai-form">
+          <label class="f" for="censorship_mode">${i18n.html("Censor in")}
+            <select id="censorship_mode">${opts({off:i18n.t("Off"), captions:i18n.t("Captions and opening text"), audio:i18n.t("Audio only"), both:i18n.t("Captions, opening text and audio")}, s.censorship_mode || "off")}</select></label>
+          <label class="f" for="censorship_words">${i18n.html("Words to censor")}
+            <textarea id="censorship_words" rows="8" maxlength="10000" aria-describedby="censorship-help">${esc(s.censorship_words || "")}</textarea>
+            <span class="hint" id="censorship-help">${i18n.html("Separate words with commas or new lines. Matches whole words, ignoring case and accents. Captions use asterisks; audio is silenced. Up to 500 words.")}</span></label>
+          <p class="help">${i18n.html("Audio censorship follows the original transcript. Review your clip: words missed by speech recognition may still be audible. For translated captions, also add the words in the spoken language.")}</p>
+          <div class="row"><button class="btn primary" data-act="censorshipsave">${i18n.html("Save")}</button><span class="help" id="censorship-result" role="status" aria-live="polite"></span></div>
+        </div></section>`;
+    }
     if (tab === "language") {
       const {caption_language} = await api("/api/settings");
       body.innerHTML = `<section class="set-sec"><h2>${i18n.html("Interface language")}</h2>
@@ -3265,6 +3281,18 @@ document.addEventListener("click", async e => {
     }
     if (a === "tour") return startTour();
     if (a === "settab") { e.preventDefault(); S.stab = d.k; remember("settings", d.k); return drawSettings(); }
+    if (a === "censorshipsave") {
+      const mode = $("#censorship_mode"), words = $("#censorship_words"), result = $("#censorship-result");
+      b.disabled = true; mode.disabled = true; words.disabled = true; result.textContent = "";
+      try {
+        const saved = await send("/api/settings", {censorship_mode:mode.value, censorship_words:words.value}, "PUT");
+        words.value = saved.censorship_words;
+        result.textContent = i18n.t("Saved");
+        toast(i18n.t("Saved"), "ok");
+      } catch (err) { result.textContent = i18n.detail(err.message); toast(err.message, "bad"); }
+      finally { b.disabled = false; mode.disabled = false; words.disabled = false; }
+      return;
+    }
     if (a === "updhow") return updateHow();
     if (a === "updlater") { try { localStorage.setItem("peakcut_update_seen", S.status.update?.latest || ""); } catch {} return drawShell(); }
     if (a === "storopen") { await send("/api/storage/open"); return; }
