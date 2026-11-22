@@ -198,6 +198,14 @@ def _caption_words(data: dict) -> list:
 _PREVIEWS: dict = {}
 
 
+def _thumb_url(url: str, fallback: str) -> str:
+    """A small picture of a YouTube video. The full-size one is often too big to show on the page."""
+    m = re.search(r"(?:v=|youtu\.be/|/(?:shorts|live|embed)/)([\w-]{11})", url or "")
+    if m:
+        return f"https://i.ytimg.com/vi/{m.group(1)}/hqdefault.jpg"
+    return fallback
+
+
 def preview(url: str) -> dict:
     """What the user will get from a link, checked before any work starts. The thumbnail comes back inline
     (the page may only load images from this site). Cached, so retyping a link costs nothing."""
@@ -208,7 +216,7 @@ def preview(url: str) -> dict:
     if i["kind"] != "video" or not i["title"]:
         raise ValueError("That link is a channel or playlist, not a single video.")
     thumb = ""
-    t = i.get("thumbnail") or ""
+    t = _thumb_url(url, i.get("thumbnail") or "")
     if t.startswith("https://"):
         import base64
         import urllib.request

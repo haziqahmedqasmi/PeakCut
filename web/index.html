@@ -391,12 +391,20 @@ img.av{object-fit:cover}
 .lay-prev .ph::before{content:"";position:absolute;inset:0;background:linear-gradient(160deg,#B4643A,#5E3A2A);filter:blur(3px);opacity:.75}
 .lay-prev .ph i{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);height:16px;background:linear-gradient(135deg,#FF8B33,#FFB27A)}
 .lay-prev.zoom .ph i{left:-6px;right:-6px;height:24px}
-.lay-prev.crop .ph i,.lay-prev.left .ph i,.lay-prev.right .ph i,.lay-prev.gameplay .ph i{left:0;right:0;top:0;height:100%;transform:none}
+.lay-prev.crop .ph i,.lay-prev.left .ph i,.lay-prev.right .ph i{left:0;right:0;top:0;height:100%;transform:none}
 .lay-prev.left .ph i{background:linear-gradient(90deg,#FFB27A,#FF8B33 45%,#5E3A2A)}
 .lay-prev.right .ph i{background:linear-gradient(270deg,#FFB27A,#FF8B33 45%,#5E3A2A)}
 .lay-prev.fit .ph{background:#000}.lay-prev.fit .ph::before{display:none}
-.lay-prev.split .ph i{top:0;height:23px;transform:none}
+.lay-prev.split .ph i,.lay-prev.gameplay .ph i,.lay-prev.gamecam .ph i{top:0;height:23px;transform:none}
 .lay-prev.split .ph::before{inset:25px 0 0 0;filter:none;opacity:1;background:linear-gradient(135deg,#FFB27A,#FF8B33)}
+.lay-prev.gameplay .ph::before,.lay-prev.gamecam .ph::before{inset:25px 0 0 0;filter:none;opacity:1;background:#C4B4A8}
+.camstage{position:relative;width:100%;background:#17110E;border-radius:8px;overflow:hidden;line-height:0}
+.camstage img,.camstage video{width:100%;height:auto;display:block;background:#17110E}
+.camrect,.gamerect{position:absolute;border:2px solid #FF8B33;background:rgba(255,139,51,.25);cursor:move;touch-action:none;box-sizing:border-box}
+.gamerect{border-color:#fff;background:rgba(255,255,255,.12)}
+.camrect::after,.gamerect::after{content:"";position:absolute;right:0;bottom:0;width:14px;height:14px;background:#FF8B33;cursor:nwse-resize}
+.gamerect::after{background:#fff}
+.boxlab{position:absolute;left:4px;top:2px;font-size:11px;font-weight:700;line-height:1.3;color:#fff}
 .seg{display:flex;gap:4px;background:#fff;border-radius:10px;padding:4px}
 .composer.compact .seg{background:var(--muted)}
 .seg button{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 6px;border:0;border-radius:7px;background:transparent;color:var(--dim);font-size:13px;font-weight:600;cursor:pointer;transition:background-color .15s ease,color .15s ease}
@@ -1394,6 +1402,20 @@ function drawAdd(variant) {
         <label><input type="checkbox" id="o_captions" data-caption-toggle ${c?.captions === false ? "" : "checked"}>Generate captions</label></div>
         ${choice("o_style", Object.entries(S.status.styles).map(([k, v]) => ({v:k, label:v, prev:capPrev(k)})), c?.style ?? "bounce", c?.captions === false)}</div>
       <div class="ob"><div class="ot">Layout</div>${choice("o_layout", Object.entries(S.status.layouts).map(([k, v]) => ({v:k, label:LAYOUT_SHORT[k] || v, title:v, prev:`<span class="lay-prev ${esc(k)}"><span class="ph"><i></i></span></span>`})), c?.layout ?? "blur")}</div>
+      <div class="ob wide" id="linkcam" hidden>
+        <div class="ot">Game and webcam for every clip</div>
+        <p class="help" id="linkcamnote">Paste a link above, then drag the white box over the gameplay and the orange box over the webcam. Every clip from that video uses these boxes.</p>
+        <div class="camstage" id="linkstage" hidden>
+          <img id="linkpic" alt="Frame of the video" hidden>
+          <video id="linkvid" muted playsinline preload="metadata" hidden></video>
+          <div class="gamerect" id="linkgame" style="left:2%;top:4%;width:70%;height:55%"><span class="boxlab">Game</span></div>
+          <div class="camrect" id="linkcamrect" style="left:2%;top:62%;width:28%;height:34%"><span class="boxlab">Webcam</span></div>
+        </div>
+        <input type="hidden" id="o_gamex" value="0.02"><input type="hidden" id="o_gamey" value="0.04">
+        <input type="hidden" id="o_gamew" value="0.70"><input type="hidden" id="o_gameh" value="0.55">
+        <input type="hidden" id="o_camx" value="0.02"><input type="hidden" id="o_camy" value="0.62">
+        <input type="hidden" id="o_camw" value="0.28"><input type="hidden" id="o_camh" value="0.34">
+      </div>
       <div class="ob"><div class="ot">Video quality</div><input type="hidden" id="o_quality" value="720"><div class="seg" role="group" aria-label="Video quality">
         <button type="button" data-seg="o_quality" data-v="720" aria-pressed="true">720p<small>Fast</small></button>
         <button type="button" data-seg="o_quality" data-v="1080" aria-pressed="false">1080p<small>Sharper, about 2x slower</small></button></div></div>
@@ -1402,8 +1424,9 @@ function drawAdd(variant) {
         <label>To<input id="o_to" type="number" min="0" placeholder="end" aria-label="Up to minute">min</label></div></div>
     </div></div></form>`;
   drawAtt();
+  bindLinkCam();
 }
-const LAYOUT_SHORT = {blur:"Blurred fill", zoom:"Zoomed in", crop:"Fill screen", left:"Keep left", right:"Keep right", fit:"Black bars", split:"Split screen", gameplay:"Gameplay + facecam"};
+const LAYOUT_SHORT = {blur:"Blurred fill", zoom:"Zoomed in", crop:"Fill screen", left:"Keep left", right:"Keep right", fit:"Black bars", split:"Split screen", gameplay:"Game on top", gamecam:"Game + your cam"};
 /* The language spoken in the video picks which speech model writes the transcript. Languages other than English
    need their model downloaded once (Settings → Speech models). */
 const LANG_NATIVE = {ar:"العربية"};
@@ -1457,7 +1480,8 @@ document.addEventListener("click", e => {
   if (!e.target.closest(".pick") || e.target.closest(".pick-new")) closePicks();
   const sg = e.target.closest("[data-seg]");
   if (sg && !sg.disabled) { $("#" + sg.dataset.seg).value = sg.dataset.v;
-    sg.parentElement.querySelectorAll("[data-seg]").forEach(b => b.setAttribute("aria-pressed", String(b === sg))); return; }
+    sg.parentElement.querySelectorAll("[data-seg]").forEach(b => b.setAttribute("aria-pressed", String(b === sg)));
+    if (sg.dataset.seg === "o_layout") syncLinkCam(); return; }
   const st = e.target.closest("[data-step]");
   if (st) { const i = $("#" + st.dataset.step), s = Number(i.step) || 1, d = Number(st.dataset.d);
     const v = Math.min(Number(i.max), Math.max(Number(i.min), (Number(i.value) || 0) + d * s)); i.value = v; }
@@ -1476,6 +1500,7 @@ function jobOptions() {
   const n = id => { const v = $(id).value; return v === "" ? null : Number(v); };
   const o = {max_clips:n("#o_max"), min_len:n("#o_min"), max_len:n("#o_maxlen"), captions:$("#o_captions").checked, style:$("#o_style").value, layout:$("#o_layout").value, quality:n("#o_quality"),
     hook_text:$("#o_hook").value.trim(), description_text:$("#o_desc").value.trim(), lang:$("#o_lang")?.value || "en"};
+  if (o.layout === "gamecam") ["gamex", "gamey", "gamew", "gameh", "camx", "camy", "camw", "camh"].forEach(k => { o[k] = Number($("#o_" + k).value); });
   if (n("#o_from") !== null) o.range_start = n("#o_from") * 60;
   if (n("#o_to") !== null) o.range_end = n("#o_to") * 60;
   return o;
@@ -1492,6 +1517,95 @@ const fmtSize = b => b >= 1e9 ? (b / 1e9).toFixed(1) + " GB" : Math.max(1, Math.
 const isChannel = u => /^(https?:\/\/)?(www\.)?(twitch\.tv|kick\.com)\/[A-Za-z0-9_]+\/?$/.test(u) || /youtube\.com\/(@[^/]+|channel\/[^/]+)\/?(live|videos|streams)?\/?$/.test(u);
 const looksLink = u => /^https?:\/\/([\w-]+\.)*(youtube\.com|youtu\.be|twitch\.tv|kick\.com)\//i.test(u);
 const fullLink = u => /[?&]v=[\w-]{11}\b|youtu\.be\/[\w-]{11}\b|\/(shorts|live|embed)\/[\w-]{11}\b|twitch\.tv\/videos\/\d{6,}|clips\.twitch\.tv\/\w|twitch\.tv\/\w+\/clip\/\w|kick\.com\/[\w-]+\/(videos?|clips?)\/[\w-]{6,}/i.test(u);
+function readLinkBoxes() {
+  const put = (id, prefix) => {
+    const r = $("#" + id); if (!r) return;
+    const set = (k, v) => { const i = $("#o_" + prefix + k); if (i) i.value = v; };
+    set("x", parseFloat(r.style.left) / 100); set("y", parseFloat(r.style.top) / 100);
+    set("w", parseFloat(r.style.width) / 100); set("h", parseFloat(r.style.height) / 100);
+  };
+  put("linkgame", "game"); put("linkcamrect", "cam");
+}
+function syncLinkCam() {
+  const box = $("#linkcam"); if (!box) return;
+  const on = $("#o_layout")?.value === "gamecam";
+  box.hidden = !on;
+  if (!on) return;
+  const A = att(), stage = $("#linkstage"), note = $("#linkcamnote");
+  const link = A.links.find(l => l.state === "ok");
+  const file = A.files.find(f => f.src);
+  const pic = $("#linkpic"), vid = $("#linkvid");
+  if (link && link.info?.thumb) {
+    stage.hidden = false; if (note) note.hidden = true;
+    if (vid) vid.hidden = true;
+    if (pic) { pic.hidden = false; if (pic.getAttribute("src") !== link.info.thumb) pic.src = link.info.thumb; }
+  } else if (link) {
+    stage.hidden = false;
+    if (note) { note.hidden = false; note.textContent = "Loading a picture of this video so you can mark the gameplay and the webcam."; }
+    if (!link.thumbTry) { link.thumbTry = true; lookUp(link.url).then(info => { link.info = info; drawAtt(); }).catch(() => {}); }
+  } else if (file) {
+    stage.hidden = false; if (note) note.hidden = true;
+    if (pic) pic.hidden = true;
+    if (vid) { vid.hidden = false; if (vid.getAttribute("src") !== file.src) { vid.src = file.src + "#t=1"; } }
+  } else {
+    stage.hidden = true; if (note) note.hidden = false;
+  }
+}
+function bindAreas() {
+  const stage = $("#areastage");
+  if (!stage || stage.dataset.bound) return;
+  stage.dataset.bound = "1";
+  let drag = null;
+  stage.addEventListener("pointerdown", e => {
+    const rect = e.target.closest(".camrect, .gamerect");
+    if (!rect) return;
+    const corner = e.target === rect && e.offsetX > rect.clientWidth - 16 && e.offsetY > rect.clientHeight - 16;
+    drag = {rect, mode: corner ? "resize" : "move", sx: e.clientX, sy: e.clientY,
+      l: parseFloat(rect.style.left), t: parseFloat(rect.style.top), w: parseFloat(rect.style.width), h: parseFloat(rect.style.height)};
+    rect.setPointerCapture(e.pointerId); e.preventDefault();
+  });
+  stage.addEventListener("pointermove", e => {
+    if (!drag) return;
+    const b = stage.getBoundingClientRect(), dx = (e.clientX - drag.sx) / b.width * 100, dy = (e.clientY - drag.sy) / b.height * 100, r = drag.rect;
+    if (drag.mode === "move") {
+      r.style.left = Math.min(100 - drag.w, Math.max(0, drag.l + dx)) + "%";
+      r.style.top = Math.min(100 - drag.h, Math.max(0, drag.t + dy)) + "%";
+    } else {
+      r.style.width = Math.min(100 - drag.l, Math.max(8, drag.w + dx)) + "%";
+      r.style.height = Math.min(100 - drag.t, Math.max(8, drag.h + dy)) + "%";
+    }
+  });
+  stage.addEventListener("pointerup", () => { drag = null; });
+}
+function bindLinkCam() {
+  const stage = $("#linkstage");
+  if (!stage || stage.dataset.bound) return;
+  stage.dataset.bound = "1";
+  let drag = null;
+  stage.addEventListener("pointerdown", e => {
+    const rect = e.target.closest(".camrect, .gamerect");
+    if (!rect) return;
+    const corner = e.target === rect && e.offsetX > rect.clientWidth - 16 && e.offsetY > rect.clientHeight - 16;
+    drag = {rect, mode: corner ? "resize" : "move", sx: e.clientX, sy: e.clientY,
+      l: parseFloat(rect.style.left), t: parseFloat(rect.style.top), w: parseFloat(rect.style.width), h: parseFloat(rect.style.height)};
+    rect.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  stage.addEventListener("pointermove", e => {
+    if (!drag) return;
+    const b = stage.getBoundingClientRect(), dx = (e.clientX - drag.sx) / b.width * 100, dy = (e.clientY - drag.sy) / b.height * 100;
+    const r = drag.rect;
+    if (drag.mode === "move") {
+      r.style.left = Math.min(100 - drag.w, Math.max(0, drag.l + dx)) + "%";
+      r.style.top = Math.min(100 - drag.h, Math.max(0, drag.t + dy)) + "%";
+    } else {
+      r.style.width = Math.min(100 - drag.l, Math.max(8, drag.w + dx)) + "%";
+      r.style.height = Math.min(100 - drag.t, Math.max(8, drag.h + dy)) + "%";
+    }
+    readLinkBoxes();
+  });
+  stage.addEventListener("pointerup", () => { drag = null; readLinkBoxes(); });
+}
 const batchMax = () => S.status.max_batch || 5;
 const batchUsed = A => A.files.length + A.links.filter(l => l.state !== "bad").length;
 const newId = () => Math.random().toString(36).slice(2);
@@ -1546,6 +1660,7 @@ function drawAtt() {
     if (f && !f.dur) { f.dur = v.duration; const th = v.parentElement; if (!th.querySelector(".du")) th.insertAdjacentHTML("beforeend", `<span class="du">${fmtLen(f.dur)}</span>`); }
   }, {once: true}));
   $("#att")?.classList.toggle("has", !!h);
+  syncLinkCam();
   const u = $("#url"); if (u) u.placeholder = A.links.length || A.files.length ? "Paste another link" : "Paste a YouTube, Twitch or Kick video link";
   const b = $("#goBtn");
   if (b) { b.disabled = A.busy;
@@ -1772,6 +1887,14 @@ function liveHtml(j) {
     </div>${j.error ? `<div class="err">${esc(j.error)}</div>` : ""}</div>
     ${j.clips.length ? `<div class="grid" style="margin-bottom:28px">${[...j.clips].reverse().map(c => clipHtml(j, c)).join("")}</div>` : ""}`;
 }
+function areaPicker(j) {
+  return `<div class="ob wide" id="areas" data-j="${esc(j.id)}">
+    <p class="help">This is a real frame from the video, before any clip is made. Drag the white box over the gameplay and the orange box over the webcam. Every clip will use these.</p>
+    <div class="camstage" id="areastage"><img alt="Frame of the video" src="/media/${esc(j.id)}/areas.jpg?v=1">
+      <div class="gamerect" id="areagame" style="left:2%;top:4%;width:70%;height:55%"><span class="boxlab">Game</span></div>
+      <div class="camrect" id="areacam" style="left:2%;top:62%;width:28%;height:34%"><span class="boxlab">Webcam</span></div></div>
+    <button class="btn primary" data-act="areasgo" data-j="${esc(j.id)}">Use these and make the clips</button></div>`;
+}
 function jobHtml(j) {
   if (j.status === "live") return liveHtml(j);
   const busy = j.status === "queued" || j.status === "running";
@@ -1785,6 +1908,7 @@ function jobHtml(j) {
         <button class="btn sm icon ghost" data-act="deljob" data-j="${j.id}" title="Delete" aria-label="Delete this video and its clips">${ic("trash")}</button>
         <label class="selck" title="Select this video and its clips"><input type="checkbox" data-sel="j:${j.id}" ${sel().has("j:" + j.id) ? "checked" : ""} aria-label="Select this video"></label>`}</div></div>
     ${busy ? `<div class="bar"><i style="width:${Math.round(j.progress * 100)}%"></i></div><p class="sub">${esc(j.stage)} · ${Math.round(j.progress * 100)}%</p>` : ""}
+    ${j.needs_areas ? areaPicker(j) : ""}
     ${j.status === "done" && !j.clips.length ? `<p class="sub">${esc(j.stage)}</p>` : ""}
     ${j.error ? `<div class="err">${esc(j.error)}<button class="rep" data-act="report" data-ctx="${esc("Video failed: " + (j.title || j.source.name || "") + " | " + j.error)}">Report this</button></div>` : ""}${j.ai?.note ? `<p class="sub">${esc(j.ai.note)}</p>` : ""}
     ${j.clips.length ? `<div class="grid">${j.clips.map(c => clipHtml(j, c)).join("")}</div>` : ""}`;
@@ -1855,7 +1979,8 @@ function drawJobs() {
     let el = $(`section[data-job="${j.id}"]`, root);
     if (!el) { el = document.createElement("section"); el.className = "job"; el.dataset.job = j.id; }
     if (root.children[i] !== el) root.insertBefore(el, root.children[i] || null);
-    put(el, jobHtml(j));
+    if (j.needs_areas && el.querySelector("#areas")) { const sub = el.querySelector(".job-head + .bar + .sub, .bar + .sub"); if (sub) sub.textContent = `${j.stage} · ${Math.round(j.progress * 100)}%`; }
+    else { put(el, jobHtml(j)); if (j.needs_areas) bindAreas(); }
   });
 }
 
@@ -2206,7 +2331,68 @@ async function ytCookiesCard(logo) {
 async function saveSettings() { const d = {}; $$("#sform [data-s]").forEach(i => d[i.dataset.s] = i.value); await send("/api/settings", d, "PUT"); }
 
 /* ============================================================ clip editor */
-function openClip(jid, cid) { D.jid = jid; D.cid = cid; D.sig = ""; drawClipDlg(true); $("#clipdlg").showModal(); }
+function boxFractions(j, c, key, fallback) {
+  const w = j.width || 0, h = j.height || 0, b = c[key];
+  if (w > 2 && h > 2 && Array.isArray(b) && b.length === 4) return [b[0] / w, b[1] / h, b[2] / w, b[3] / h];
+  return fallback;
+}
+function camPicker(j, c) {
+  const cam = boxFractions(j, c, "facecam", [0.02, 0.62, 0.28, 0.34]);
+  const game = boxFractions(j, c, "gamebox", [0.02, 0.04, 0.70, 0.55]);
+  const on = c.layout === "gamecam";
+  const pct = (v) => (Math.max(0, Math.min(1, v)) * 100).toFixed(1);
+  const box = (id, cls, label, b) => `<div class="${cls}" id="${id}" style="left:${pct(b[0])}%;top:${pct(b[1])}%;width:${pct(b[2])}%;height:${pct(b[3])}%"><span class="boxlab">${label}</span></div>`;
+  const fields = (prefix, b) => ["x", "y", "w", "h"].map((k, i) => `<input type="hidden" data-f="${prefix}${k}" value="${b[i]}">`).join("");
+  return `<div id="cambox" ${on ? "" : "hidden"}>
+      <p class="help">This is a frame of the original video. Drag the white box over the gameplay and the orange box over the webcam. The white box stays centered on top. The orange box is zoomed across the bottom.</p>
+      <p class="help" id="cammiss" hidden>The original frame could not be shown.</p>
+      <div class="camstage" id="camstage"><img id="camvid" alt="Original frame" src="/media/${esc(j.id)}/${esc(c.id)}.pick.jpg?v=${c.version || 0}">
+        ${box("gamerect", "gamerect", "Game", game)}
+        ${box("camrect", "camrect", "Webcam", cam)}</div>
+      ${fields("game", game)}${fields("cam", cam)}</div>`;
+}
+function syncCamFields() {
+  const set = (k, v) => { const i = $(`#clipdlg [data-f="${k}"]`); if (i) i.value = v; };
+  const read = (id, prefix) => {
+    const r = $("#" + id); if (!r) return;
+    set(prefix + "x", parseFloat(r.style.left) / 100); set(prefix + "y", parseFloat(r.style.top) / 100);
+    set(prefix + "w", parseFloat(r.style.width) / 100); set(prefix + "h", parseFloat(r.style.height) / 100);
+  };
+  read("camrect", "cam"); read("gamerect", "game");
+}
+function bindCam() {
+  const stage = $("#camstage"), vid = $("#camvid");
+  if (!stage || stage.dataset.bound) return;
+  stage.dataset.bound = "1";
+  if (vid) vid.addEventListener("error", () => { const n = $("#cammiss"); if (n) n.hidden = false; });
+  let drag = null;
+  const start = (rect, e) => {
+    const corner = e.target === rect && e.offsetX > rect.clientWidth - 16 && e.offsetY > rect.clientHeight - 16;
+    drag = {rect, mode: corner ? "resize" : "move", sx: e.clientX, sy: e.clientY,
+      l: parseFloat(rect.style.left), t: parseFloat(rect.style.top), w: parseFloat(rect.style.width), h: parseFloat(rect.style.height)};
+    rect.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  };
+  stage.addEventListener("pointerdown", e => {
+    const rect = e.target.closest(".camrect, .gamerect");
+    if (rect) start(rect, e);
+  });
+  stage.addEventListener("pointermove", e => {
+    if (!drag) return;
+    const b = stage.getBoundingClientRect(), dx = (e.clientX - drag.sx) / b.width * 100, dy = (e.clientY - drag.sy) / b.height * 100;
+    const r = drag.rect;
+    if (drag.mode === "move") {
+      r.style.left = Math.min(100 - drag.w, Math.max(0, drag.l + dx)) + "%";
+      r.style.top = Math.min(100 - drag.h, Math.max(0, drag.t + dy)) + "%";
+    } else {
+      r.style.width = Math.min(100 - drag.l, Math.max(8, drag.w + dx)) + "%";
+      r.style.height = Math.min(100 - drag.t, Math.max(8, drag.h + dy)) + "%";
+    }
+    syncCamFields();
+  });
+  stage.addEventListener("pointerup", () => { drag = null; });
+}
+function openClip(jid, cid) { D.jid = jid; D.cid = cid; D.sig = ""; drawClipDlg(true); $("#clipdlg").showModal(); bindCam(); }
 function drawClipDlg(full) {
   const j = jobOf(D.jid), c = j?.clips.find(x => x.id === D.cid), dlg = $("#clipdlg");
   if (!c) { if (dlg.open) dlg.close(); return; }
@@ -2224,6 +2410,7 @@ function drawClipDlg(full) {
         <label class="sw"><input type="checkbox" data-f="captions" data-caption-toggle ${c.captions === false ? "" : "checked"}>Generate captions</label>
         <div class="two"><label class="f">Caption style<select data-f="style" data-caption-style ${c.captions === false ? "disabled" : ""}>${opts(S.status.styles, c.style)}</select></label>
           <label class="f">Layout<select data-f="layout">${opts(S.status.layouts, c.layout)}</select></label></div>
+        ${camPicker(j, c)}
         <div class="two"><label class="f">Start (seconds)<input data-f="start" type="number" step="0.5" value="${c.start}"></label>
           <label class="f">End (seconds)<input data-f="end" type="number" step="0.5" value="${c.end}"></label></div>
         <div class="row" style="justify-content:space-between;align-items:center"><h3>Post text</h3>
@@ -2249,6 +2436,10 @@ function postText() {   // the post text as it is in the clip editor right now
   const v = k => $(`#clipdlg [data-f="${k}"]`).value;
   return {title: v("title"), description: v("description"), hashtags: v("hashtags").split(/\s+/).map(h => h.replace(/^#+/, "")).filter(Boolean)};
 }
+$("#clipdlg").addEventListener("change", e => {
+  if (!e.target.matches("[data-f=layout]")) return;
+  const box = $("#cambox"); if (box) box.hidden = e.target.value !== "gamecam";
+});
 $("#clipdlg").addEventListener("close", () => { $("#clipdlg").innerHTML = ""; D.jid = null; });
 $("#clipdlg").addEventListener("click", e => { if (e.target === e.currentTarget) e.currentTarget.close(); });
 
@@ -2566,6 +2757,12 @@ document.addEventListener("click", async e => {
     if (a === "accremove") {
       if (!await ask("Disconnect this account?", "Posts still waiting for it will fail.", "Disconnect", true)) return;
       await api(`/api/accounts/${d.id}`, {method:"DELETE"}); await tick(); return drawSettings();
+    }
+    if (a === "areasgo") {
+      const box = id => { const r = $("#" + id); return [parseFloat(r.style.left) / 100, parseFloat(r.style.top) / 100, parseFloat(r.style.width) / 100, parseFloat(r.style.height) / 100]; };
+      const g = box("areagame"), c = box("areacam");
+      await send(`/api/jobs/${d.j}/areas`, {gamex: g[0], gamey: g[1], gamew: g[2], gameh: g[3], camx: c[0], camy: c[1], camw: c[2], camh: c[3]});
+      toast("Marked. Every clip will use these boxes.", "ok"); return tick();
     }
     if (a === "remake") {
       const body = {}; $$("#clipdlg [data-f]").forEach(i => {

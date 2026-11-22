@@ -81,8 +81,9 @@ def install_fonts():
 LAYOUTS = {"blur": "Full frame + blurred fill", "zoom": "Zoomed in + blurred fill", "crop": "Fill the screen (centre crop)",
            "left": "Fill the screen, keep the left side", "right": "Fill the screen, keep the right side",
            "fit": "Full frame on black", "split": "Split screen: left half on top, right half below (two people)",
-           "gameplay": "Gameplay fills the screen, facecam in the corner"}
-_FILLS = ("crop", "left", "right", "gameplay")      # layouts where the picture covers the whole frame
+           "gameplay": "Gameplay on top, webcam below",
+           "gamecam": "Whole game centered on top, webcam you choose zoomed below"}
+_FILLS = ("crop", "left", "right")      # layouts where the picture covers the whole frame
 
 
 def _ts(t):
@@ -129,6 +130,8 @@ def geometry(src_w, src_h, layout):
         return layout, fg_h, 300, 1380
     if layout == "split":
         return layout, fg_h, 230, H // 2        # captions sit on the line between the two people
+    if layout in ("gameplay", "gamecam"):
+        return layout, fg_h, 230, H // 2 - 70   # captions sit in the gameplay, just above the webcam
     return layout, fg_h, max(230, top - 190), min(1640, top + fg_h + 180)
 
 
@@ -235,22 +238,38 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return head + "\n".join(ev) + "\n"
 
 
-PIP_W = 380            # how wide the facecam is in the 1080-wide frame
-PIP_MARGIN = 26
-
-
-def _filter(layout, fg_h, facecam=None):
+def _filter(layout, fg_h, facecam=None, game=None):
+    fill = f"[0:v]fps={config.OUT_FPS},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}"
     if layout == "gameplay" and facecam:
-        # The game fills the screen, and the webcam sits in the top corner of it, so a viewer sees
-        # the play and the face at the same time.
+        # Gameplay fills the top half. The webcam is taken out of the source and fills the bottom half.
         fx, fy, fw, fh = (int(v) for v in facecam)
         if fw > 8 and fh > 8:
-            pip_h = max(2, int(round(PIP_W * fh / fw)))
-            return (f"[0:v]fps={config.OUT_FPS},split=2[base][fc];"
-                    f"[base]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1[b];"
-                    f"[fc]crop={fw}:{fh}:{fx}:{fy},scale={PIP_W}:{pip_h},setsar=1[p];"
-                    f"[b][p]overlay={W - PIP_W - PIP_MARGIN}:{PIP_MARGIN}[v0];")
-    fill = f"[0:v]fps={config.OUT_FPS},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}"
+            half = H // 2
+            return (f"[0:v]fps={config.OUT_FPS},split=2[game][cam];"
+                    f"[game]scale={W}:{half}:force_original_aspect_ratio=increase,crop={W}:{half},setsar=1[t];"
+                    f"[cam]crop={fw}:{fh}:{fx}:{fy},scale={W}:{half}:force_original_aspect_ratio=increase,"
+                    f"crop={W}:{half},setsar=1[b];"
+                    f"[t][b]vstack[v0];")
+        return fill + ",setsar=1[v0];"
+    if layout == "gamecam" and facecam:
+        # The gameplay box the person drew fills the top half, centered. The webcam box fills the bottom half.
+        fx, fy, fw, fh = (int(v) for v in facecam)
+        if fw > 8 and fh > 8:
+            half = H // 2
+            picked = ""
+            if game and len(game) == 4:
+                gx, gy, gw, gh = (int(v) for v in game)
+                if gw > 8 and gh > 8:
+                    picked = f"crop={gw}:{gh}:{gx}:{gy},"
+            return (f"[0:v]fps={config.OUT_FPS},split=2[game][cam];"
+                    f"[game]split=2[gbg][gfg];"
+                    f"[gbg]{picked}scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=6:2,"
+                    f"scale={W}:{half},eq=brightness=-0.14:saturation=1.15[bg];"
+                    f"[gfg]{picked}scale={W}:{half}:force_original_aspect_ratio=decrease[fg];"
+                    f"[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[t];"
+                    f"[cam]crop={fw}:{fh}:{fx}:{fy},scale={W}:{half}:force_original_aspect_ratio=increase,"
+                    f"crop={W}:{half},setsar=1[b];"
+                    f"[t][b]vstack[v0];")
     if layout == "crop" or (layout == "gameplay" and not facecam):
         return fill + ",setsar=1[v0];"
     if layout == "left":
@@ -271,10 +290,7 @@ def _filter(layout, fg_h, facecam=None):
 
 
 def _hook_y(layout, hook_y, facecam=None):
-    """Where the heading goes. In the gameplay layout the webcam sits in the top corner, so a heading
-    across the top would run under it: it goes just below the picture instead."""
-    if layout == "gameplay" and facecam and len(facecam) == 4 and facecam[2] > 8:
-        return PIP_MARGIN + int(round(PIP_W * facecam[3] / facecam[2])) + 32
+    """Where the heading goes. The gameplay layout keeps it at the top of the game, above the webcam."""
     return hook_y
 
 
@@ -288,8 +304,23 @@ def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, sr
     start, end = clip["start"], clip["end"]
     layout, fg_h, hook_y, cap_y = geometry(src_w, src_h, clip.get("layout", "blur"))
     face = clip.get("facecam")
-    if layout == "gameplay" and not (face and len(face) == 4):
-        layout = "crop"     # no webcam found: the game fills the screen, which is still the right shape
+    if layout == "gamecam":
+        if not (face and len(face) == 4):
+            face = [0, int(src_h * 0.55), max(2, int(src_w * 0.32)), max(2, int(src_h * 0.40))]
+        x, y, fw, fh = (int(v) for v in face)
+        x, y = max(0, min(x, src_w - 2)), max(0, min(y, src_h - 2))
+        face = [x, y, max(2, min(fw, src_w - x)), max(2, min(fh, src_h - y))]
+        game = clip.get("gamebox")
+        if game and len(game) == 4:
+            gx, gy, gw, gh = (int(v) for v in game)
+            gx, gy = max(0, min(gx, src_w - 2)), max(0, min(gy, src_h - 2))
+            clip_game = [gx, gy, max(2, min(gw, src_w - gx)), max(2, min(gh, src_h - gy))]
+        else:
+            clip_game = None
+    else:
+        clip_game = None
+        if layout == "gameplay" and not (face and len(face) == 4):
+            layout = "crop"     # no webcam found: the game fills the screen, which is still the right shape
     hook_y = _hook_y(layout, hook_y, face)
     ass = build_ass(words if clip.get("captions", True) else [], start, end, clip.get("hook", ""), clip.get("style", "bounce"),
                     clip.get("highlight_words", []), hook_y, cap_y)
@@ -301,18 +332,18 @@ def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, sr
     try:
         # The title and description are also written into the file itself, for any place that reads them from it.
         meta = {"title": clip.get("title") or "", "description": clip.get("description") or "", "comment": clip.get("description") or ""}
-        return _render_in(work, src, out_dir, name, start, end, layout, fg_h, ass, face=face, meta=meta)
+        return _render_in(work, src, out_dir, name, start, end, layout, fg_h, ass, face=face, game=clip_game, meta=meta)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
 
-def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layout, fg_h, ass: str, face=None, meta=None) -> dict:
+def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layout, fg_h, ass: str, face=None, game=None, meta=None) -> dict:
     global _qsv_ok
     (work / f"{name}.ass").write_text(ass, encoding="utf-8")
     (work / "f").mkdir()
     for f in config.FONTS_DIR.glob("*.ttf"):
         shutil.copyfile(f, work / "f" / f.name)
-    fc = _filter(layout, fg_h, face) + f"[v0]ass={name}.ass:fontsdir=f[v]"
+    fc = _filter(layout, fg_h, face, game) + f"[v0]ass={name}.ass:fontsdir=f[v]"
     base = ["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.2f}", "-t", f"{end - start:.2f}", "-i", str(src),
             "-filter_complex", fc, "-map", "[v]", "-map", "0:a:0", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
             "-c:a", "aac", "-b:a", "160k", "-ar", "48000"]

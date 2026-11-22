@@ -101,6 +101,45 @@ class _FairQueue:
             return out
 
 
+_area_go = {}   # job id -> event that continues once the person has marked the gameplay and the webcam
+
+
+def hold_for_areas(job):
+    """For the game-and-webcam layout, stop before any clip is made and wait for the boxes.
+
+    A real frame of the video is saved first, so the boxes are drawn on the picture that will be clipped."""
+    if (job.get("options") or {}).get("layout") != "gamecam" or job.get("areas_ready"):
+        return
+    d = Path(job["dir"])
+    frame = d / "clips" / "areas.jpg"
+    src = job.get("source_path")
+    if not (src and Path(src).is_file()) and job.get("source", {}).get("type") == "url":
+        try:
+            src = str(media.download_section(job["source"]["url"], d / "clips", "areasrc", 20, 35,
+                                              int(job["options"].get("quality") or 720)))
+        except Exception:  # noqa: BLE001 - without a picture there is nothing to mark, so the job carries on
+            src = ""
+    if src and Path(src).is_file() and not frame.is_file():
+        try:
+            media.run(["ffmpeg", "-y", "-ss", "3", "-i", str(src), "-frames:v", "1", "-q:v", "3", str(frame)])
+        except Exception:  # noqa: BLE001
+            return
+    if not frame.is_file():
+        return
+    ev = threading.Event()
+    _area_go[job["id"]] = ev
+    _set(job, needs_areas=True, stage="Mark the gameplay and the webcam, then continue", progress=0.12)
+    ev.wait()
+    _area_go.pop(job["id"], None)
+    _set(job, needs_areas=False, stage="Carrying on")
+
+
+def release_areas(jid):
+    ev = _area_go.get(jid)
+    if ev:
+        ev.set()
+
+
 _q = _FairQueue()
 _live_q: "queue.Queue" = queue.Queue()   # live clips never wait behind a long video
 _jobs: dict = {}
@@ -127,6 +166,11 @@ def clean_options(options) -> dict:
             continue
         if k in ("hook_text", "description_text"):     # kept even when empty: it clears the creator's own text for this video
             out[k] = creators.clean_hook(v) if k == "hook_text" else creators.clean_description(v)
+            continue
+        if k in ("camx", "camy", "camw", "camh", "gamex", "gamey", "gamew", "gameh"):
+            v = float(v)
+            if math.isfinite(v):
+                out[k] = max(0.0, min(1.0, v))
             continue
         if k not in DEFAULTS or v in ("", None):
             continue
@@ -396,9 +440,52 @@ def request_render(jid, cid, changes: dict):
         new["style"] = DEFAULTS["style"]
     if new.get("layout") not in render.LAYOUTS:
         new["layout"] = DEFAULTS["layout"]
+    if new.get("layout") == "gamecam":
+        box = _cam_box(job, changes, "cam")
+        if box:
+            new["facecam"] = box
+        picked = _cam_box(job, changes, "game")
+        if picked:
+            new["gamebox"] = picked
     clip.update(new, status="queued")
     save(job)
     _q.put(("clip", jid, cid))
+
+
+def _frac_box(options, kind, width, height) -> list | None:
+    """A box saved with the video, as fractions of the frame, turned into pixels once the size is known."""
+    prefix = "cam" if kind == "cam" else "game"
+    try:
+        fr = [float(options[prefix + k]) for k in ("x", "y", "w", "h")]
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not all(math.isfinite(v) for v in fr) or fr[2] < 0.04 or fr[3] < 0.04:
+        return None
+    w, h = int(width or 0), int(height or 0)
+    if w < 2 or h < 2:
+        return None
+    x = max(0, min(int(fr[0] * w), w - 2))
+    y = max(0, min(int(fr[1] * h), h - 2))
+    return [x, y, max(2, min(int(fr[2] * w), w - x)), max(2, min(int(fr[3] * h), h - y))]
+
+
+def _cam_box(job, changes, kind="cam") -> list | None:
+    """A rectangle the person drew, as pixels in the source. Fractions of the frame, 0 to 1.
+
+    kind "cam" is the webcam. kind "game" is the gameplay that goes on top."""
+    keys = ("camx", "camy", "camw", "camh") if kind == "cam" else ("gamex", "gamey", "gamew", "gameh")
+    try:
+        fr = [float(changes[k]) for k in keys]
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not all(math.isfinite(v) for v in fr) or fr[2] < 0.04 or fr[3] < 0.04:
+        return None
+    w, h = int(job.get("width") or 0), int(job.get("height") or 0)
+    if w < 2 or h < 2:
+        return None
+    x = max(0, min(int(fr[0] * w), w - 2))
+    y = max(0, min(int(fr[1] * h), h - 2))
+    return [x, y, max(2, min(int(fr[2] * w), w - x)), max(2, min(int(fr[3] * h), h - y))]
 
 
 def clean_hashtags(v) -> list:
@@ -810,6 +897,7 @@ def _run_job(job):
 
     # The ad breaks and static screens of the whole video, found once. It reads the video end to end,
     # so it is done here rather than for each clip, and only when asked for.
+    hold_for_areas(job)   # the game-and-webcam layout waits here, before any clip is chosen or made
     statics = quality.static_ranges(job.get("source_path") or "") if config.SKIP_STATIC else []
     for bi, (a, b) in enumerate(blocks):
         if bi < done_blocks:
@@ -866,10 +954,17 @@ def _run_job(job):
                 hashtags.apply(c, words, job["title"], job["uploader"], game)
             # Only the gameplay layout uses a webcam, so it is only looked for then, and only once: a
             # stream with no webcam is not looked for again on every clip of it.
-            if o["layout"] == "gameplay" and face is False:
-                face = _facecam(job)
-            if face:
-                c["facecam"] = face
+            picked = _frac_box(o, "cam", job.get("width"), job.get("height")) if o["layout"] == "gamecam" else None
+            if picked:
+                c["facecam"] = picked
+                game_box = _frac_box(o, "game", job.get("width"), job.get("height"))
+                if game_box:
+                    c["gamebox"] = game_box
+            else:
+                if o["layout"] in ("gameplay", "gamecam") and face is False:
+                    face = _facecam(job)
+                if face:
+                    c["facecam"] = face
             job["clips"].append(c)
             futures.append((renders.submit(ctx.bind(make), c, list(words)), c))
         job["ai"] = {"model": model, "tokens": tokens, "note": "", "log": notes[-5:]}
