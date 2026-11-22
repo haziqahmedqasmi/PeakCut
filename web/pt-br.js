@@ -1,5 +1,8 @@
 /* Brazilian Portuguese interface copy. Keep {0}, {1}, etc. with their messages. */
 const peakcutPortuguese = {
+  "YouTube's upload limit was reached for this account. Try again later.": "Esta conta atingiu o limite de uploads do YouTube. Tente novamente mais tarde.",
+  "YouTube refused the upload: {0}": "O YouTube recusou o envio: {0}",
+  "YouTube refused the upload (HTTP {0}).": "O YouTube recusou o envio (HTTP {0}).",
   "Social networks": "Redes sociais",
   "AI, language and storage": "IA, idioma e armazenamento",
   "Your AI, language and storage settings.": "Suas configurações de IA, idioma e armazenamento.",

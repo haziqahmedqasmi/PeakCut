@@ -87,16 +87,17 @@ main{background:var(--bg);margin:8px 8px 8px 0;border-radius:var(--r-lg);height:
 @media (max-width:640px){.vb{margin:10px 16px 0;flex-wrap:wrap}}
 .topbar .titles{flex:1 1 240px;min-width:0}
 #tpic:empty{display:none}
+#tpic{flex:none}
 #tpic img,#tpic .avatar{width:42px;height:42px;border-radius:50%;object-fit:cover;display:block;font-size:15px}
 #tpic span.avatar{background:var(--brand-soft);color:var(--brand-deep);display:grid;place-items:center;font-weight:700}
 #tpic.live img,#tpic.live .avatar{padding:2px;background:#fff;border:2px solid #E5323F}
 .topbar.tabbed{border-color:var(--line)}
-.topbar.tabbed .titles{flex:0 1 auto;max-width:34%}
-.topbar.tabbed #actions{margin-left:auto}
+.topbar.tabbed .titles{flex:1;max-width:none}
+.topbar.tabbed #title span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.topbar.tabbed #actions{margin-left:auto;flex-wrap:nowrap}
 .utabs:empty{display:none}
-.utabs{display:flex;gap:2px;padding:3px;background:var(--muted);border-radius:11px;overflow-x:auto;scrollbar-width:none}
-@media (min-width:761px){.topbar.tabbed{position:sticky}.topbar.tabbed .utabs{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}.topbar.tabbed .titles{max-width:calc(50% - 230px)}}
-@media (max-width:760px){.utabs{order:5;flex-basis:100%;margin:2px 0 0;position:relative}.topbar.tabbed .titles{max-width:none;flex:1}}
+.utabs{position:relative;display:flex;flex:none;gap:2px;padding:3px;background:var(--muted);border-radius:11px;overflow-x:auto;scrollbar-width:none}
+@media (max-width:1200px){.utabs{order:5;flex-basis:100%;margin:2px 0 0}}
 .utabs .tabbtn{height:34px;padding:0 14px;border-radius:8px;background:transparent;color:var(--dim);font-size:13px;transition:background-color .18s ease,color .18s ease}
 .utabs .tabbtn:hover{background:#EDE3DB;color:var(--text)}
 .utabs .tabbtn::after{display:none}
@@ -147,7 +148,7 @@ main{background:var(--bg);margin:8px 8px 8px 0;border-radius:var(--r-lg);height:
 .sbadge svg{width:12px;height:12px}
 .sbadge{white-space:nowrap;max-width:100%}
 .topbar .titles{overflow:hidden}
-@media (max-width:560px){#tpic img,#tpic .avatar{width:36px;height:36px}.topbar #actions .btn[data-act=golive]{font-size:0;gap:0;width:38px;padding:0;justify-content:center}.topbar #actions .btn[data-act=golive] .rdot{width:12px;height:12px}}
+@media (max-width:560px){#tpic img,#tpic .avatar{width:36px;height:36px}.topbar #actions .btn:is([data-act=golive],[data-act=stoplive]){font-size:0;gap:0;width:38px;padding:0;justify-content:center}.topbar #actions .btn[data-act=golive] .rdot{width:12px;height:12px}}
 .ttabs{display:inline-flex;gap:2px;padding:3px;background:var(--muted);border-radius:10px}
 .ttabs .tabbtn{height:32px;padding:0 12px;border-radius:8px;font-size:13px;color:var(--dim)}
 .ttabs .tabbtn::after{display:none}
@@ -794,6 +795,7 @@ dialog[open]{animation:fadein .16s ease}
   .icon-btn.menu{display:grid}
   .topbar{padding:10px 16px;min-height:52px}
   .topbar #actions{flex-basis:100%;justify-content:flex-start}
+  .topbar.tabbed #actions{flex-basis:auto;justify-content:flex-end}
   .hero{padding:32px 16px 40px}
   .content{padding:20px 16px 56px}
   .edit-body{grid-template-columns:minmax(0,1fr)}
@@ -866,6 +868,8 @@ dialog[open]{animation:fadein .16s ease}
   .set-sec h2{font-size:16px}
   .ai-big{font-size:24px}
 }
+@media (max-width:480px){.utabs .tabbtn svg{display:none}}
+@media (max-width:360px){.utabs .tabbtn{font-size:12px;gap:6px;padding:0 6px}}
 </style>
 </head>
 <body>
@@ -1870,7 +1874,7 @@ function postPills(c) {
   return Object.values(c.posts || {}).filter(p => p.status !== "cancelled").map(p => {
     const cls = p.status === "posted" ? "ok" : p.status === "failed" ? "bad" : "warn";
     const txt = `${esc(p.account_name)} · ${p.status === "scheduled" ? clock(p.due_at) : i18n.t(p.status)}`;
-    return p.url ? `<a class="pill ${cls}" href="${esc(p.url)}" target="_blank" rel="noopener">${txt}</a>` : `<span class="pill ${cls}" title="${esc(p.error || "")}">${txt}</span>`;
+    return p.url ? `<a class="pill ${cls}" href="${esc(p.url)}" target="_blank" rel="noopener">${txt}</a>` : `<span class="pill ${cls}" title="${esc(i18n.detail(p.error || ""))}">${txt}</span>`;
   }).join("");
 }
 function clipHtml(j, c) {
@@ -2820,6 +2824,7 @@ function drawClipEditor(full) {
           </div></details>
           <details${D.mode === "post" ? " open" : ""}><summary>${i18n.html("Download and post")}</summary><div class="edit-options">
             <div id="dposts" class="row" style="gap:4px"></div>
+            <div id="dpost-errors" role="alert"></div>
             ${S.accounts.length ? `<h3>${i18n.html("Choose accounts")}</h3><p class="help" data-posthint role="status"></p>
               <div class="row">${postAccountChoices(defaultPostAccounts([j.id]), "pacc")}</div>
               <div class="row"><button class="btn primary" data-act="postnow">${ic("send")}${i18n.html("Post now")}</button><button class="btn" data-act="postqueue">${i18n.html("Add to queue")}</button></div>`
@@ -2865,6 +2870,8 @@ function drawClipEditor(full) {
   D.sig = sig;
   D.status = c.status;
   put($("#dposts"), postPills(c));
+  put($("#dpost-errors"), Object.values(c.posts || {}).filter(p => p.status === "failed" && p.error)
+    .map(p => `<p class="err">${esc(p.account_name)}: ${esc(i18n.detail(p.error))}</p>`).join(""));
 }
 $("#clipdlg").addEventListener("close", e => {
   const dialog = e.currentTarget;

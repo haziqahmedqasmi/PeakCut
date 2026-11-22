@@ -374,20 +374,37 @@ def _yt_token(acc) -> str:
     return acc["access_token"]
 
 
+def _youtube_upload_response(response):
+    """Keep YouTube's reason readable instead of showing a block of JSON."""
+    if response.status_code < 400:
+        return response
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    error = body.get("error", {}) if isinstance(body, dict) else {}
+    details = error.get("errors", []) if isinstance(error, dict) else []
+    if isinstance(details, list) and any(isinstance(item, dict) and item.get("reason") == "uploadLimitExceeded" for item in details):
+        raise RuntimeError("YouTube's upload limit was reached for this account. Try again later.")
+    message = error.get("message") if isinstance(error, dict) else error
+    if isinstance(message, str) and message.strip():
+        raise RuntimeError(f"YouTube refused the upload: {message.strip()[:240]}")
+    raise RuntimeError(f"YouTube refused the upload (HTTP {response.status_code}).")
+
+
 def youtube_upload(acc, path: Path, title: str, description: str, tags: list, privacy: str):
     token = _yt_token(acc)
     meta = {"snippet": {"title": re.sub(r"[<>]", "", title)[:100] or "Clip", "description": re.sub(r"[<>]", "", description)[:4900],
                         "tags": tags[:15], "categoryId": "20"},
             "status": {"privacyStatus": privacy, "selfDeclaredMadeForKids": False}}
     size = path.stat().st_size
-    start = _check(httpx.post("https://www.googleapis.com/upload/youtube/v3/videos",
+    start = _youtube_upload_response(httpx.post("https://www.googleapis.com/upload/youtube/v3/videos",
                               params={"uploadType": "resumable", "part": "snippet,status"}, json=meta,
                               headers={"Authorization": f"Bearer {token}", "X-Upload-Content-Type": "video/mp4",
-                                       "X-Upload-Content-Length": str(size)}, timeout=60), "Starting the YouTube upload")
+                                       "X-Upload-Content-Length": str(size)}, timeout=60))
     with path.open("rb") as f:
-        done = _check(httpx.put(start.headers["Location"], content=f.read(),
-                                headers={"Authorization": f"Bearer {token}", "Content-Type": "video/mp4"}, timeout=900),
-                      "Uploading to YouTube").json()
+        done = _youtube_upload_response(httpx.put(start.headers["Location"], content=f.read(),
+                                headers={"Authorization": f"Bearer {token}", "Content-Type": "video/mp4"}, timeout=900)).json()
     return done["id"], f"https://www.youtube.com/shorts/{done['id']}"
 
 

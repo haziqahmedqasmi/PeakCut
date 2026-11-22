@@ -5,7 +5,10 @@ import tempfile
 import time
 import unittest
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import patch
+
+import httpx
 
 sys.path.insert(0, ".")
 os.environ.update(PEAKCUT_DATA=tempfile.mkdtemp(prefix="pc-posts-"), DATABASE_URL="",
@@ -68,6 +71,57 @@ class BatchPosts(unittest.TestCase):
         before = time.time()
         self.assertEqual(self.post(now=True).status_code, 200)
         self.assertTrue(all(before <= p["due_at"] <= time.time() for p in posting._posts))
+
+    def prepare_upload(self, aid="youtube"):
+        clip = self.job["clips"][0]
+        clip["file"] = "one.mp4"
+        folder = Path(self.job["dir"]) / "clips"
+        folder.mkdir(exist_ok=True)
+        (folder / clip["file"]).write_bytes(b"test video")
+        jobs.save(self.job)
+        acc = accounts.get(aid)
+        accounts._put({**acc, "access_token": "test-token", "expires": time.time() + 3600})
+        self.assertEqual(self.post(clips=self.pairs[:1], accounts=[aid], now=True).status_code, 200)
+        post = posting._posts[-1]
+        post["status"] = "posting"
+        return post
+
+    def test_youtube_refusals_show_the_reason_without_rescheduling(self):
+        for phase, status, reason in (("start", 400, "uploadLimitExceeded"),
+                                      ("start", 403, "forbidden"),
+                                      ("finish", 400, "invalidTitle"),
+                                      ("finish", 503, "backendError"),
+                                      ("start", 502, None)):
+            with self.subTest(phase=phase, status=status, reason=reason):
+                posting._posts.clear()
+                post = self.prepare_upload()
+                original_due = post["due_at"]
+                refusal = httpx.Response(status, json={"error": {
+                    "message": "The platform refused this test video.", "errors": [{"reason": reason}]}})
+                if reason is None:
+                    refusal = httpx.Response(status, text="Bad gateway")
+                accepted = httpx.Response(200, headers={"Location": "https://upload.invalid/test"})
+                with patch.object(accounts.httpx, "post", return_value=refusal if phase == "start" else accepted), \
+                     patch.object(accounts.httpx, "put", return_value=refusal), \
+                     patch.object(posting.alerts, "notify"):
+                    posting._post(post)
+                self.assertEqual(post["status"], "failed")
+                self.assertEqual(post["tries"], 1)
+                self.assertEqual(post["due_at"], original_due)
+                expected = "upload limit" if reason == "uploadLimitExceeded" else "The platform refused" if reason else "HTTP 502"
+                self.assertIn(expected, post["error"])
+                self.assertNotIn('"error":', post["error"])
+                mirrored = jobs.get(self.job["id"])["clips"][0]["posts"][post["id"]]
+                self.assertEqual((mirrored["status"], mirrored["error"]), ("failed", post["error"]))
+
+    def test_other_platforms_keep_their_existing_retry_behavior(self):
+        post = self.prepare_upload("instagram")
+        now = time.time()
+        with patch.object(accounts, "instagram_upload", side_effect=RuntimeError("Temporary connection failure")), \
+             patch("studio.posting.time.time", return_value=now):
+            posting._post(post)
+        self.assertEqual(post["status"], "scheduled")
+        self.assertEqual(post["due_at"], now + 600)
 
     def test_queue_has_no_overnight_posting_window(self):
         cases = [

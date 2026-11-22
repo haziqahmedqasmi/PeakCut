@@ -13,6 +13,8 @@ const i18n = (() => {
     : message;
   const t = (message, ...values) => substitute(lookup(message), values);
   const serverMessages = [
+    [/^YouTube refused the upload: ([\s\S]+)$/, "YouTube refused the upload: {0}"],
+    [/^YouTube refused the upload \(HTTP (\d+)\)\.$/, "YouTube refused the upload (HTTP {0})."],
     [/^(\d+) clips? ready$/, "{0} clip ready", "{0} clips ready"],
     [/^That file is too big\. The limit is (\d+) MB\.$/, "That file is too big. The limit is {0} MB."],
     [/^You already have (\d+) uploads in progress\. Let one finish first\.$/, "You already have {0} uploads in progress. Let one finish first."],
