@@ -169,6 +169,53 @@ check("a 400 about the request itself is not called an unknown model",
 check("a 404 that is not about a model is not called an unknown model",
       "doesn't know" not in explained('HTTP 404 {"error": {"message": "Method not allowed for this path"}}'))
 check("quota is still quota", "limit" in explained('HTTP 429 {"error": {"status": "RESOURCE_EXHAUSTED"}}'))
+# ---- an answer with no usable text is reported plainly, not a crash on an index
+EMPTY = {"gemini": {"candidates": []}, "openai": {"choices": []}}
+
+
+def fake_empty_post(url, json=None, headers=None, timeout=None):
+    if url.endswith(":generateContent"):
+        return Reply(200, {**EMPTY["gemini"], "usageMetadata": {"promptTokenCount": 5, "totalTokenCount": 5}})
+    if url.endswith("/chat/completions"):
+        return Reply(200, {**EMPTY["openai"], "usage": {"prompt_tokens": 5, "completion_tokens": 0}})
+    return Reply(404, {})
+
+
+def empty_call(provider, model, gemini_data, openai_data):
+    """What ai.call raises for an empty answer, or None when it answers anyway."""
+    ai.save(provider, model, "", "test-key-123456")
+    EMPTY["gemini"], EMPTY["openai"] = gemini_data, openai_data
+    ai.httpx.post = fake_empty_post
+    try:
+        ai.call(model, "hello", brain.SCHEMA)
+    except ai.AIError as e:
+        return str(e)
+    return None
+
+
+NO_TEXT = "The AI answered without any text. It may have blocked this video."
+check("gemini: no candidates is a plain answer, not a crash",
+      empty_call("gemini", "model-a", {"candidates": []}, {}) == NO_TEXT)
+check("gemini: a candidate with no content is a plain answer, not a crash",
+      empty_call("gemini", "model-a", {"candidates": [{"finishReason": "SAFETY"}]}, {}) == NO_TEXT)
+check("gemini: a candidate with no parts is a plain answer, not a crash",
+      empty_call("gemini", "model-a", {"candidates": [{"content": {"parts": []}}]}, {}) == NO_TEXT)
+check("openai: no choices is a plain answer, not a crash",
+      empty_call("groq", "llama-3.3-70b-versatile", {}, {"choices": []}) == NO_TEXT)
+check("openai: an empty message is a plain answer, not a crash",
+      empty_call("groq", "llama-3.3-70b-versatile", {}, {"choices": [{"message": {"content": ""}}]}) == NO_TEXT)
+check("openai: a message with no content is a plain answer, not a crash",
+      empty_call("groq", "llama-3.3-70b-versatile", {}, {"choices": [{"message": {}}]}) == NO_TEXT)
+
+# ---- one picture: an empty answer means "it did not look", still without a crash
+ai.save("gemini", "model-a", "", "test-key-123456")
+ai.httpx.post = fake_empty_post
+EMPTY["gemini"] = {"candidates": []}
+check("see: a gemini answer with no candidates is empty, not a crash", ai.see("look", b"jpeg")[0] == "")
+ai.save("groq", "llama-3.3-70b-versatile", "", "test-key-123456")
+EMPTY["openai"] = {"choices": []}
+check("see: an openai answer with no choices is empty, not a crash", ai.see("look", b"jpeg")[0] == "")
+
 ai.httpx.get, ai.httpx.post = real_get, real_post_fn
 
 print("ALL PASSED" if not fails else f"{len(fails)} failed")
