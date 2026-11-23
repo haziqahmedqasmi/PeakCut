@@ -35,19 +35,21 @@ def has_hindi(text: str) -> bool:
 
 
 def needs_roman(text: str) -> bool:
-    """Is this in a script that captions should show in Roman letters instead (Hindi, Urdu, Arabic, Russian-style,
-    Greek or Korean letters)?"""
+    """Is this in a script that captions should show in Roman letters instead (Hindi, Urdu, Arabic, Greek or Korean
+    letters)? Russian and other Cyrillic text is kept as it is: a caption font with Cyrillic letters draws it."""
     text = text or ""
     return bool(DEVANAGARI.search(text) or OTHER_SCRIPT.search(text) or MORE_SCRIPTS.search(text))
 
 
 def drawable(text: str) -> bool:
-    """Can the caption fonts draw this? They have Latin letters (with accents), digits and punctuation only."""
-    return not any(ch.isalpha() and not (ord(ch) < 0x250 or 0x1E00 <= ord(ch) <= 0x1EFF) for ch in text or "")
+    """Can the caption fonts draw this? Latin letters (with accents), Cyrillic (a font that has it is swapped in),
+    digits and punctuation."""
+    return not any(ch.isalpha() and not (ord(ch) < 0x250 or 0x0400 <= ord(ch) <= 0x04FF or 0x1E00 <= ord(ch) <= 0x1EFF)
+                   for ch in text or "")
 
 
-# ---------------------------------------------------------------- Russian-style (Cyrillic), Greek and Korean letters
-MORE_SCRIPTS = re.compile(r"[\u0370-\u03FF\u0400-\u04FF\uAC00-\uD7A3]")
+# ---------------------------------------------------------------- Greek and Korean letters (Cyrillic stays Cyrillic)
+MORE_SCRIPTS = re.compile(r"[\u0370-\u03FF\uAC00-\uD7A3]")
 _CYR = {"а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "yo", "ж": "zh", "з": "z", "и": "i", "й": "y",
         "к": "k", "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f",
         "х": "kh", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "shch", "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu",
@@ -252,9 +254,9 @@ def to_roman(text: str) -> str:
         text = re.sub(_URDU_RUN, lambda m: _urdu_word(m.group(0)), text)
     if MORE_SCRIPTS.search(text):
         import unicodedata
-        text = "".join(unicodedata.normalize("NFD", ch) if "\u0370" <= ch <= "\u04FF" or "\u1F00" <= ch <= "\u1FFF" else ch for ch in text)
+        text = "".join(unicodedata.normalize("NFD", ch) if "\u0370" <= ch <= "\u03FF" or "\u1F00" <= ch <= "\u1FFF" else ch for ch in text)
         text = re.sub(r"[\uAC00-\uD7A3]+", lambda m: _korean(m.group(0)), text)
-        text = unicodedata_nfc(re.sub(r"[\u0370-\u03FF\u0400-\u04FF\u0300-\u036F]+", lambda m: _letters(m.group(0)), text))
+        text = unicodedata_nfc(re.sub(r"[\u0370-\u03FF\u0300-\u036F]+", lambda m: _letters(m.group(0)), text))
     return text
 
 

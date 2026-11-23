@@ -68,7 +68,7 @@ def fake_open(url, timeout=None):
 
 
 # ---- the list of models, and where Arabic comes from
-check("English and Arabic are known", sorted(fetch_model.MODELS), ["ar", "en"])
+check("English, Arabic and Russian are known", sorted(fetch_model.MODELS), ["ar", "en", "ru"])
 check("Arabic is downloaded from its own address, not English's", fetch_model.MODELS["ar"][2] != fetch_model.MODELS["en"][2], True)
 check("Arabic's address names one fixed version of the file, not the latest",
       fetch_model.MODELS["ar"][2], lambda u: "/resolve/main/" not in u and re.search(r"/resolve/[0-9a-f]{40}/", u))
@@ -101,8 +101,8 @@ check("...and so does loading the model for transcribing", ("Speech models" in s
 
 # ---- the routes: list, download, remove
 r = c.get("/api/speech").json()["models"]
-check("the page lists both languages with their size", [(m["lang"], m["state"], m["size_mb"] > 0) for m in r],
-      [("en", "missing", True), ("ar", "missing", True)])
+check("the page lists every language with its size", [(m["lang"], m["state"], m["size_mb"] > 0) for m in r],
+      [("en", "missing", True), ("ar", "missing", True), ("ru", "missing", True)])
 check("an unknown language is refused", c.post("/api/speech/xx", headers=ORIGIN).status_code, 400)
 check("another website cannot start a download", c.post("/api/speech/ar", headers={"Origin": "https://evil.example"}).status_code, 403)
 check("...and nothing was downloaded", downloads, [])

@@ -81,11 +81,18 @@ def model_ready(lang: str = fetch_model.DEFAULT) -> bool:
 def _model_files(d) -> dict:
     """The model's three parts. A graphics card wants the full-precision files; processors the compact ones."""
     kinds = ("fp16", "", "int8") if PROVIDER != "cpu" else ("int8", "", "fp16")
-    for k in kinds:
-        names = {p: d / (f"{p}.{k}.onnx" if k else f"{p}.onnx") for p in ("encoder", "decoder", "joiner")}
-        if all(f.is_file() for f in names.values()):
-            return {p: str(f) for p, f in names.items()}
-    raise FileNotFoundError(f"No speech model files in {d}")
+    # Each part on its own: some models ship only one part compact (GigaAM: encoder.int8.onnx with plain decoder
+    # and joiner), so the best file there is is taken for each part.
+    out = {}
+    for p in ("encoder", "decoder", "joiner"):
+        for k in kinds:
+            f = d / (f"{p}.{k}.onnx" if k else f"{p}.onnx")
+            if f.is_file():
+                out[p] = str(f)
+                break
+        else:
+            raise FileNotFoundError(f"No speech model files in {d}")
+    return out
 
 
 _lib = {"mod": None}

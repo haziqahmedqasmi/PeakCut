@@ -85,6 +85,16 @@ brain.ask_ai = by_purpose
 answers["now"] = ["Hello", "there", "friend."]
 check("English stays English", text(brain.english_captions(ws("hello there friend"), "en", "")) == "Hello there friend.")
 
+# ---- Russian stays Russian: no Latin letters, no translation, and a Cyrillic font draws it
+from studio import render
+check("Russian is not spelled in Latin letters", text(roman.words(ws("Привет всем, ребята"))) == "Привет всем, ребята")
+check("Russian captions are not translated", not brain.needs_translation("ru"))
+check("Cyrillic counts as drawable", roman.drawable("ЖЕСТЬ"))
+ass = render.build_ass(ws("Привет всем ребята"), 0, 5, "ЭТО ЖЕСТЬ", "hype", [], 300, 1380)
+check("a style without Russian letters swaps in a Cyrillic font", "Style: Cap,Russo One," in ass and "Style: Hook,Russo One," in ass)
+ass = render.build_ass(ws("hello there friends"), 0, 5, "WOW", "hype", [], 300, 1380)
+check("English captions keep their own font", "Style: Cap,Anton," in ass)
+
 print("ALL PASSED" if not fails else f"{len(fails)} failed")
 import shutil; shutil.rmtree(os.environ["PEAKCUT_DATA"], ignore_errors=True)
 sys.exit(1 if fails else 0)

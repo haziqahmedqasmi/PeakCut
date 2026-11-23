@@ -64,7 +64,8 @@ Rules:
 - highlight_words: 3 to 6 single words spoken in the clip that carry the punch.
 - Write hook, title, description, hashtags and highlight_words in English. If the video is in Hindi or Urdu,
   you may write them the way people type Hindi and Urdu in Roman letters (Hinglish: "yaar ye kya hai"), never
-  in Devanagari or Urdu script. For any other language, write them in English.
+  in Devanagari or Urdu script. If the video is in Russian, write them in Russian, in Cyrillic letters (the hook
+  in CAPITALS too). For any other language, write them in English.
 - category: one of funny, fail, clutch, rage, shock, take, story, other.
 - reason: one short sentence on why it works.
 {language}
@@ -82,11 +83,15 @@ ARABIC_SCRIPT = re.compile(r"[؀-ۿ]")
 ARABIC_NOTE = ("- The transcript is in Arabic letters. Speakers often mix in English words, which the speech model "
                "writes in Arabic letters (\"سبسكرايب\" is \"subscribe\", \"أوكي\" is \"okay\"): read them as the English "
                "words they are.\n")
+CYRILLIC = re.compile(r"[Ѐ-ӿ]")
+RUSSIAN_NOTE = ("- The transcript is in Russian. Write hook, title, description, hashtags and highlight_words in Russian, "
+                "in Cyrillic letters, never in English and never in Latin letters.\n")
 
 
 def _rules(min_len, max_len, transcript: str) -> str:
     """The rules and the transcript, with a note about English words in Arabic letters when the speech is in Arabic script."""
-    note = ARABIC_NOTE if len(ARABIC_SCRIPT.findall(transcript)) > 40 else ""
+    note = (ARABIC_NOTE if len(ARABIC_SCRIPT.findall(transcript)) > 40
+            else RUSSIAN_NOTE if len(CYRILLIC.findall(transcript)) > 40 else "")
     return RULES.format(min_len=min_len, max_len=max_len, transcript=transcript, language=note)
 
 
@@ -154,7 +159,7 @@ def _tidy(c, s, e, game=None):
 
 def _same_word(old, new):
     """A caption fix may respell a word or turn it into digits. It may not swap in different words."""
-    a, b = re.sub(r"[^a-z0-9]", "", old.lower()), re.sub(r"[^a-z0-9]", "", new.lower())
+    a, b = re.sub(r"[\W_]", "", old.lower()), re.sub(r"[\W_]", "", new.lower())     # letters of any alphabet
     return (not b) or (any(ch.isdigit() for ch in b) and len(new) <= 12) or difflib.SequenceMatcher(None, a, b).ratio() >= 0.45
 
 
@@ -540,8 +545,9 @@ def judge_signals(z, chat, start, now, unit="messages", timeout=None):
 
 
 FIX_SCHEMA = {"type": "ARRAY", "items": {"type": "STRING"}}
-# Languages whose captions keep the words that were said: English as it is, Hindi and Urdu in Roman letters.
-KEEP_LANGS = ("en", "hi", "ur")
+# Languages whose captions keep the words that were said: English and Russian as they are, Hindi and Urdu in Roman
+# letters.
+KEEP_LANGS = ("en", "hi", "ur", "ru")
 
 
 def needs_translation(lang: str) -> bool:
@@ -584,8 +590,8 @@ def translate_caption_words(words: list, lang: str = "", title: str = "") -> lis
 
 
 def english_captions(words: list, lang: str, title: str = "", youtube_english=None) -> list:
-    """Captions for a clip, always in English letters:
-    English stays as it was said, Hindi and Urdu become Roman letters (the same words, tidied by the AI), and any
+    """Captions for a clip, in English letters, or in Russian as it was said:
+    English and Russian stay as they were said, Hindi and Urdu become Roman letters (the same words, tidied by the AI), and any
     other language is translated into English: YouTube's own English captions first, then the AI. With neither,
     the words as heard (Arabic and similar scripts still spelled in Roman letters)."""
     if not needs_translation(lang):
@@ -626,6 +632,9 @@ def _fix_caption_words(words: list, title: str = "", lang: str = "") -> list:
                 "in Roman letters), write that same word in Roman letters the way people type Hindi in chats (Hinglish): "
                 "'चूना' -> 'choona', 'जो' -> 'jo', 'उसको' -> 'usko', 'یار' -> 'yaar', 'کیا' -> 'kya'. Never translate it into "
                 "English and never leave Devanagari or Urdu script. ") if hindi else ""
+    if (lang or "").lower().startswith("ru") or sum(bool(CYRILLIC.search(w["w"])) for w in words) > len(words) // 3:
+        hinglish += ("The words are Russian: keep them in Russian, in Cyrillic letters. Never translate them into "
+                     "English and never write them in Latin letters. ")
     numbered = "\n".join(f"{i}: {_safe(w['w'], 60)}" for i, w in enumerate(words))
     prompt = (
         "These are the words of a short video clip's captions, one per line with its number, written by a speech "
@@ -656,4 +665,9 @@ def _fix_caption_words(words: list, title: str = "", lang: str = "") -> list:
             new = w["w"]
         if new:
             fixed.append(dict(w, w=new))
+    # A small model sometimes puts a full stop after every word ("Я. их. всех."). Punctuation after most of the
+    # words is not a sentence: the answer is not used, and the words stay as they were heard.
+    ends = sum(1 for w in fixed if re.search(r"[.!?…]$", w["w"]))
+    if len(fixed) >= 6 and ends > len(fixed) * 0.4:
+        return words
     return fixed or words

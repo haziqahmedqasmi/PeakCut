@@ -21,8 +21,8 @@ are there, and only then offer to delete the old folder. Never delete anything w
 
 - Run: `python -m studio.server` (settings from `.env`; see `.env.example`). Needs Python 3.10+ and `ffmpeg`.
 - The English speech model (about 480 MB) downloads by itself on first start; `python -m studio.fetch_model` gets it
-  ahead of time. Other spoken languages (Arabic, about 107 MB) download only when asked for, in Settings → Speech
-  models or with `python -m studio.fetch_model ar`.
+  ahead of time. Other spoken languages (Arabic, about 107 MB; Russian, about 170 MB) download only when asked for, in
+  Settings → Speech models or with `python -m studio.fetch_model ar` (or `ru`).
 - Tests: `python tests/run.py`. It starts a throwaway copy on a spare port with an empty data folder. Run it
   before and after any change to `studio/`. No keys needed.
 - To try a risky change by hand without touching real data:

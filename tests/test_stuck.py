@@ -21,7 +21,7 @@ def events(ass):
     return out
 
 # ---- letters the caption fonts do not have
-check("Russian-style letters are spelled in Roman letters", roman.to_roman("Привет, Москва"), "Privet, Moskva")
+check("Russian letters stay Russian (a Cyrillic font draws them)", roman.to_roman("Привет, Москва"), "Привет, Москва")
 check("Greek too", roman.to_roman("Ελλάδα"), "Ellada")
 check("Korean too", roman.to_roman("안녕하세요"), "annyeonghaseyo")
 check("accented Latin letters are left alone and can be drawn", (roman.to_roman("niño été"), roman.drawable("niño été")), ("niño été", True))

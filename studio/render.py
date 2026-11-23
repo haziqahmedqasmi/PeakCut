@@ -18,10 +18,43 @@ STYLES = {
              "strong": "00D7FF", "outline": 7, "pop": 114, "upper": True, "per": 2},
     "clean": {"label": "Clean", "font": "Poppins ExtraBold", "size": 100, "base": "FFFFFF", "active": "6BD7FF",
               "strong": "FFFFFF", "outline": 5, "pop": 106, "upper": False, "per": 4},
+    # Russo One draws Russian letters (Anton, Archivo Black and Poppins do not)
+    "russo": {"label": "Russo", "font": "Russo One", "size": 120, "base": "FFFFFF", "active": "00F0FF",
+              "strong": "FFFFFF", "outline": 7, "pop": 112, "upper": True, "per": 3},
 }
 HOOK = {"font": "Poppins ExtraBold", "size": 96, "ink": "14100E", "box": "FFFFFF", "pad_x": 36, "pad_y": 22, "radius": 26,
         "max_w": 900}
-FONT_FILES = {"Poppins ExtraBold": "Poppins-ExtraBold.ttf", "Anton": "Anton-Regular.ttf", "Archivo Black": "ArchivoBlack-Regular.ttf"}
+FONT_FILES = {"Poppins ExtraBold": "Poppins-ExtraBold.ttf", "Anton": "Anton-Regular.ttf", "Archivo Black": "ArchivoBlack-Regular.ttf",
+              "Russo One": "RussoOne-Regular.ttf"}
+FONTS_HERE = Path(__file__).resolve().parent / "fonts"
+CYRILLIC = re.compile(r"[Ѐ-ӿ]")
+_has_cyr: dict = {}
+
+
+def font_there(name: str) -> bool:
+    return (FONTS_HERE / FONT_FILES.get(name, "-")).is_file()
+
+
+def has_cyrillic(name: str) -> bool:
+    """Does this caption font draw Russian letters? Measured once: a missing letter is drawn as the font's empty box."""
+    if name not in _has_cyr:
+        try:
+            from PIL import ImageFont
+            ft = ImageFont.truetype(str(FONTS_HERE / FONT_FILES[name]), 40)
+            _has_cyr[name] = ft.getmask("Ж").getbbox() != ft.getmask("￿").getbbox()
+        except Exception:  # noqa: BLE001 - not there, or not measurable: treated as having no Russian letters
+            _has_cyr[name] = False
+    return _has_cyr[name]
+
+
+def cyrillic_font(name: str, wish: str | None = None) -> str:
+    """The font to draw Russian text with: this one if it can, else the one asked for, else Russo One."""
+    for n in (name, wish, "Russo One"):
+        if n and font_there(n) and has_cyrillic(n):
+            return n
+    return name
+
+
 CAP_MAX_W = 960   # captions never run wider than this, whatever is said
 
 
@@ -132,9 +165,9 @@ def geometry(src_w, src_h, layout):
     return layout, fg_h, max(230, top - 190), min(1640, top + fg_h + 180)
 
 
-def _hook_events(hook, dur, y):
+def _hook_events(hook, dur, y, font=None):
     """The heading: dark text in a white rounded box that fits it, on one line or two balanced ones."""
-    f, size = _Font.get(HOOK["font"]), HOOK["size"]
+    f, size = _Font.get(font or HOOK["font"]), HOOK["size"]
     words = hook.split()
     if not words:
         return []
@@ -165,6 +198,11 @@ def _hook_events(hook, dur, y):
 
 def build_ass(words, start, end, hook, style_name, highlight, hook_y, cap_y) -> str:
     st = STYLES.get(style_name, STYLES["bounce"])
+    hook_font = HOOK["font"]
+    if CYRILLIC.search(hook or "") or any(CYRILLIC.search(w.get("w", "")) for w in words):
+        # Russian: a font without Cyrillic letters is swapped for one that has them, for the captions and the heading
+        st = dict(st, font=cyrillic_font(st["font"], st.get("cyr")))
+        hook_font = cyrillic_font(hook_font, "Russo One")
     words = [dict(w, s=w["s"] - CAPTION_LEAD, e=w["e"] - CAPTION_LEAD) for w in words]
     strong = {_key(h) for h in highlight if _key(h)}
     head = f"""[Script Info]
@@ -177,13 +215,13 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Cap,{st['font']},{st['size']},&H00{st['base']},&H00{st['base']},&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,{st['outline']},0,5,0,0,0,1
-Style: Hook,{HOOK['font']},{HOOK['size']},&H00{HOOK['ink']},&H00{HOOK['ink']},&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1
+Style: Hook,{hook_font},{HOOK['size']},&H00{HOOK['ink']},&H00{HOOK['ink']},&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     dur = end - start
-    ev = _hook_events(_clean(hook), dur, hook_y)
+    ev = _hook_events(_clean(hook), dur, hook_y, hook_font)
     f = _Font.get(st["font"])
     inside = [dict(w, w=_clean(w["w"])) for w in words if w["s"] >= start - 0.05 and w["s"] < end]
     inside = sorted((w for w in inside if w["w"]), key=lambda w: w["s"])

@@ -106,6 +106,15 @@ offers to download it. Set a creator's language on their Setup page so their liv
 It understands Modern Standard Arabic and everyday dialects, and the AI turns English words said in between
 back into English. Captions on the clips are in English.
 
+### Videos in Russian
+
+Add the Russian speech model the same way (**Settings → Speech models**, about 170 MB), or choose **Russian** under
+Options when adding a video. It is GigaAM v3 by Sber, which also puts in punctuation and capital letters.
+Unlike other languages, Russian stays Russian: captions are written in Cyrillic (not turned into Latin letters or
+translated), and the AI writes the heading, title, description and hashtags in Russian. The caption styles whose
+fonts have no Russian letters (Bounce, Hype, Clean) switch to Russo One by themselves; the new **Russo** style uses
+it from the start.
+
 ## Settings
 
 Everything is set through environment variables, normally in a `.env` file next to this README.
@@ -146,6 +155,8 @@ python -m studio.admin grant you@example.com
 Video work is done with `ffmpeg` and `yt-dlp`. Speech is transcribed with `sherpa-onnx` and NVIDIA's Parakeet
 model (English) and FastConformer Arabic model, both released by NVIDIA under the Creative Commons Attribution 4.0
 licence (CC-BY-4.0). The Arabic model was converted for sherpa-onnx with `tools/export_arabic_model.py`.
+Russian uses GigaAM v3 by Sber (MIT licence), as exported by the sherpa-onnx project. The Russo One font is under
+the SIL Open Font Licence (`studio/fonts/OFL-russoone.txt`).
 Data is kept per user: accounts in the database (SQLite on your own computer, PostgreSQL on a server), videos and
 clips in each user's own folder. [AGENTS.md](AGENTS.md) is a short map of the code for contributors and AI coding
 assistants.
