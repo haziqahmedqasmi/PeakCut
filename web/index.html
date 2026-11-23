@@ -1759,7 +1759,10 @@ function onLink(input) {
   linkTimer = setTimeout(() => { if (input.value.trim() === u) takeLink(A, u, input); }, 900);   // other link shapes: take it once typing stops
 }
 document.addEventListener("input", e => { if (e.target.id === "url") onLink(e.target);
-  if (e.target.closest?.("#cform") && e.target.dataset.k && !/checkbox|radio/.test(e.target.type)) dirty(true); });
+  if (e.target.closest?.("#cform") && e.target.dataset.k && !/checkbox|radio/.test(e.target.type)) {
+    dirty(true);
+    if (["post_start_time", "post_end_time", "daily_cap"].includes(e.target.dataset.k)) updatePostingWindow();
+  } });
 document.addEventListener("keydown", e => { if (e.target.id === "url" && e.key === "Enter" && e.target.value.trim() && looksLink(e.target.value.trim())) { e.preventDefault(); clearTimeout(linkTimer); takeLink(att(), e.target.value.trim(), e.target); } });
 document.addEventListener("click", e => {
   const r = e.target.closest("[data-rm]"), A = att(); if (!r || A.busy) return;
@@ -2012,7 +2015,7 @@ function openBatchPost() {
     <p class="help">${i18n.html("Every selected clip will go to the accounts you choose below. Clips already queued or posted to an account are skipped.")}</p>
     ${S.accounts.length ? `<h3>${i18n.html("Choose accounts")}</h3><p class="help" data-posthint role="status"></p>
       <div class="post-accounts">${postAccountChoices(selected, "bpacc")}</div>
-      <p class="help">${i18n.html("Add to queue follows each creator's posting interval and any enabled daily limit.")}</p>`
+      <p class="help">${i18n.html("Add to queue follows each creator's posting window, interval and daily limit.")}</p>`
       : `<p class="help">${i18n.html("No accounts connected yet. Connect one in Social networks.")}</p><button type="button" class="btn" data-act="batchsocial">${i18n.html("Open Social networks")}</button>`}
     <p class="err" data-batch-error role="alert" hidden></p>
     <div class="dlg-foot"><button class="btn" value="no">${i18n.html("Cancel")}</button>
@@ -2136,23 +2139,67 @@ function drawCreatorForm() {
       ${A.length ? `<div class="row" style="margin-bottom:16px">${A.map(a => `<label class="ck"><input type="checkbox" data-acc value="${esc(a.id)}" ${c.accounts.includes(a.id) ? "checked" : ""}>${esc(a.label)} · ${esc(a.name)}</label>`).join("")}</div>` : `<button class="btn" data-act="go" data-v="social" style="margin-bottom:16px">${ic("plug")}${i18n.html("Open Social networks")}</button>`}
       <div class="fields"><label class="sw span"><input type="checkbox" data-k="autopost" ${c.autopost ? "checked" : ""}><span>${i18n.html("Post new clips automatically")}<small>${i18n.html("Clips that score high enough go out without you approving them.")}</small></span></label>
         <label class="f">${i18n.html("Only auto-post clips scoring at least")}<input data-k="post_min_score" type="number" min="0" max="100" value="${c.post_min_score}"></label>
-        <label class="f">${i18n.html("Posting interval")}<select id="post-interval">
+        <label class="f" id="post-interval-field">${i18n.html("Posting interval")}<select id="post-interval">
           ${postIntervals.map(minutes => `<option value="${minutes}" ${Number(c.post_gap_min) === minutes ? "selected" : ""}>${i18n.html("Every {0} min", minutes)}</option>`).join("")}
           <option value="custom" ${customPostInterval ? "selected" : ""}>${i18n.html("Custom")}</option>
         </select><small class="sub" style="font-weight:400">${i18n.html("New posts follow the last scheduled video on each account, using this interval.")}</small></label>
         <label class="f" id="custom-post-interval" ${customPostInterval ? "" : "hidden"}>${i18n.html("Custom interval (minutes)")}<input data-k="post_gap_min" type="number" min="5" max="1440" step="1" required value="${c.post_gap_min}"><small class="sub" style="font-weight:400">${i18n.html("Enter a whole number from 5 to 1,440 minutes.")}</small></label>
         <label class="sw span"><input type="checkbox" data-k="daily_cap_enabled" ${c.daily_cap_enabled ? "checked" : ""}><span>${i18n.html("Limit posts per account per day")}<small>${i18n.html("Off by default. Turn on to set a daily limit.")}</small></span></label>
         <label class="f" id="daily-post-limit" ${c.daily_cap_enabled ? "" : "hidden"}>${i18n.html("Most posts per account per day")}<input data-k="daily_cap" type="number" min="1" max="50" step="1" required value="${c.daily_cap}" ${c.daily_cap_enabled ? "" : "disabled"}></label>
+        <label class="sw span"><input type="checkbox" data-k="post_window_enabled" ${c.post_window_enabled ? "checked" : ""}><span>${i18n.html("Set daily posting hours")}<small>${i18n.html("With a daily limit, posts are spread evenly between these times. Extra clips wait for the next day.")}</small></span></label>
+        <div class="fields span" id="posting-window" ${c.post_window_enabled ? "" : "hidden"}>
+          <label class="f">${i18n.html("Start posting at")}<input data-k="post_start_time" type="time" step="60" required value="${esc(c.post_start_time || "09:00")}" aria-describedby="posting-window-help"></label>
+          <label class="f">${i18n.html("Stop posting at")}<input data-k="post_end_time" type="time" step="60" required value="${esc(c.post_end_time || "21:00")}" aria-describedby="posting-window-help"></label>
+          <p class="help span" id="posting-window-help">${i18n.html("Time zone of the computer running PeakCut: {0}.", esc(S.status.posting_timezone || ""))} ${i18n.html("The end time must be later than the start time on the same day. Saving updates posts already in the queue.")}</p>
+          <p class="help span" id="posting-window-preview" role="status" aria-live="polite"></p>
+        </div>
         <label class="f">${i18n.html("Who can see posts (YouTube, TikTok)")}<select data-k="privacy">${opts({public:i18n.t("Public"), unlisted:i18n.t("Unlisted"), private:i18n.t("Private")}, c.privacy)}</select></label>
         <label class="f">${i18n.html("Campaign pay per 1,000 views ($)")}<input data-k="rate_per_1k" type="number" step="0.1" min="0" value="${c.rate_per_1k}"></label>
         <label class="f span">${i18n.html("Line added to every post (credit, campaign tag)")}<input data-k="post_footer" value="${esc(c.post_footer)}" placeholder="Clipped from @streamer"></label></div></div>
     <div class="card danger-card"><h2>${i18n.html("Delete this creator")}</h2><p class="help">${i18n.html("Removes {0}, their settings and every video and clip filed under them. This cannot be undone.", esc(c.name))}</p>
       <button class="btn danger" data-act="delcreator">${ic("trash")}${i18n.html("Delete creator")}</button></div>
     <div class="savebar" id="savebar"><span>${ic("warn")}${i18n.html("You have unsaved changes")}</span><button class="btn ghost" data-act="cdiscard">${i18n.html("Discard")}</button><button class="btn primary" data-act="csave">${ic("check")}${i18n.html("Save changes")}</button></div>`;
+  updatePostingWindow();
 }
-const creatorForm = () => { const d = {}; $$("#cform [data-k]").forEach(i => { if (i.type === "radio") { if (i.checked) d[i.dataset.k] = i.value; } else d[i.dataset.k] = i.type === "checkbox" ? i.checked : i.value; }); d.accounts = $$("#cform [data-acc]:checked").map(i => i.value); return d; };
+function updatePostingWindow() {
+  const field = $("#posting-window"); if (!field) return;
+  const enabled = $("#cform [data-k='post_window_enabled']").checked;
+  const limited = $("#cform [data-k='daily_cap_enabled']").checked;
+  const auto = enabled && limited;
+  field.hidden = !enabled;
+  const start = field.querySelector("[data-k='post_start_time']"), end = field.querySelector("[data-k='post_end_time']");
+  start.disabled = end.disabled = !enabled;
+  end.setCustomValidity(enabled && start.value && end.value && end.value <= start.value
+    ? i18n.t("The posting end time must be later than the start time on the same day.") : "");
+  $("#post-interval-field").hidden = auto;
+  $("#post-interval").disabled = auto;
+  $("#custom-post-interval").hidden = auto || $("#post-interval").value !== "custom";
+  $("#custom-post-interval input").disabled = auto;
+  const capInput = $("#cform [data-k='daily_cap']");
+  $("#daily-post-limit").hidden = !limited;
+  capInput.disabled = !limited;
+  const preview = $("#posting-window-preview");
+  if (!enabled || !start.value || !end.value || !start.validity.valid || !end.validity.valid || (limited && !capInput.validity.valid)) {
+    preview.textContent = ""; return;
+  }
+  if (!limited) {
+    preview.textContent = i18n.t("Without a daily limit, the posting interval is used within these hours."); return;
+  }
+  const seconds = value => { const [h, m] = value.split(":").map(Number); return h * 3600 + m * 60; };
+  const count = Number(capInput.value), first = seconds(start.value), step = (seconds(end.value) - first) / count;
+  const format = value => {
+    const s = Math.round(value), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+    return [h, m, ...(sec ? [sec] : [])].map(n => String(n).padStart(2, "0")).join(":");
+  };
+  const times = Array.from({length: Math.min(count, 6)}, (_, i) => format(first + i * step));
+  if (count > 6) times.push("…", format(first + (count - 1) * step));
+  preview.textContent = i18n.t("Up to {0} posts per account each day: {1}. Missed times wait for the next available slot.", count, times.join(" · "));
+}
+const creatorForm = () => { const d = {}; $$("#cform [data-k]").forEach(i => { if (i.disabled && ["post_start_time", "post_end_time"].includes(i.dataset.k)) return; if (i.type === "radio") { if (i.checked) d[i.dataset.k] = i.value; } else d[i.dataset.k] = i.type === "checkbox" ? i.checked : i.value; }); d.accounts = $$("#cform [data-acc]:checked").map(i => i.value); return d; };
 const dirty = on => $("#savebar")?.classList.toggle("on", on);
 async function saveCreator(quiet) {
+  updatePostingWindow();
+  for (const input of $$("#posting-window input")) if (!input.reportValidity()) return false;
   const postInterval = $("#cform [data-k='post_gap_min']");
   if (postInterval && !postInterval.reportValidity()) return false;
   const dailyLimit = $("#cform [data-k='daily_cap']");
@@ -3022,10 +3069,9 @@ document.addEventListener("change", async e => {
     dirty(true);
     return;
   }
-  if (t.dataset.k === "daily_cap_enabled") {
-    const field = $("#daily-post-limit");
-    field.hidden = !t.checked;
-    field.querySelector("input").disabled = !t.checked;
+  if (t.closest("#cform") && ["daily_cap_enabled", "post_window_enabled"].includes(t.dataset.k)) {
+    updatePostingWindow();
+    dirty(true);
   }
   if (t.dataset.k === "ai_every_min" && $("#costhint")) $("#costhint").textContent = costHint(Number(t.value));
   if (t.name === "mainch") return;  // saved by its own click handler

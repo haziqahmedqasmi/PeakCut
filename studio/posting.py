@@ -1,5 +1,6 @@
 """Post queue: decides when each finished clip goes to which account, posts it, and tracks views."""
 import secrets
+import math
 import threading
 import time
 from datetime import datetime, timedelta
@@ -21,6 +22,7 @@ def _mine() -> list:
     u = ctx.uid()
     return [p for p in _posts if p.get("user") == u]
 OPEN = ("scheduled", "posting")
+SCHEDULE_FIELDS = ("post_gap_min", "daily_cap_enabled", "daily_cap", "post_window_enabled", "post_start_time", "post_end_time")
 
 
 def _save():
@@ -53,18 +55,75 @@ def _mirror(p):
         jobs.save(job)
 
 
-def _next_slot(account_id, gap_min, cap=None):
-    """Continue after the last post, applying a daily limit only when the user turned it on."""
-    mine = [p for p in _mine() if p["account"] == account_id and p["status"] in OPEN + ("posted",)]
-    t = max(time.time(), max((p.get("posted_at") or p["due_at"] for p in mine), default=0) + gap_min * 60)
-    if cap is None:
-        return t
-    for _ in range(30):
-        if sum(1 for p in mine if _day(p.get("posted_at") or p["due_at"]) == _day(t)) < cap:
-            break
-        next_day = datetime.fromtimestamp(t).date() + timedelta(days=1)
-        t = datetime.combine(next_day, datetime.min.time()).timestamp()
-    return t
+def _window(c):
+    return (c["post_start_time"], c["post_end_time"]) if c.get("post_window_enabled") else None
+
+
+def _bounds(t, window):
+    day = datetime.fromtimestamp(t).date()
+    return tuple(datetime.combine(day, datetime.strptime(s, "%H:%M").time()).timestamp() for s in window)
+
+
+def _next_day(t):
+    day = datetime.fromtimestamp(t).date() + timedelta(days=1)
+    return datetime.combine(day, datetime.min.time()).timestamp()
+
+
+def _next_slot(account_id, gap_min, cap=None, window=None, *, earliest=0, exclude=()):
+    """Reserve the next time for this account. A window and daily limit divide the day into equal slots."""
+    mine = [p for p in _mine() if p["account"] == account_id and p["status"] in OPEN + ("posted",)
+            and p["id"] not in exclude]
+    last = max((p.get("posted_at") or p["due_at"] for p in mine), default=0)
+    t = max(time.time(), earliest, last + (0.001 if window and cap else gap_min * 60))
+    while True:
+        if window:
+            start, end = _bounds(t, window)
+            t = max(t, start)
+            if t >= end:
+                t = _next_day(t)
+                continue
+            if cap:
+                step = (end - start) / cap
+                index = math.ceil((t - start) / step - 1e-9)
+                if index >= cap:
+                    t = _next_day(t)
+                    continue
+                t = start + index * step
+        if cap is None or sum(1 for p in mine if _day(p.get("posted_at") or p["due_at"]) == _day(t)) < cap:
+            return t
+        t = _next_day(t)
+
+
+def _scheduled_at(account_id, c, *, earliest=0, exclude=()):
+    cap = c["daily_cap"] if c.get("daily_cap_enabled", False) else None
+    return _next_slot(account_id, c["post_gap_min"], cap, _window(c), earliest=earliest, exclude=exclude)
+
+
+def _reschedule_accounts(account_ids):
+    """Keep waiting clips in order when times change or the app missed a window."""
+    with _lock:
+        pending = sorted((p for p in _mine() if p["account"] in account_ids and p["status"] == "scheduled"
+                          and not p.get("immediate")), key=lambda p: (p["due_at"], p["created"]))
+        excluded = {p["id"] for p in pending}
+        changed = []
+        for p in pending:
+            c = creators.get(p["creator"]) or creators.DEFAULTS
+            due = _scheduled_at(p["account"], c, earliest=p.get("retry_at", 0), exclude=excluded)
+            if due != p["due_at"]:
+                p["due_at"] = due
+                changed.append(p)
+            excluded.remove(p["id"])
+        if changed:
+            _save()
+            for p in changed:
+                _mirror(p)
+            ctx.bump()
+
+
+def reschedule(creator_id):
+    with _lock:
+        affected = {p["account"] for p in _mine() if p["creator"] == creator_id and p["status"] == "scheduled"}
+        _reschedule_accounts(affected)
 
 
 def enqueue(job, clip, account_ids, now=False) -> list:
@@ -78,12 +137,12 @@ def enqueue(job, clip, account_ids, now=False) -> list:
             if any(p["job"] == job["id"] and p["clip"] == clip["id"] and p["account"] == aid
                    and p["status"] in OPEN + ("posted",) for p in _mine()):
                 continue  # never post the same clip to the same account twice
-            cap = c["daily_cap"] if c.get("daily_cap_enabled", False) else None
-            due = time.time() if now else _next_slot(aid, c["post_gap_min"], cap)
+            due = time.time() if now else _scheduled_at(aid, c)
             p = {"id": secrets.token_hex(8), "user": ctx.uid(), "job": job["id"], "clip": clip["id"], "creator": job["creator"],
                  "account": aid, "account_name": acc["name"], "platform": acc["platform"], "status": "scheduled",
                  "due_at": due, "created": time.time(), "title": clip.get("title") or clip.get("hook") or "Clip",
-                 "score": clip.get("score", 0), "tries": 0, "url": "", "remote_id": "", "error": None, "views": None}
+                 "score": clip.get("score", 0), "tries": 0, "url": "", "remote_id": "", "error": None, "views": None,
+                 "immediate": bool(now)}
             _posts.append(p)
             made.append(p)
         _save()
@@ -136,6 +195,11 @@ def _post(p):
         p["error"] = str(e)[-300:]
         if p["tries"] < 3 and clip and acc and acc["platform"] != "youtube":
             p.update(status="scheduled", due_at=time.time() + 600)  # try again in 10 minutes
+            p["retry_at"] = p["due_at"]
+            c = creators.get(p["creator"]) or creators.DEFAULTS
+            if _window(c) and not p.get("immediate"):
+                with _lock:
+                    p["due_at"] = _scheduled_at(p["account"], c, earliest=p["retry_at"], exclude={p["id"]})
         else:
             p["status"] = "failed"
             creators.log(p["creator"], f"Post failed on {p['account_name']}: {p['error']}")
@@ -144,22 +208,52 @@ def _post(p):
     _mirror(p)
 
 
+def _window_available(p, c, now):
+    """Check actual sends too: a paused or stopped app may have missed its planned times."""
+    window = _window(c)
+    if not window or p.get("immediate"):
+        return True
+    start, end = _bounds(now, window)
+    if not start <= now < end:
+        return False
+    sent = [q for q in _mine() if q["id"] != p["id"] and q["account"] == p["account"]
+            and q["status"] in ("posted", "posting")]
+    stamps = [q.get("posted_at") or q["due_at"] for q in sent]
+    if c.get("daily_cap_enabled"):
+        cap = c["daily_cap"]
+        if sum(_day(t) == _day(now) for t in stamps) >= cap:
+            return False
+        step = (end - start) / cap
+        slot_start = start + math.floor((now - start) / step) * step
+        return not any(slot_start <= t < end for t in stamps)
+    return all(t + c["post_gap_min"] * 60 <= now for t in stamps)
+
+
+def _run_due():
+    due = sorted((p for p in list(_posts) if p["status"] == "scheduled" and p["due_at"] <= time.time()
+                  and p.get("user")), key=lambda p: p["due_at"])
+    for p in due:
+        try:
+            with ctx.as_user(p["user"]):
+                if accounts.settings()["paused"]:
+                    continue
+                with _lock:
+                    if p["status"] != "scheduled" or p["due_at"] > time.time():
+                        continue
+                    c = creators.get(p["creator"]) or creators.DEFAULTS
+                    if not _window_available(p, c, time.time()):
+                        _reschedule_accounts({p["account"]})
+                        continue
+                    p["status"] = "posting"
+                _post(p)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _run():
     while True:
         time.sleep(15)
-        due = [p for p in list(_posts) if p["status"] == "scheduled" and p["due_at"] <= time.time() and p.get("user")]
-        for p in due:
-            try:
-                with ctx.as_user(p["user"]):
-                    if accounts.settings()["paused"]:
-                        continue
-                    with _lock:
-                        if p["status"] != "scheduled":
-                            continue
-                        p["status"] = "posting"
-                    _post(p)
-            except Exception:  # noqa: BLE001
-                pass
+        _run_due()
 
 
 def _stats_for(recent):
@@ -205,7 +299,10 @@ def retry(pid):
         p = next((p for p in _mine() if p["id"] == pid), None)
         if not p or p["status"] not in ("failed", "cancelled"):
             raise ValueError("Only failed or cancelled posts can be retried.")
-        p.update(status="scheduled", due_at=time.time(), tries=0, error=None)
+        c = creators.get(p["creator"]) or creators.DEFAULTS
+        due = _scheduled_at(p["account"], c, exclude={p["id"]}) if _window(c) and not p.get("immediate") else time.time()
+        p.update(status="scheduled", due_at=due, tries=0, error=None)
+        p.pop("retry_at", None)
         _save()
     _mirror(p)
 

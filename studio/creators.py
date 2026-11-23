@@ -20,6 +20,7 @@ DEFAULTS = {"name": "", "channel": "", "style": "bounce", "layout": "blur", "cap
             "game": "",
             "trigger_words": "clip that, clip it",
             "autopost": False, "accounts": [], "post_min_score": 75, "post_gap_min": 45, "daily_cap_enabled": False, "daily_cap": 6,
+            "post_window_enabled": False, "post_start_time": "09:00", "post_end_time": "21:00",
             "privacy": "public", "post_footer": "", "rate_per_1k": 0.0, "channels": {}}
 PLATFORMS = ("youtube", "twitch", "kick")
 
@@ -54,6 +55,11 @@ def root(cid) -> Path:
 def _clean(data: dict) -> dict:
     out = {}
     for k in DEFAULTS:
+        if k in ("post_start_time", "post_end_time") and k in data:
+            if not isinstance(data[k], str) or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", data[k]):
+                raise ValueError("Enter posting times in HH:MM format, from 00:00 to 23:59.")
+        if k == "post_window_enabled" and k in data and not isinstance(data[k], bool):
+            raise ValueError("The daily posting window must be on or off.")
         if k == "captions":
             if k in data:
                 if not isinstance(data[k], bool):
@@ -66,7 +72,7 @@ def _clean(data: dict) -> dict:
         if k in NUMERIC:
             lo, hi = NUMERIC[k]
             v = max(lo, min(hi, int(float(v))))
-        elif k in ("auto_watch", "autopost", "ai_only_on_spike", "daily_cap_enabled"):
+        elif k in ("auto_watch", "autopost", "ai_only_on_spike", "daily_cap_enabled", "post_window_enabled"):
             v = bool(v)
         elif k == "channels":
             v = {p: str(u).strip()[:300] for p, u in (v.items() if isinstance(v, dict) else []) if p in PLATFORMS and str(u).strip()}
@@ -84,6 +90,11 @@ def _clean(data: dict) -> dict:
             v = str(v).strip()[:300]
         out[k] = v
     return out
+
+
+def _validate_window(c):
+    if c["post_window_enabled"] and c["post_end_time"] <= c["post_start_time"]:
+        raise ValueError("The posting end time must be later than the start time on the same day.")
 
 
 _mem: dict = {}   # user -> {creator id: creator}. The files stay the truth; this saves re-reading them on every page check.
@@ -136,6 +147,7 @@ def _write(c):
 
 def create(data: dict) -> dict:
     c = _fix({**DEFAULTS, **_clean(data)})
+    _validate_window(c)
     if not c["name"]:
         raise ValueError("Give the creator a name.")
     slug = re.sub(r"[^a-z0-9]+", "-", c["name"].lower()).strip("-")[:40] or "creator"
@@ -158,6 +170,7 @@ def update(cid, data: dict) -> dict:
     if "channel" in new and new["channel"] and "channels" not in new:
         new["channels"] = {**c["channels"], platform_key(new["channel"]): new["channel"]}
     c.update(new)
+    _validate_window(c)
     _fix(c)
     if c["min_len"] >= c["max_len"]:
         raise ValueError("Shortest clip must be shorter than longest clip.")

@@ -583,7 +583,7 @@ def status(request: Request):
     from . import updates
     me_ = _me(request)
     return {"user": auth.public(me_), "update": updates.latest() if me_.is_admin else None, "accounts": config.ACCOUNTS, "disk_full": load.disk_full(), "no_ffmpeg": bool(_tools.missing()), "links": {"repo": config.REPO_URL, "follow": config.FOLLOW_URL}, "ai": usage.brief(), "unread": notices.unread(),
-            "tour": not accounts.settings()["tour_done"],
+            "tour": not accounts.settings()["tour_done"], "posting_timezone": time.strftime("%Z (UTC%z)"),
             "youtube": accounts.youtube_ready(), "connect": {p: accounts.can_connect(p) for p in accounts.PLATFORM_NAMES}, "max_upload_mb": config.MAX_UPLOAD_MB, "upload_part_mb": config.UPLOAD_PART_MB, "max_batch": config.MAX_ACTIVE_JOBS_PER_USER,
             "styles": {k: v["label"] for k, v in render.STYLES.items()}, "layouts": render.LAYOUTS}
 
@@ -1285,12 +1285,15 @@ def new_creator(body: dict = Body(...)):
 def edit_creator(cid: str, body: dict = Body(...)):
     _throttle("cedit:" + ctx.uid(), 60, 600)
     _channel_ok(body)
+    before = creators.get(cid)
     try:
         c = creators.update(cid, body)
     except KeyError:
         raise HTTPException(404, "No such creator")
     except ValueError as e:
         raise HTTPException(400, str(e))
+    if before and any(before.get(k) != c.get(k) for k in posting.SCHEDULE_FIELDS):
+        posting.reschedule(cid)
     s = live.active_for(cid)
     if s:
         s.settings = c  # new settings apply to the running recording straight away

@@ -171,6 +171,161 @@ class BatchPosts(unittest.TestCase):
                 self.assertEqual(response.status_code, 200, response.text)
                 self.assertEqual([p["due_at"] for p in posting._posts], [now, expected])
 
+    def window(self, **settings):
+        return creators.update(self.job["creator"], {
+            "post_window_enabled": True, "post_start_time": "09:00", "post_end_time": "21:00",
+            "daily_cap_enabled": True, "daily_cap": 6, **settings})
+
+    def queue_clips(self, count, aid="youtube"):
+        self.job["clips"] = [{"id": f"clip-{i}", "status": "done", "file": "one.mp4"} for i in range(count)]
+        jobs.save(self.job)
+        for clip in self.job["clips"]:
+            posting.enqueue(self.job, clip, [aid])
+
+    def test_window_spreads_daily_limit_and_carries_over_excess(self):
+        self.window()
+        with patch("studio.posting.time.time", return_value=datetime(2026, 11, 20, 8).timestamp()):
+            self.queue_clips(8)
+        expected = [datetime(2026, 11, 20, h).timestamp() for h in (9, 11, 13, 15, 17, 19)]
+        expected += [datetime(2026, 11, 21, h).timestamp() for h in (9, 11)]
+        self.assertEqual([p["due_at"] for p in posting._posts], expected)
+
+    def test_window_late_arrivals_and_end_boundary(self):
+        self.window()
+        for moment, expected in ((datetime(2026, 11, 20, 10), datetime(2026, 11, 20, 11)),
+                                 (datetime(2026, 11, 20, 21), datetime(2026, 11, 21, 9)),
+                                 (datetime(2026, 12, 31, 22), datetime(2027, 1, 1, 9))):
+            with self.subTest(moment=moment):
+                posting._posts.clear()
+                with patch("studio.posting.time.time", return_value=moment.timestamp()):
+                    self.queue_clips(1)
+                self.assertEqual(posting._posts[0]["due_at"], expected.timestamp())
+
+    def test_window_without_cap_keeps_interval(self):
+        self.window(daily_cap_enabled=False, post_gap_min=30)
+        with patch("studio.posting.time.time", return_value=datetime(2026, 11, 20, 20, 45).timestamp()):
+            self.queue_clips(2)
+        self.assertEqual([p["due_at"] for p in posting._posts], [
+            datetime(2026, 11, 20, 20, 45).timestamp(), datetime(2026, 11, 21, 9).timestamp()])
+
+    def test_window_shared_account_reserves_slots_across_creators(self):
+        c = self.window(daily_cap=2)
+        other_creator = creators.create({**c, "name": "Second creator"})
+        other_job = jobs.create({"type": "file", "name": "Second video"}, {}, enqueue=False, creator=other_creator["id"])
+        other_job["clips"] = [{"id": "other", "status": "done"}]
+        jobs.save(other_job)
+        with patch("studio.posting.time.time", return_value=datetime(2026, 11, 20, 8).timestamp()):
+            posting.enqueue(self.job, self.job["clips"][0], ["youtube"])
+            posting.enqueue(other_job, other_job["clips"][0], ["youtube"])
+            posting.enqueue(self.job, self.job["clips"][1], ["youtube"])
+        self.assertEqual([p["due_at"] for p in posting._posts], [
+            datetime(2026, 11, 20, 9).timestamp(), datetime(2026, 11, 20, 15).timestamp(),
+            datetime(2026, 11, 21, 9).timestamp()])
+
+    def test_window_queues_more_than_thirty_days_without_breaking_the_cap(self):
+        self.window(daily_cap=1)
+        with patch("studio.posting.time.time", return_value=datetime(2026, 11, 1, 8).timestamp()):
+            self.queue_clips(40)
+        self.assertEqual(posting._posts[-1]["due_at"], datetime(2026, 12, 10, 9).timestamp())
+        self.assertEqual(len({posting._day(p["due_at"]) for p in posting._posts}), 40)
+
+    def test_window_settings_are_validated_and_saved(self):
+        endpoint = f"/api/creators/{self.job['creator']}"
+        headers = {"Origin": "http://localhost"}
+        valid = {"post_window_enabled": True, "post_start_time": "08:30", "post_end_time": "18:45"}
+        response = self.client.put(endpoint, json=valid, headers=headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        creators.forget(self.owner.id)
+        saved = creators.get(self.job["creator"])
+        self.assertEqual({k: saved.get(k) for k in valid}, valid)
+        for invalid in ({"post_start_time": "25:00"}, {"post_end_time": "9:00"},
+                        {"post_start_time": ""}, {"post_start_time": None},
+                        {"post_end_time": "08:30"}, {"post_end_time": "07:00"},
+                        {"post_window_enabled": "false"}):
+            with self.subTest(invalid=invalid):
+                version = ctx.version()
+                response = self.client.put(endpoint, json=invalid, headers=headers)
+                self.assertEqual(response.status_code, 400, response.text)
+                self.assertEqual(creators.get(self.job["creator"]), saved)
+                self.assertEqual(ctx.version(), version)
+
+    def test_changing_window_reschedules_waiting_posts_and_updates_sync(self):
+        now = datetime(2026, 11, 20, 8).timestamp()
+        with patch("studio.posting.time.time", return_value=now):
+            self.queue_clips(2)
+            version = ctx.version()
+            response = self.client.put(f"/api/creators/{self.job['creator']}", json={
+                "post_window_enabled": True, "post_start_time": "09:00", "post_end_time": "21:00",
+                "daily_cap_enabled": True, "daily_cap": 6}, headers={"Origin": "http://localhost"})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual([p["due_at"] for p in posting._posts], [
+            datetime(2026, 11, 20, 9).timestamp(), datetime(2026, 11, 20, 11).timestamp()])
+        self.assertGreater(ctx.version(), version)
+        mirrored = jobs.get(self.job["id"])["clips"][1]["posts"][posting._posts[1]["id"]]
+        self.assertEqual(mirrored["due_at"], datetime(2026, 11, 20, 11).timestamp())
+
+    def test_manual_post_now_bypasses_window(self):
+        self.window()
+        now = datetime(2026, 11, 20, 23).timestamp()
+        with patch("studio.posting.time.time", return_value=now):
+            self.assertEqual(self.post(now=True).status_code, 200)
+        self.assertEqual([p["due_at"] for p in posting._posts], [now, now])
+
+    def test_overdue_posts_wait_for_next_window_after_restart(self):
+        self.window()
+        with patch("studio.posting.time.time", return_value=datetime(2026, 11, 20, 8).timestamp()):
+            self.queue_clips(2)
+        with patch("studio.posting.time.time", return_value=datetime(2026, 11, 20, 22).timestamp()):
+            posting._run_due()
+        self.assertEqual([p["status"] for p in posting._posts], ["scheduled", "scheduled"])
+        self.assertEqual([p["due_at"] for p in posting._posts], [
+            datetime(2026, 11, 21, 9).timestamp(), datetime(2026, 11, 21, 11).timestamp()])
+
+    def test_overdue_posts_do_not_burst_or_skip_a_slot_because_upload_was_late(self):
+        self.window()
+        with patch("studio.posting.time.time", return_value=datetime(2026, 11, 20, 8).timestamp()):
+            self.queue_clips(3)
+        with patch.object(accounts, "youtube_upload", return_value=("remote", "https://example.com/video")):
+            with patch("studio.posting.time.time", return_value=datetime(2026, 11, 20, 15, 30).timestamp()):
+                posting._run_due()
+            self.assertEqual([p["status"] for p in posting._posts], ["posted", "scheduled", "scheduled"])
+            self.assertEqual([p["due_at"] for p in posting._posts[1:]], [
+                datetime(2026, 11, 20, 17).timestamp(), datetime(2026, 11, 20, 19).timestamp()])
+            with patch("studio.posting.time.time", return_value=datetime(2026, 11, 20, 17, 0, 7).timestamp()):
+                posting._run_due()
+        self.assertEqual([p["status"] for p in posting._posts], ["posted", "posted", "scheduled"])
+
+    def test_retry_respects_window(self):
+        self.window()
+        with patch("studio.posting.time.time", return_value=datetime(2026, 11, 20, 19).timestamp()):
+            self.queue_clips(1, "instagram")
+        post = posting._posts[0]
+        post["status"] = "posting"
+        with patch.object(accounts, "instagram_upload", side_effect=RuntimeError("Temporary failure")), \
+             patch("studio.posting.time.time", return_value=datetime(2026, 11, 20, 20, 55).timestamp()):
+            posting._post(post)
+        self.assertEqual(post["status"], "scheduled")
+        self.assertEqual(post["due_at"], datetime(2026, 11, 21, 9).timestamp())
+        post["status"] = "failed"
+        with patch("studio.posting.time.time", return_value=datetime(2026, 11, 21, 22).timestamp()):
+            posting.retry(post["id"])
+        self.assertEqual(post["due_at"], datetime(2026, 11, 22, 9).timestamp())
+
+    def test_enabling_window_keeps_existing_retry_cooldown(self):
+        with patch("studio.posting.time.time", return_value=datetime(2026, 11, 20, 10, 58).timestamp()):
+            self.queue_clips(1, "instagram")
+            post = posting._posts[0]
+            post["status"] = "posting"
+            with patch.object(accounts, "instagram_upload", side_effect=RuntimeError("Temporary failure")):
+                posting._post(post)
+        self.assertEqual(post["due_at"], datetime(2026, 11, 20, 11, 8).timestamp())
+        with patch("studio.posting.time.time", return_value=datetime(2026, 11, 20, 10, 59).timestamp()):
+            response = self.client.put(f"/api/creators/{self.job['creator']}", json={
+                "post_window_enabled": True, "post_start_time": "09:00", "post_end_time": "21:00",
+                "daily_cap_enabled": True, "daily_cap": 6}, headers={"Origin": "http://localhost"})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(post["due_at"], datetime(2026, 11, 20, 13).timestamp())
+
     def test_invalid_batches_have_no_partial_effect(self):
         invalid = [
             ({"accounts": []}, 400), ({"accounts": ["foreign"]}, 400),
