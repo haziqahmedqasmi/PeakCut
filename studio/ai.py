@@ -333,6 +333,16 @@ def call(model: str, prompt: str, schema: dict, timeout: float | None = None):
     return {"gemini": _gemini, "openai": _openai, "anthropic": _anthropic}[how](model, prompt, schema, timeout)
 
 
+def _gemini_text(data):
+    """The text in a Gemini answer, or "" when the model answered without any: a safety block, or an
+    answer cut off before it began, leaves no candidates, no content, or no parts."""
+    cands = data.get("candidates") or []
+    if not cands:
+        return ""
+    parts = (cands[0].get("content") or {}).get("parts") or []
+    return "".join(p.get("text", "") for p in parts)
+
+
 def see(prompt: str, image: bytes, timeout: float | None = None) -> tuple[str, int, int]:
     """Ask one model about one picture: (the answer as text, tokens in, tokens out).
 
@@ -353,7 +363,7 @@ def see(prompt: str, image: bytes, timeout: float | None = None) -> tuple[str, i
         if r.status_code != 200:
             _fail(r, model)
         data = r.json()
-        text = "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"])
+        text = _gemini_text(data)
         u = data.get("usageMetadata", {})
         sent = int(u.get("promptTokenCount") or 0)
         return text, sent, max(0, int(u.get("totalTokenCount") or 0) - sent)
@@ -377,7 +387,8 @@ def see(prompt: str, image: bytes, timeout: float | None = None) -> tuple[str, i
     if r.status_code != 200:
         _fail(r, model)
     data = _openai_body(r)
-    text = (data["choices"][0]["message"].get("content") or "")
+    choices = data.get("choices") or []
+    text = ((choices[0].get("message") or {}).get("content") or "") if choices else ""
     u = data.get("usage") or {}
     return text, int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
 
@@ -402,7 +413,9 @@ def _gemini(model, prompt, schema, timeout=None):
     if r.status_code != 200:
         _fail(r, model)
     data = r.json()
-    text = "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"])
+    text = _gemini_text(data)
+    if not text.strip():
+        raise AIError("The AI answered without any text. It may have blocked this video.")
     u = data.get("usageMetadata", {})
     sent = int(u.get("promptTokenCount") or 0)
     parsed = _parse(text) if used_plain else json.loads(text)
@@ -473,8 +486,14 @@ def _openai(model, prompt, schema, timeout=None):
     if r.status_code != 200:
         _fail(r, model)
     data = _openai_body(r)
+    choices = data.get("choices") or []
+    if not choices:
+        raise AIError("The AI answered without any text. It may have blocked this video.")
+    content = (choices[0].get("message") or {}).get("content") or ""
+    if not content.strip():
+        raise AIError("The AI answered without any text. It may have blocked this video.")
     u = data.get("usage") or {}
-    return _parse(data["choices"][0]["message"].get("content")), int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
+    return _parse(content), int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
 
 
 def _anthropic(model, prompt, schema, timeout=None):
