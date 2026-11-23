@@ -106,7 +106,10 @@ def _ydl(opts):
     # a channel or playlist link is answered as "a list" straight away, never walked video by video
     return yt_dlp.YoutubeDL({"noplaylist": True, "quiet": True, "no_warnings": True, "logger": _Quiet(),
                              "extract_flat": "in_playlist", "playlistend": 1, "socket_timeout": 20,
-                             "concurrent_fragment_downloads": 4, **cookie_opts(), **opts})
+                             "concurrent_fragment_downloads": 4,
+                             # YouTube hides its videos behind a small JavaScript puzzle. yt-dlp solves it with
+                             # Deno or Node (whichever is installed) and the yt-dlp-ejs package.
+                             "js_runtimes": {"deno": {}, "node": {}}, **cookie_opts(), **opts})
 
 
 def _video_format(height):
