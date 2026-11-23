@@ -134,6 +134,25 @@ If Codex cannot be found, set `PEAKCUT_CODEX_COMMAND` to the executable's full p
 queries Windows' registered desktop application when its executable is absent from PATH, and finds the native
 binary inside standard npm installations.
 
+### Videos in Arabic
+
+PeakCut hears English by default. To clip videos in Arabic, add the Arabic speech model once in
+**Settings → Speech models** (about 107 MB), or choose **Arabic** under Options when adding a video and PeakCut
+offers to download it. Set a creator's language on their Setup page so their live recordings use it too.
+It understands Modern Standard Arabic and everyday dialects, and the AI turns English words said in between
+back into English. Captions on the clips are in English.
+
+### YouTube automatic translation
+
+Under **Settings → Language**, **Use YouTube's automatically translated English captions** is on by default.
+PeakCut prefers the original transcript. If it is unavailable, this switch allows YouTube's English translation;
+it also controls automatically translated tracks when preparing English captions. Turn it off to use original
+transcripts, human-written subtitles and your configured AI for caption translation instead. Each account saves
+its own choice, and new videos and live recordings keep the choice made when they were created.
+
+The spoken language is chosen separately when adding a video or in a creator's Setup. Portuguese uses the
+multilingual speech model; the output caption language still controls titles, descriptions and captions.
+
 ## Settings
 
 Everything is set through environment variables, normally in a `.env` file next to this README.
@@ -171,7 +190,9 @@ python -m studio.admin grant you@example.com
 | `tests/` | Tests that run against a throwaway copy of the app |
 | `deploy/`, `Dockerfile`, `docker-compose.yml` | One-server deployment with PostgreSQL and automatic HTTPS |
 
-Video work is done with `ffmpeg` and `yt-dlp`. Speech is transcribed with `sherpa-onnx` and the Parakeet model.
+Video work is done with `ffmpeg` and `yt-dlp`. Speech is transcribed with `sherpa-onnx` and NVIDIA's Parakeet
+model (English) and FastConformer Arabic model, both released by NVIDIA under the Creative Commons Attribution 4.0
+licence (CC-BY-4.0). The Arabic model was converted for sherpa-onnx with `tools/export_arabic_model.py`.
 Data is kept per user: accounts in the database (SQLite on your own computer, PostgreSQL on a server), videos and
 clips in each user's own folder. [AGENTS.md](AGENTS.md) is a short map of the code for contributors and AI coding
 assistants.

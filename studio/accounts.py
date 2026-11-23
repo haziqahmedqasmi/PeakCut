@@ -25,6 +25,7 @@ _states: dict = {}   # one-time values for the connect redirects: state -> (user
 SECRET_KEYS = ("discord_webhook", "telegram_token")
 SETTING_DEFAULTS = {"discord_webhook": "", "telegram_token": "", "telegram_chat": "", "paused": False,
                     "digest_hour": 8, "last_digest": "", "tour_done": False, "caption_language": "en",
+                    "youtube_auto_translate": True,
                     "clip_templates": {}, "censorship_mode": "off", "censorship_words": ""}
 
 YT_SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly"
@@ -255,6 +256,9 @@ def save_settings(patch: dict) -> dict:
                 v = bool(v)
             elif k == "digest_hour":
                 v = max(0, min(23, int(v)))
+            elif k == "youtube_auto_translate":
+                if not isinstance(v, bool):
+                    raise ValueError("YouTube automatic translation must be on or off.")
             elif k == "caption_language":
                 if v not in ("en", "pt-BR"):
                     raise ValueError("Choose English or Brazilian Portuguese for captions.")

@@ -46,6 +46,9 @@ for who, c in (("anon", anon), ("user", a)):
     for path in ("/admin", "/admin/users", "/api/admin/overview", f"/api/admin/users/{ub['id']}"):
         check(f"{who} GET {path} -> 404", c.get(path).status_code, 404)
     check(f"{who} disable -> 404", c.post(f"/api/admin/users/{ub['id']}/disabled", json={"disabled": True}, headers=ORIGIN).status_code, 404)
+    check(f"{who} cannot see, download or remove speech models",
+          (c.get("/api/speech").status_code, c.post("/api/speech/ar", headers=ORIGIN).status_code,
+           c.delete("/api/speech/ar", headers=ORIGIN).status_code), (404, 404, 404) if who == "user" else (401, 401, 401))
 check("anon /app -> login", anon.get("/app").status_code, 303)
 check("anon /api/status -> 401", anon.get("/api/status").status_code, 401)
 
@@ -115,8 +118,9 @@ templates = "/api/clip-templates"
 b.post("/api/auth/login", json={"email": "bob@example.com", "password": "test-pass-123"}, headers=ORIGIN)
 before = a2.get("/api/sync").json()
 check("an account starts without custom clip templates", before.get("clip_templates"), [])
-options = {"max_clips": 3, "min_len": 20, "max_len": 45, "style": "clean", "layout": "crop",
-           "quality": 1080, "captions": False, "range_start": 60, "range_end": 180}
+options = {"max_clips": 3, "min_len": 20, "max_len": 45, "style": "clean", "layout": "split",
+           "quality": 1080, "captions": False, "range_start": 60, "range_end": 180,
+           "hook_text": "Texto fixo", "description_text": "Descrição exata.", "lang": "pt"}
 r = a2.post(templates, json={"name": "  Entrevista  ", "options": options, "user": ub["id"]}, headers=ORIGIN)
 check("alice can save a clip template", r.status_code, 200)
 if r.is_success:
@@ -133,6 +137,15 @@ if r.is_success:
     check("updating replaces the same template", a2.get("/api/sync").json().get("clip_templates"), [{**saved, "options": {**options, "captions": True}}])
     check("alice can remove her template", a2.delete(path, headers=ORIGIN).status_code, 200)
     check("a removed template no longer appears", a2.get("/api/sync").json().get("clip_templates"), [])
+
+check("automatic YouTube translation defaults on", a2.get("/api/settings").json().get("youtube_auto_translate"), True)
+check("the owner can turn automatic YouTube translation off",
+      a2.put("/api/settings", json={"youtube_auto_translate": False}, headers=ORIGIN).json().get("youtube_auto_translate"), False)
+check("another account retains its own translation preference", b.get("/api/settings").json().get("youtube_auto_translate"), True)
+for invalid in ("false", 0, None):
+    check(f"translation preference rejects {invalid!r}",
+          a2.put("/api/settings", json={"youtube_auto_translate": invalid}, headers=ORIGIN).status_code, 400)
+check("invalid changes keep translation off", a2.get("/api/settings").json().get("youtube_auto_translate"), False)
 
 print("\n%d failed" % len(fails) if fails else "\nALL PASSED")
 sys.exit(1 if fails else 0)

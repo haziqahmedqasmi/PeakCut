@@ -218,6 +218,7 @@ img.avatar.ring{background:transparent}
 :where(input:not([type=checkbox],[type=radio],[type=file],[type=range]),select,textarea):focus{background:#fff;border-color:var(--brand)}
 input:not([type=checkbox],[type=radio],[type=range]):focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 input::placeholder,textarea::placeholder{color:var(--faint)}
+textarea{height:auto;padding:10px 12px;resize:vertical}
 label.f{display:flex;flex-direction:column;gap:7px;font-size:12px;color:var(--dim);font-weight:600}
 label.sw{display:flex;align-items:center;gap:12px;cursor:pointer;color:var(--text);font-weight:600}
 label.sw input{appearance:none;width:38px;height:22px;border-radius:999px;background:#DCD2D0;position:relative;cursor:pointer;flex:none;margin:0}
@@ -404,7 +405,12 @@ img.av{object-fit:cover}
 .lay-prev .ph::before{content:"";position:absolute;inset:0;background:linear-gradient(160deg,#B4643A,#5E3A2A);filter:blur(3px);opacity:.75}
 .lay-prev .ph i{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);height:16px;background:linear-gradient(135deg,#FF8B33,#FFB27A)}
 .lay-prev.zoom .ph i{left:-6px;right:-6px;height:24px}
-.lay-prev.crop .ph i{left:0;right:0;top:0;height:100%;transform:none}
+.lay-prev.crop .ph i,.lay-prev.left .ph i,.lay-prev.right .ph i,.lay-prev.gameplay .ph i{left:0;right:0;top:0;height:100%;transform:none}
+.lay-prev.left .ph i{background:linear-gradient(90deg,#FFB27A,#FF8B33 45%,#5E3A2A)}
+.lay-prev.right .ph i{background:linear-gradient(270deg,#FFB27A,#FF8B33 45%,#5E3A2A)}
+.lay-prev.fit .ph{background:#000}.lay-prev.fit .ph::before{display:none}
+.lay-prev.split .ph i{top:0;height:23px;transform:none}
+.lay-prev.split .ph::before{inset:25px 0 0 0;filter:none;opacity:1;background:linear-gradient(135deg,#FFB27A,#FF8B33)}
 .seg{display:flex;gap:4px;background:#fff;border-radius:10px;padding:4px}
 .composer.compact .seg{background:var(--muted)}
 .seg button{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:5px 4px;border:2px solid transparent;border-radius:7px;background:transparent;color:var(--dim);font-size:13px;font-weight:600;cursor:pointer;transition:background-color .15s ease,border-color .15s ease,color .15s ease}
@@ -483,6 +489,9 @@ img.av{object-fit:cover}
 .appact{flex:none}
 .appcard{flex-wrap:wrap}
 .stor-path{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.speech-list{display:flex;flex-direction:column;gap:10px}
+.speech-row{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:14px 16px;border:1px solid var(--line);border-radius:var(--r)}
+.speech-info{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:2px}.speech-info .bar{max-width:320px}
 .stor-path code{flex:1 1 260px;min-width:0;overflow-wrap:anywhere;font-size:13px;background:var(--muted);border-radius:8px;padding:10px 12px}
 .stor-bar{height:10px;border-radius:999px;background:var(--muted);overflow:hidden;margin:14px 0 6px}
 .stor-bar i{display:block;height:100%;background:var(--brand);border-radius:999px}
@@ -1463,11 +1472,16 @@ function drawAdd(variant) {
           <button type="button" class="btn sm" data-act="template-save">${ic("plus")}${i18n.html("Save current options")}</button></div>
         <div id="clip_template_list"></div>
       </section>
+      ${langSeg(c?.lang || (S.status.caption_language === "pt-BR" ? "pt" : "en"))}
       <div class="ob wide"><div class="ot">${i18n.html("Clips")}</div><div class="nsteps">
         ${stepper("o_max", i18n.t("How many"), c?.max_clips ?? 6, 1, 20, 1, "")}
         ${stepper("o_min", i18n.t("Shortest"), c?.min_len ?? 15, 5, 120, 5, "s")}
         ${stepper("o_maxlen", i18n.t("Longest"), c?.max_len ?? 60, 10, 180, 5, "s")}
       </div></div>
+      <div class="ob wide"><label class="f">${i18n.html("Big text on every clip")} <small>${i18n.html("Optional")}</small>
+        <input id="o_hook" maxlength="60" value="${esc(c?.hook_text || "")}" placeholder="${i18n.html("Left empty, the AI writes a different one for each clip")}"></label></div>
+      <div class="ob wide"><label class="f">${i18n.html("Description for every clip")} <small>${i18n.html("Optional")}</small>
+        <textarea id="o_desc" rows="3" maxlength="2000" placeholder="${i18n.html("Written once, used exactly as typed on every clip.")}">${esc(c?.description_text || "")}</textarea></label></div>
       <div class="ob"><div class="ot cap-head"><span id="o_style_label">${i18n.html("Caption style")}</span>
         <label><input type="checkbox" id="o_captions" data-caption-toggle ${c?.captions === false ? "" : "checked"}>${i18n.html("Generate captions")}</label></div>
         ${choice("o_style", Object.entries(S.status.styles).map(([k, v]) => ({v:k, label:v, prev:capPrev(k)})), c?.style ?? "bounce", c?.captions === false)}</div>
@@ -1483,7 +1497,16 @@ function drawAdd(variant) {
   drawClipTemplates();
   drawAtt();
 }
-const LAYOUT_SHORT = {blur:i18n.t("Blurred fill"), zoom:i18n.t("Zoomed in"), crop:i18n.t("Fill screen"), gameplay:"Gameplay + facecam"};
+const LAYOUT_SHORT = {blur:i18n.t("Blurred fill"), zoom:i18n.t("Zoomed in"), crop:i18n.t("Fill screen"), left:i18n.t("Keep left"), right:i18n.t("Keep right"), fit:i18n.t("Full frame"), split:i18n.t("Two people"), gameplay:"Gameplay + facecam"};
+const speechLangs = () => S.status.speech || {en:{label:"English", state:"ready", size_mb:0}};
+const langName = k => i18n.t(speechLangs()[k]?.label || k);
+function langSeg(value) {
+  const languages = speechLangs();
+  if (!languages[value]) value = "en";
+  return `<div class="ob wide"><label class="f">${i18n.html("Spoken language")}<select id="o_lang">
+    ${Object.keys(languages).map(k => `<option value="${esc(k)}"${k === value ? " selected" : ""}>${esc(langName(k))}</option>`).join("")}
+    </select></label></div>`;
+}
 const CAP_LOOK = {bounce:{font:"'Archivo Black'", hl:"#FFFF00", up:true}, hype:{font:"Anton", hl:"#FF3C3C", up:true}, clean:{font:"Poppins", hl:"#6BD7FF", up:false, w:800}};
 function capPrev(k) {
   const s = CAP_LOOK[k] || {font:"inherit", hl:"#FF8B33", up:true};
@@ -1551,7 +1574,8 @@ document.addEventListener("keydown", e => {
 const targetCreator = () => creatorId() || $("#o_creator")?.value || "";
 function jobOptions() {
   const n = id => { const v = $(id).value; return v === "" ? null : Number(v); };
-  const o = {max_clips:n("#o_max"), min_len:n("#o_min"), max_len:n("#o_maxlen"), captions:$("#o_captions").checked, style:$("#o_style").value, layout:$("#o_layout").value, quality:n("#o_quality")};
+  const o = {max_clips:n("#o_max"), min_len:n("#o_min"), max_len:n("#o_maxlen"), captions:$("#o_captions").checked, style:$("#o_style").value, layout:$("#o_layout").value, quality:n("#o_quality"),
+    hook_text:$("#o_hook").value.trim(), description_text:$("#o_desc").value.trim(), lang:$("#o_lang")?.value || "en"};
   if (n("#o_from") !== null) o.range_start = n("#o_from") * 60;
   if (n("#o_to") !== null) o.range_end = n("#o_to") * 60;
   return o;
@@ -1571,6 +1595,9 @@ function setClipOptions(o, captionsOverridden = true) {
   selectSegment("o_style", o.style);
   selectSegment("o_layout", o.layout);
   selectSegment("o_quality", o.quality);
+  if (o.lang && speechLangs()[o.lang]) $("#o_lang").value = o.lang;
+  if (o.hook_text != null) $("#o_hook").value = o.hook_text;
+  if (o.description_text != null) $("#o_desc").value = o.description_text;
   if (captionsOverridden) {
     const toggle = $("#o_captions");
     toggle.checked = o.captions;
@@ -1830,6 +1857,18 @@ function sendFile(f, who, options) {
     x.send(fd);
   });
 }
+function langNote(A, lang) {
+  const sp = speechLangs()[lang], admin = S.status.user?.is_admin;
+  const onlyYT = !A.files.length && A.links.length && A.links.every(l => /youtu\.?be/i.test(l.url));
+  $("#langnote")?.remove();
+  $("#addform .composer-bar").insertAdjacentHTML("afterend", `<div class="note" id="langnote" style="margin:12px 0 0">${ic("down")}<span>
+    <b>${i18n.html("The {0} speech model is needed first.", esc(langName(lang)))}</b>
+    ${admin ? i18n.html("About {0} MB, downloaded once. Your videos start when it is ready.", esc(sp.size_mb)) : i18n.html("Ask your admin to add this language in Settings, Speech models.")}
+    ${onlyYT ? `<br><span class="sub">${i18n.html("YouTube videos with their own captions can also work without it.")}</span>` : ""}
+    <span class="row" style="margin-top:10px">${admin ? `<button type="button" class="btn sm primary" data-act="langdl" data-v="${esc(lang)}">${i18n.html("Download and make clips")}</button>` : ""}
+    ${onlyYT ? `<button type="button" class="btn sm" data-act="langgo" data-v="${esc(lang)}">${i18n.html("Make clips with YouTube's captions")}</button>` : ""}
+    <button type="button" class="btn sm ghost" data-act="langno">${i18n.html("Cancel")}</button></span></span></div>`);
+}
 async function makeClips() {
   const A = att();
   if (A.busy) return;
@@ -1845,6 +1884,9 @@ async function makeClips() {
     $("#url")?.focus();
     return;
   }
+  const lang = $("#o_lang")?.value || "en", sp = speechLangs()[lang];
+  if (sp && sp.state === "missing" && A.langOk !== lang) return langNote(A, lang);
+  $("#langnote")?.remove();
   A.busy = true; drawAtt();
   let started = 0, failed = 0;
   const who = targetCreator(), opts = jobOptions();
@@ -2134,6 +2176,9 @@ function drawCreatorForm() {
         <label class="f">${i18n.html("Shortest clip (seconds)")}<input data-k="min_len" type="number" value="${c.min_len}"></label>
         <label class="f">${i18n.html("Longest clip (seconds)")}<input data-k="max_len" type="number" value="${c.max_len}"></label>
         <label class="f">${i18n.html("Clips per video")}<input data-k="max_clips" type="number" value="${c.max_clips}"></label>
+        <label class="f">${i18n.html("Spoken language")}<select data-k="lang">${opts(Object.fromEntries(Object.keys(speechLangs()).map(k => [k, langName(k)])), c.lang || "en")}</select></label>
+        <label class="f span">${i18n.html("Big text on every clip")}<input data-k="hook_text" maxlength="60" value="${esc(c.hook_text || "")}" placeholder="${i18n.html("Left empty, the AI writes a different one for each clip")}"></label>
+        <label class="f span">${i18n.html("Description for every clip")}<textarea data-k="description_text" rows="3" maxlength="2000">${esc(c.description_text || "")}</textarea><small>${i18n.html("Written once, used exactly as typed on every clip.")}</small></label>
         <label class="f">${i18n.html("Minutes of live stream to keep")}<input data-k="buffer_min" type="number" value="${c.buffer_min}"></label></div></div>
     <div class="card"><h2>${i18n.html("Posting")}</h2><p class="help">${A.length ? i18n.t("Choose the accounts this creator's clips go to. One account can be shared by several creators.") : i18n.t("No accounts are connected yet. Connect one in Social networks, then come back.")}</p>
       ${A.length ? `<div class="row" style="margin-bottom:16px">${A.map(a => `<label class="ck"><input type="checkbox" data-acc value="${esc(a.id)}" ${c.accounts.includes(a.id) ? "checked" : ""}>${esc(a.label)} · ${esc(a.name)}</label>`).join("")}</div>` : `<button class="btn" data-act="go" data-v="social" style="margin-bottom:16px">${ic("plug")}${i18n.html("Open Social networks")}</button>`}
@@ -2329,7 +2374,7 @@ const setTabs = () => [
                                           ["security", i18n.t("Security"), "lock", i18n.t("Password and signing out")]]),
   ["language", i18n.t("Language"), "language", i18n.t("Change the interface and caption languages")],
   ["censorship", i18n.t("Word censorship"), "lock", i18n.t("Hide words in captions or silence them in audio")],
-  ...(S.status.user?.is_admin ? [["storage", i18n.t("Storage"), "folder", i18n.t("Where videos and clips are kept")]] : [])];
+  ...(S.status.user?.is_admin ? [["speech", i18n.t("Speech models"), "chat", i18n.t("The languages PeakCut can hear")], ["storage", i18n.t("Storage"), "folder", i18n.t("Where videos and clips are kept")]] : [])];
 function aiHints() {
   const k = S.ai, sel = $("#ai_provider"); if (!k || !sel) return;
   const pv = k.providers.find(x => x.id === sel.value) || k.providers[0], same = pv.id === k.provider;
@@ -2455,7 +2500,7 @@ async function drawSettings() {
         </div></section>`;
     }
     if (tab === "language") {
-      const {caption_language} = await api("/api/settings");
+      const {caption_language, youtube_auto_translate} = await api("/api/settings");
       body.innerHTML = `<section class="set-sec"><h2>${i18n.html("Interface language")}</h2>
         <p class="help">${i18n.html("Choose how PeakCut displays text.")}</p>
         ${i18n.toggleButton()}</section>
@@ -2463,7 +2508,13 @@ async function drawSettings() {
         <p class="help" id="caption-language-help">${i18n.html("Choose the language for clip titles, descriptions, opening text and subtitles. Saved automatically for new videos, live recordings and clips you re-make. Translating from another language requires an AI service.")}</p>
         <div class="ai-form"><select id="caption_language" data-saved-value="${esc(caption_language)}" aria-labelledby="caption-language-label" aria-describedby="caption-language-help">
           ${opts({en:"English", "pt-BR":"Brazilian Portuguese"}, caption_language)}
-        </select></div></section>`;
+        </select></div></section>
+        <section class="set-sec"><h2>${i18n.html("YouTube automatic translation")}</h2>
+          <label class="sw"><input type="checkbox" role="switch" id="youtube_auto_translate" ${youtube_auto_translate !== false ? "checked" : ""} aria-describedby="youtube-translation-help">
+            <span>${i18n.html("Use YouTube's automatically translated English captions")}</span></label>
+          <p class="help" id="youtube-translation-help">${i18n.html("When the original transcript is unavailable, allow YouTube's English translation. Also applies when using YouTube to translate captions into English. Turning this off keeps original transcripts, human-written subtitles and AI translation available. Saved automatically for new videos and live recordings.")}</p>
+          <p class="help" id="youtube-translation-result" role="status" aria-live="polite"></p>
+        </section>`;
     }
     if (tab === "subscription") {
       body.innerHTML = `<section class="set-sec" id="codex-subscription"><h2>ChatGPT / Codex</h2><p class="help" role="status">${i18n.html("Loading…")}</p></section>
@@ -2497,6 +2548,20 @@ async function drawSettings() {
           </div>
           <div class="row" style="margin-top:20px"><button class="btn primary" data-act="aisave">${i18n.html("Save and test")}</button>${k.ready ? `<button class="btn" data-act="aitest">${i18n.html("Test again")}</button>` : ""}</div></section>`;
       aiHints();
+    }
+    if (tab === "speech") {
+      const r = await api("/api/speech");
+      body.innerHTML = `<section class="set-sec"><h2>${i18n.html("Speech models")}</h2>
+        <p class="help">${i18n.html("Speech models transcribe audio on this computer. Add a language, then choose it when adding a video or in a creator's Setup.")}</p>
+        <div class="speech-list">${r.models.map(m => `<div class="speech-row"><div class="speech-info"><b>${esc(langName(m.lang))}</b><span class="sub">${esc(m.size_mb)} MB · ${esc(m.credit)}</span>
+          ${m.state === "downloading" ? `<div class="bar"><i style="width:${m.percent}%"></i></div>` : ""}
+          ${m.error && m.state === "missing" ? `<span class="err">${esc(i18n.detail(m.error))}</span>` : ""}</div>
+          <div class="row">${m.state === "ready" ? `<span class="pill ok">${ic("check")}${i18n.html("Ready")}</span>${m.default ? "" : `<button class="btn sm ghost" data-act="speechdel" data-v="${esc(m.lang)}">${ic("trash")}${i18n.html("Remove")}</button>`}`
+            : m.state === "downloading" ? `<span class="pill">${i18n.html("Downloading {0}%", esc(m.percent))}</span>`
+            : `<button class="btn sm" data-act="speechget" data-v="${esc(m.lang)}">${ic("down")}${i18n.html("Download")}</button>`}</div></div>`).join("")}</div></section>`;
+      clearTimeout(S.speechTimer);
+      if (r.models.some(m => m.state === "downloading")) S.speechTimer = setTimeout(() => { if (S.stab === "speech" && $("#sform")) drawSettings(); }, 1500);
+      else if (S.speechTimer) { S.speechTimer = null; S.status = await api("/api/status"); }
     }
     if (tab === "profile") {
       const joined = me.created_at ? new Date(me.created_at * 1000).toLocaleDateString(i18n.formatLocale, {day: "numeric", month: "long", year: "numeric"}) : "";
@@ -2552,6 +2617,7 @@ async function drawSocialAccounts() {
     const tt = '<svg viewBox="0 0 24 24"><path fill="#fff" d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64c.3 0 .59.04.86.13v-3.5a6.37 6.37 0 0 0-.86-.05A6.34 6.34 0 0 0 3.15 15.7a6.34 6.34 0 0 0 10.86 4.43 6.3 6.3 0 0 0 1.81-4.43V8.73a8.2 8.2 0 0 0 4.77 1.52V6.8a4.85 4.85 0 0 1-1-.11z"/></svg>';
     const ok = S.status.connect || {}, admin = !!S.status.user?.is_admin;
     const setup = admin ? await api("/api/apps") : null;
+    const youtubeCookies = admin ? await api("/api/youtube-cookies") : null;
     if (!body.isConnected) return;
     const GUIDE = {
       youtube: ["https://console.cloud.google.com/apis/credentials", "Google Cloud",
@@ -2588,11 +2654,42 @@ async function drawSocialAccounts() {
         ${card("youtube", "YouTube", yt, "#FF0000", i18n.t("Post clips to your channel as Shorts."))}
         ${card("tiktok", "TikTok", tt, "#000", i18n.t("Post clips straight to your TikTok."))}
         ${card("instagram", "Instagram", ig, "linear-gradient(45deg,#F58529,#DD2A7B,#8134AF)", i18n.t("Post clips as Reels. Needs a Creator or Business account."))}
-      </div></section>`;
+      </div></section>
+      ${admin ? `<section class="set-sec"><h2>${i18n.html("YouTube download cookies")}</h2>
+        <p class="help">${i18n.html("If YouTube refuses downloads, add a cookies.txt file from your browser. Cookies stay on this computer and are never displayed again.")}</p>
+        <p class="help">${i18n.html(youtubeCookies.saved ? "Cookies saved" : "No cookies saved")}</p>
+        <label class="f">${i18n.html("Paste YouTube cookies")}<textarea id="ytc" rows="4" autocomplete="off" spellcheck="false" maxlength="1000000"></textarea></label>
+        <div class="row"><button class="btn" data-act="ytcookies">${i18n.html("Save cookies")}</button>
+          ${youtubeCookies.saved ? `<button class="btn ghost" data-act="ytcookies" data-remove="1">${i18n.html("Remove cookies")}</button>` : ""}</div></section>` : ""}`;
   } catch (e) { if (body.isConnected) body.innerHTML = `<div class="set-load" role="alert">${esc(i18n.detail(e.message))}</div>`; }
 }
 
 async function saveSettings() { const d = {}; $$("#sform [data-s]").forEach(i => d[i.dataset.s] = i.value); await send("/api/settings", d, "PUT"); }
+
+function postText(editor = D) {
+  const value = key => $(`[data-f="${key}"]`, editor.root).value;
+  return {title:value("title"), description:value("description"), hashtags:value("hashtags")};
+}
+function syncPostText(editor, clip, submitted = null) {
+  const saved = {title:clip.title || "", description:clip.description || "", hashtags:(clip.hashtags || []).join(" ")};
+  for (const key of Object.keys(saved)) {
+    const field = $(`[data-f="${key}"]`, editor.root);
+    if (!field) continue;
+    // Refresh untouched inputs after a render/translation, keeping anything typed while a request was pending.
+    if (!editor.postSaved || field.value === editor.postSaved[key] || (submitted && field.value === submitted[key])) {
+      field.value = saved[key];
+    }
+  }
+  editor.postSaved = saved;
+}
+function postTextRevision(editor) {
+  const clip = jobOf(editor.jid)?.clips.find(c => c.id === editor.cid);
+  return JSON.stringify({segments:editor.segments, changed:!!editor.changed, sending:!!editor.sending,
+    version:clip?.version, status:clip?.status, text:postText(editor)});
+}
+function canApplyPostRewrite(editor, revision) {
+  return D === editor && !editor.sending && postTextRevision(editor) === revision;
+}
 
 /* ============================================================ clip editor */
 function drawEditorPage() {
@@ -2883,6 +2980,10 @@ function drawClipEditor(full) {
               <label class="f">${i18n.html("Layout")}<select data-f="layout">${opts(S.status.layouts, c.layout)}</select></label></div>
             <label class="f">${i18n.html("Title")}<input data-f="title" value="${esc(c.title)}"></label>
             <label class="f">${i18n.html("Description")}<textarea data-f="description" rows="2">${esc(c.description)}</textarea></label>
+            <label class="f">${i18n.html("Hashtags")}<input data-f="hashtags" value="${esc((c.hashtags || []).join(" "))}"></label>
+            <div class="row"><button class="btn sm" data-act="savetext">${i18n.html("Save post text")}</button>
+              <button class="btn sm" data-act="writetext"${S.status.ai?.ready ? "" : " disabled"}>${ic("bolt")}${i18n.html("Write again with AI")}</button></div>
+            <p class="help">${i18n.html("Save the title, description and hashtags without making the video again.")}</p>
             ${c.reason ? `<p class="help">${esc(c.reason)}</p>` : ""}
           </div></details>
           <details${D.mode === "post" ? " open" : ""}><summary>${i18n.html("Download and post")}</summary><div class="edit-options">
@@ -2913,6 +3014,7 @@ function drawClipEditor(full) {
     clipMode(D.mode === "edit" ? "edit" : "result");
     drawEditSequence();
   } else if (D.sig !== sig) $("#stage").innerHTML = stage;
+  syncPostText(D, c);
   const title = $("#edit-title");
   if (title.textContent !== heading) title.textContent = heading;
   if (!full && c.status === "done" && D.status !== "done") {
@@ -3007,6 +3109,21 @@ function syncCaptionStyle(toggle) {
 }
 document.addEventListener("change", async e => {
   const t = e.target;
+  if (t.id === "youtube_auto_translate") {
+    const selected = t.checked, result = $("#youtube-translation-result");
+    t.disabled = true;
+    try {
+      const saved = await send("/api/settings", {youtube_auto_translate: selected}, "PUT");
+      S.settings = saved;
+      t.checked = saved.youtube_auto_translate;
+      result.textContent = i18n.t("Saved");
+    } catch (err) {
+      t.checked = !selected;
+      result.textContent = i18n.detail(err.message);
+      toast(i18n.detail(err.message), "bad");
+    } finally { t.disabled = false; }
+    return;
+  }
   if (t.hasAttribute("data-pacc")) return updatePostButtons(D.root);
   if (t.hasAttribute("data-bpacc")) return updatePostButtons($("#formdlg"), "bpacc");
   if (t.id === "editor-clip-select" && t.value) {
@@ -3020,6 +3137,8 @@ document.addEventListener("change", async e => {
     t.disabled = true;
     try {
       const saved = await send("/api/settings", {caption_language: t.value}, "PUT");
+      S.settings = saved;
+      S.status.caption_language = saved.caption_language;
       t.dataset.savedValue = saved.caption_language;
       toast(i18n.t("Saved"), "ok");
     } catch (err) {
@@ -3033,8 +3152,12 @@ document.addEventListener("change", async e => {
   if (t.id === "o_creator") {
     const toggle = $("#o_captions"), c = S.creators.find(c => c.id === t.value);
     if (!toggle.dataset.overridden) { toggle.checked = c?.captions !== false; syncCaptionStyle(toggle); }
+    const hk = $("#o_hook"); if (hk && !hk.dataset.typed) hk.value = c?.hook_text || "";      // the creator's own text, unless one was typed here
+    const ds = $("#o_desc"); if (ds && !ds.dataset.typed) ds.value = c?.description_text || "";
+    if ($("#o_lang") && !$("#o_lang").dataset.typed) $("#o_lang").value = c?.lang || "en";
     return;
   }
+  if (["o_hook", "o_desc", "o_lang"].includes(t.id)) { t.dataset.typed = "1"; rememberClipOptions(); }
   if (t.hasAttribute("data-caption-toggle")) {
     if (t.id === "o_captions") t.dataset.overridden = "true";
     syncCaptionStyle(t);
@@ -3161,6 +3284,21 @@ document.addEventListener("click", async e => {
       } finally { b.disabled = false; }
       return;
     }
+    if (a === "speechget" || a === "speechdel") {
+      if (a === "speechdel" && !await ask(i18n.t("Remove the {0} speech model?", langName(d.v)), i18n.t("Videos in that language need the model again. Existing clips stay."), i18n.t("Remove"), true)) return;
+      b.disabled = true;
+      try { await send("/api/speech/" + encodeURIComponent(d.v), {}, a === "speechget" ? "POST" : "DELETE"); }
+      finally { S.status = await api("/api/status"); await drawSettings(); }
+      return;
+    }
+    if (a === "langdl" || a === "langgo") {
+      const A = att();
+      if (a === "langdl") { b.disabled = true; await send("/api/speech/" + encodeURIComponent(d.v), {}); S.status = await api("/api/status"); }
+      A.langOk = d.v; $("#langnote")?.remove();
+      try { await makeClips(); } finally { A.langOk = null; }
+      return;
+    }
+    if (a === "langno") return $("#langnote")?.remove();
     if (a === "menu") return $("#app").classList.toggle("open");
     if (a === "collapse") { const m = $("#app").classList.toggle("mini"); try { localStorage.setItem("mini", m ? "1" : ""); } catch {} return; }
     if (a === "toggleopts") { const p = $(".composer-opts"), open = !p.classList.contains("open"); p.classList.toggle("open", open); p.inert = !open; b.classList.toggle("on", open); b.setAttribute("aria-expanded", String(open)); return; }
@@ -3234,8 +3372,12 @@ document.addEventListener("click", async e => {
       dlg.returnValue = "no"; return dlg.showModal();
     }
     if (a === "copy") {
-      const c = jobOf(d.j).clips.find(x => x.id === d.c);
-      await navigator.clipboard.writeText(`${c.title}\n\n${c.description}\n\n${(c.hashtags || []).map(h => "#" + h).join(" ")}`); return toast(i18n.t("Post text copied"), "ok");
+      const saved = jobOf(d.j).clips.find(x => x.id === d.c);
+      const c = D.root?.contains(b) ? postText() : saved;
+      const existing = new Set((c.description.match(/#[\p{L}\p{N}_]+/gu) || []).map(tag => tag.toLowerCase()));
+      const selectedTags = Array.isArray(c.hashtags) ? c.hashtags : c.hashtags.split(/\s+/).map(tag => tag.replace(/^#+/, ""));
+      const tags = saved.fixed_description ? "" : selectedTags.filter(tag => tag && !existing.has("#" + tag.toLowerCase())).map(tag => "#" + tag).join(" ");
+      await navigator.clipboard.writeText([c.title, c.description, tags].filter(Boolean).join("\n\n")); return toast(i18n.t("Post text copied"), "ok");
     }
     if (a === "logout") { await api("/api/auth/logout", {method:"POST"}); location.href = "/"; return; }
     if (a === "pwsave") {
@@ -3355,6 +3497,15 @@ document.addEventListener("click", async e => {
     if (a === "storcancel") { await send("/api/storage", {cancel: true}, "PUT"); toast(i18n.t("Kept the current folder"), "ok"); return drawSettings(); }
     if (a === "appsetup") { S.setupOpen = d.p && S.setupOpen !== d.p ? d.p : ""; return drawSocialAccounts(); }
     if (a === "copytext") { await navigator.clipboard.writeText(d.t); return toast(i18n.t("Copied"), "ok"); }
+    if (a === "ytcookies") {
+      b.disabled = true;
+      try {
+        await send("/api/youtube-cookies", d.remove ? {remove:true} : {text:$("#ytc").value}, "PUT");
+        toast(i18n.t("Saved"), "ok");
+        await drawSocialAccounts();
+      } finally { b.disabled = false; }
+      return;
+    }
     if (a === "appsave") {
       await send("/api/apps", {platform: d.p, client_id: $("#app_id").value, client_secret: $("#app_secret").value}, "PUT");
       S.setupOpen = ""; S.status = await api("/api/status"); toast(i18n.t("Saved. People can connect now."), "ok"); return drawSocialAccounts();
@@ -3406,6 +3557,30 @@ document.addEventListener("click", async e => {
       }
       return;
     }
+    if (a === "savetext") {
+      const editor = D, text = postText(editor);
+      b.disabled = true;
+      try {
+        const saved = await send(`/api/jobs/${editor.jid}/clips/${editor.cid}/text`, text, "PUT");
+        if (D === editor) syncPostText(editor, saved.clips.find(c => c.id === editor.cid), text);
+        await tick(); toast(i18n.t("Saved"), "ok");
+      }
+      finally { b.disabled = false; }
+      return;
+    }
+    if (a === "writetext") {
+      const editor = D;
+      if (editor.changed) return toast(i18n.t("Save and re-make the edited sequence before asking for new post text."), "bad");
+      const revision = postTextRevision(editor);
+      b.disabled = true; const was = b.textContent; b.textContent = i18n.t("Writing…");
+      try {
+        const t = await send(`/api/jobs/${editor.jid}/clips/${editor.cid}/write`, {});
+        if (!canApplyPostRewrite(editor, revision)) return toast(i18n.t("The clip changed while the AI was writing. Ask again for the current version."), "bad");
+        const f = k => $(`[data-f="${k}"]`, editor.root);
+        f("title").value = t.title; f("description").value = t.description; f("hashtags").value = (t.hashtags || []).join(" ");
+        return toast(i18n.t("New post text written. Read it over and save it, or post the clip."), "ok");
+      } finally { b.disabled = false; b.textContent = was; }
+    }
     if (a === "postnow" || a === "postqueue") {
       const editor = D;
       if (editor.posting) return;
@@ -3417,6 +3592,7 @@ document.addEventListener("click", async e => {
       editor.root.dataset.posting = "true";
       updatePostButtons(editor.root);
       try {
+        await send(`/api/jobs/${editor.jid}/clips/${editor.cid}/text`, postText(editor), "PUT");
         await send("/api/posts", {job:editor.jid, clip:editor.cid, accounts:accs, now:a === "postnow"});
         toast(a === "postnow" ? i18n.t("Posting now") : i18n.t("Added to the queue"), "ok");
         await tick();

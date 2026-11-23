@@ -164,14 +164,16 @@ def main(data):
                 check("new clip titles and post captions are requested in Brazilian Portuguese",
                       "Brazilian Portuguese" in ask.call_args.args[0]
                       and "write them in English" not in ask.call_args.args[0])
-            with (patch.object(transcribe, "_decode_multilingual",
+            with (patch.object(transcribe, "decode_pieces",
                                return_value=[(["▁Olá", "▁Brasil"], [0.1, 0.5])]) as decode,
-                  patch.object(transcribe, "_take_now", side_effect=AssertionError("English model used")),
+                  patch.object(transcribe, "_take_now", return_value=object()) as take,
+                  patch.object(transcribe, "REMOTE", ""),
                   patch.object(transcribe, "_decode_remote", side_effect=AssertionError("English worker used"))):
                 spoken = transcribe.transcribe(transcribe.np.full(16000, 1000, dtype=transcribe.np.int16),
                                                 multilingual=True)
                 check("Portuguese speech uses the multilingual model and keeps accents and timestamps",
-                      decode.call_count == 1 and [w["w"] for w in spoken] == ["Olá", "Brasil"]
+                      decode.call_count == 1 and take.call_args.args == ("pt",) and decode.call_args.args[2] == "pt"
+                      and [w["w"] for w in spoken] == ["Olá", "Brasil"]
                       and spoken[0]["s"] == 0.1 and spoken[1]["s"] == 0.5)
     finally:
         db.engine.dispose()

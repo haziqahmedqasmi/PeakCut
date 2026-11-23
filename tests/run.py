@@ -19,6 +19,13 @@ BASE = f"http://127.0.0.1:{PORT}"
 
 
 def main() -> int:
+    # Children print multilingual captions; use one encoding and canonical Windows temporary paths throughout.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    tempfile.tempdir = str(Path(tempfile.gettempdir()).resolve())
+    sys.path.insert(0, str(ROOT))
+    from studio import tools
+    tools.setup()  # propagate the detected ffmpeg directory to tests that invoke it directly
     data = Path(tempfile.mkdtemp(prefix="peakcut-test-"))
     env = {**os.environ, "PEAKCUT_DATA": str(data), "PEAKCUT_PORT": str(PORT), "PEAKCUT_PUBLIC_URL": BASE,
            "PEAKCUT_HOST": "127.0.0.1", "PEAKCUT_AUTO_RELOAD": "0", "DATABASE_URL": "",
@@ -26,6 +33,7 @@ def main() -> int:
            # nothing outside this machine is contacted: no AI, no email, no Google sign-in
            "PEAKCUT_SMTP_HOST": "", "PEAKCUT_VERIFY_EMAIL": "1",   # the tests cover the confirm-your-email rule
            "GOOGLE_CLIENT_ID": "", "GOOGLE_CLIENT_SECRET": "", "GOOGLE_CLIENT_FILE": "", "PYTHONUNBUFFERED": "1",
+           "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "TEMP": tempfile.gettempdir(), "TMP": tempfile.gettempdir(),
            "PEAKCUT_AI_KEY": "", "PEAKCUT_AI_KEY_FILE": "", "PEAKCUT_AI_MODELS": "",
            "PEAKCUT_UPLOAD_PART_MB": "5", "PEAKCUT_MAX_UPLOAD_MB": "64"}
     log = data / "server.log"
@@ -48,9 +56,17 @@ def main() -> int:
         runs = [("permissions", ["tests/test_permissions.py", BASE, str(ROOT), sys.executable]),
                 ("abuse and limits", ["tests/test_abuse.py", BASE, str(ROOT)]),
                 ("queue under load", ["tests/test_load_queue.py", str(ROOT)]),
+                ("a day-long video in little memory", ["tests/test_longvideo.py"]),
                 ("deleting and bulk actions", ["tests/test_delete.py"]),
+                ("saving a video when Windows says busy", ["tests/test_jobsave.py"]),
+                ("your own big text on the clips", ["tests/test_bigtext.py"]),
+                ("hashtags made without an AI", ["tests/test_hashtags.py"]),
                 ("big uploads in pieces", ["tests/test_upload_parts.py", BASE]),
                 ("AI services", ["tests/test_ai.py"]),
+                ("YouTube automatic translation preference", ["tests/test_youtube_translation.py"]),
+                ("Portuguese multilingual speech", ["tests/test_speech_portuguese.py"]),
+                ("new layouts with edited segments and censorship", ["tests/test_merge_render.py"]),
+                ("upstream features with Portuguese and edited clips", ["tests/test_merge_clips.py"]),
                 ("Codex subscription", ["tests/test_codex.py"]),
                 ("ChatGPT account connection", ["tests/test_subscription.py"]),
                 ("no sign-in, and the AI key from the dashboard", ["tests/test_local.py"]),
@@ -65,12 +81,17 @@ def main() -> int:
                 ("captions never overlap, stuck clips, sentence endings", ["tests/test_stuck.py"]),
                 ("ad breaks and frozen screens", ["tests/test_static.py"]),
                 ("answers that are not quite right", ["tests/test_answer.py"]),
+                ("waiting out AI rate limits", ["tests/test_retry.py"]),
                 ("knowing which game a stream is", ["tests/test_games.py"]),
                 ("finding the facecam in a gaming stream", ["tests/test_facecam.py"]),
+                ("recording time: the buffer knows where each piece sits", ["tests/test_live_times.py"]),
                 ("fresh installs: ffmpeg, the speech model, AI errors", ["tests/test_tools.py"]),
                 ("the storage folder: full drive, open, move", ["tests/test_storage.py"]),
                 ("security: visitor address, email addresses, Google sign-in, prompts", ["tests/test_hardening.py"]),
-                ("long logs, the machine monitor, failed recordings, admin day totals", ["tests/test_robustness.py"])]
+                ("long logs, the machine monitor, failed recordings, admin day totals", ["tests/test_robustness.py"]),
+                ("speech models for other languages: Arabic, downloads, the second machine", ["tests/test_speech.py"]),
+                ("post text: write again with AI, edit, post without re-making", ["tests/test_post_text.py"]),
+                ("live recording stops and empty stream URLs", ["tests/test_live.py"])]
         for name, args in runs:
             print(f"\n=== {name} ===", flush=True)
             r = subprocess.run([sys.executable, *args], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")

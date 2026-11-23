@@ -4,6 +4,7 @@ import json
 import os
 import math
 import queue
+import re
 import shutil
 import tempfile
 import threading
@@ -12,7 +13,7 @@ import traceback
 import uuid
 from pathlib import Path
 
-from . import accounts, brain, config, creators, ctx, facecam, games, load, media, quality, render, roman, safe, transcribe, usage
+from . import accounts, brain, config, creators, ctx, facecam, fetch_model, games, hashtags, load, media, quality, render, roman, safe, transcribe, usage
 
 class _FairQueue:
     """Whose video is next. Each person has their own line and the lines take turns, so someone who adds ten
@@ -109,7 +110,8 @@ _lock = threading.RLock()
 on_clip_ready: list = []   # callbacks (job, clip), run once when a clip first finishes
 
 DEFAULTS = {"max_clips": 6, "min_len": 15, "max_len": 60, "style": "bounce", "layout": "blur", "quality": 720,
-            "range_start": None, "range_end": None, "captions": True}
+            "range_start": None, "range_end": None, "captions": True, "hook_text": "", "description_text": "",
+            "lang": "en"}   # lang: the language spoken
 
 
 LIMITS = {"max_clips": (1, 20), "min_len": (5, 120), "max_len": (10, 180), "quality": (360, 1080)}
@@ -124,6 +126,9 @@ def clean_options(options) -> dict:
                 raise ValueError("Captions must be on or off.")
             out[k] = v
             continue
+        if k in ("hook_text", "description_text"):     # kept even when empty: it clears the creator's own text for this video
+            out[k] = creators.clean_hook(v) if k == "hook_text" else creators.clean_description(v)
+            continue
         if k not in DEFAULTS or v in ("", None):
             continue
         if k in LIMITS:
@@ -133,6 +138,8 @@ def clean_options(options) -> dict:
             v = v if v in render.STYLES else DEFAULTS["style"]
         elif k == "layout":
             v = v if v in render.LAYOUTS else DEFAULTS["layout"]
+        elif k == "lang":
+            v = v if fetch_model.known(v) else DEFAULTS["lang"]
         else:                                    # range_start, range_end: seconds into the video
             v = float(v)
             if not math.isfinite(v) or v < 0:
@@ -181,7 +188,27 @@ def save(job):
             return
         tmp = d / "job.json.tmp"
         tmp.write_text(text, encoding="utf-8")
-        tmp.replace(d / "job.json")
+        _put_in_place(tmp, d / "job.json")
+
+
+def _put_in_place(tmp: Path, target: Path):
+    """Move the freshly written job.json over the old one.
+
+    Windows refuses this ("Access is denied") for a moment whenever anything else has the old file open: a virus
+    scanner, the search indexer, or another part of PeakCut reading it. A download saves many times a second, so it
+    happens, and it used to stop the whole video. So it is tried again a few times, and if the file is still busy
+    it is written in place; as a last resort this save is skipped, because the next one carries the same news."""
+    for i in range(8):
+        try:
+            tmp.replace(target)
+            return
+        except PermissionError:
+            time.sleep(0.05 * (i + 1))
+    try:
+        target.write_text(tmp.read_text(encoding="utf-8"), encoding="utf-8")
+        tmp.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def _set(job, **kw):
@@ -286,18 +313,24 @@ def running_now() -> int:
 
 def create(source: dict, options: dict, enqueue=True, creator=None, kind="video") -> dict:
     jid = time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:10]
+    settings = accounts.settings()
     c = creators.get(creator) if creator else None
     if c:
         d = creators.root(c["id"]) / ("live" if kind == "live" else "videos") / jid
-        base = {**DEFAULTS, **{k: c[k] for k in ("max_clips", "min_len", "max_len", "style", "layout", "captions")}}
+        base = {**DEFAULTS, **{k: c[k] for k in ("max_clips", "min_len", "max_len", "style", "layout", "captions", "lang") if k in c},
+                "hook_text": creators.clean_hook(c.get("hook_text")),
+                "description_text": creators.clean_description(c.get("description_text"))}
     else:
         d, base, creator = config.user_dir(ctx.uid()) / "jobs" / jid, dict(DEFAULTS), None
+    if not c or not c.get("lang"):
+        base["lang"] = "pt" if settings["caption_language"] == "pt-BR" else "en"
     opts = {**base, **clean_options(options)}
     if opts["min_len"] >= opts["max_len"]:
         opts["min_len"] = max(5, opts["max_len"] - 5)
     job = {"id": jid, "user": ctx.uid(), "kind": kind, "creator": creator, "dir": str(d), "created": time.time(), "source": source,
            "options": opts, "status": "queued", "stage": "Waiting", "progress": 0.0,
-           "caption_language": accounts.settings()["caption_language"],
+           "caption_language": settings["caption_language"],
+           "youtube_auto_translate": settings.get("youtube_auto_translate", True),
            "title": source.get("name", ""), "uploader": "", "duration": 0, "clips": [], "error": None, "ai": {}}
     d.mkdir(parents=True)
     with _lock:
@@ -438,15 +471,76 @@ def _render_changes(job, clip, changes):
             new["end"] = min(new["end"], clip["src_end"])
         if not 3 <= new["end"] - new["start"] <= 180:
             raise ValueError("A clip can be 3 to 180 seconds long.")
-    for k in ("hook", "title", "description", "style", "layout"):
+    for k in ("hook", "style", "layout"):
         if k in changes:
             new[k] = str(changes[k])[:{"hook": 60, "title": 100, "description": 2000}.get(k, 20)]
+    new.update(_post_text_changes(clip, changes))
     if new.get("style") not in render.STYLES:
         new["style"] = DEFAULTS["style"]
     if new.get("layout") not in render.LAYOUTS:
         new["layout"] = DEFAULTS["layout"]
     new["caption_language"] = accounts.settings()["caption_language"]
     return new
+
+
+def clean_hashtags(v) -> list:
+    """Hashtags typed by a person ("#funny gaming") or sent by the page as a list: plain words, at most 8."""
+    if isinstance(v, str):
+        v = v.split()
+    if not isinstance(v, list):
+        raise ValueError("Hashtags must be words separated by spaces.")
+    tags = [re.sub(r"\W", "", str(h))[:30] for h in v[:50] if isinstance(h, (str, int))]
+    out, seen = [], set()
+    for tag in tags:
+        if tag and tag.casefold() not in seen:
+            out.append(tag)
+            seen.add(tag.casefold())
+    return out[:8]
+
+
+def _post_text_changes(clip, changes: dict):
+    """Keep the description's tag line and the saved tag list together, on either kind of save."""
+    text = {k: str(changes[k] or "")[:{"title": 100, "description": 2000}[k]] for k in ("title", "description") if k in changes}
+    if "hashtags" in changes:
+        text["hashtags"] = clean_hashtags(changes["hashtags"])
+    if clip.get("hashtags_in_description") and not clip.get("fixed_description") and text:
+        # This clip's description ends with its hashtags, and posting does not add them again. So the
+        # description is put back together from the Hashtags box: the words, then one line of tags.
+        desc = hashtags._TAG_IN_TEXT.sub("", text.get("description", clip.get("description") or "")).strip()
+        line = " ".join("#" + t for t in text.get("hashtags", clip.get("hashtags") or []))
+        text["description"] = ((desc + "\n\n" + line).strip() if desc else line)[:2000]
+    return text
+
+
+def save_post_text(job, clip, changes: dict):
+    """Change a clip's title, description and hashtags without making the clip again. Posting reads them
+    from the clip when it uploads, so the next post (or one still waiting in the queue) uses the new text."""
+    text = _post_text_changes(clip, changes)
+    with _lock:
+        clip.update(text)
+    save(job)
+    side = Path(job["dir"]) / "clips" / f"{clip['id']}.json"   # the copy that sits next to the video file
+    try:
+        if side.is_file():
+            side.write_text(json.dumps({**json.loads(side.read_text(encoding="utf-8")), **text}, indent=1), encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+
+
+def spoken_in(job, clip) -> str:
+    """Speech in playback order, selected using the transcript's original source timestamps."""
+    try:
+        words = json.loads((Path(job["dir"]) / "words.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return " ".join(str(w.get("w", "")) for w in hashtags.words_in(clip, words))
+
+
+def _f(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return -1.0
 
 
 def render_one(job, clip, words):
@@ -532,7 +626,9 @@ def _render_sequence(job, clip, words):
 
 def _caption_words(job, clip, words, off):
     portuguese = clip.get("caption_language", job.get("caption_language")) == "pt-BR"
-    span = [round(clip["start"], 2), round(clip["end"], 2), "pt-BR" if portuguese else "en2"]
+    lang = clip.get("words_language") or job.get("transcript_lang") or job.get("lang") or ""
+    span = [round(clip["start"], 2), round(clip["end"], 2), job.get("youtube_auto_translate", True),
+            lang, "pt-BR" if portuguese else "en2"]
     if clip.get("fixed_for") == span and clip.get("fixed_words") and not any(
             roman.needs_roman(w.get("w", "")) for w in clip["fixed_words"]):
         raw = clip["fixed_words"]          # already tidied for this exact span: no second AI call
@@ -540,14 +636,14 @@ def _caption_words(job, clip, words, off):
         raw = [w for w in words if clip["start"] - 1 <= w["s"] <= clip["end"] + 1]
         try:
             usage.set_context(job.get("creator"), job.get("title") or "")
-            lang, title = job.get("lang") or "", job.get("title") or ""
+            title = job.get("title") or ""
             if portuguese:
                 raw = brain.portuguese_captions(raw, lang, title)
             else:
                 raw = brain.english_captions(raw, lang, title, youtube_english=lambda: _english_part(job, clip))
             clip.update(fixed_words=raw, fixed_for=span)
         except Exception:  # noqa: BLE001 - captions still render with the words as heard
-            if portuguese and job.get("lang") and not job["lang"].lower().startswith("pt"):
+            if portuguese and lang and not lang.lower().startswith("pt"):
                 raise
             pass
     # the last word on it: whatever was said, nothing is drawn in Hindi or Urdu script
@@ -586,12 +682,13 @@ def _english_part(job, clip):
     """YouTube's English captions for just this clip, for a video in another language. Fetched once per video."""
     if (job.get("source") or {}).get("type") != "url":
         return None
-    f = Path(job["dir"]) / "words_en.json"
+    allow_translation = job.get("youtube_auto_translate", True)
+    f = Path(job["dir"]) / ("words_en.json" if allow_translation else "words_en_original.json")
     if f.is_file():
         en = json.loads(f.read_text(encoding="utf-8"))
     else:
         try:
-            en = media.youtube_english_words(job["source"]["url"]) or []
+            en = media.youtube_english_words(job["source"]["url"], allow_translation=allow_translation) or []
         except Exception:  # noqa: BLE001 - YouTube often refuses its translations: the AI translates instead
             en = []
         f.write_text(json.dumps(en), encoding="utf-8")       # asked once per video, refused or not
@@ -677,15 +774,21 @@ def _facecam(job) -> list | None:
     return job["facecam"]
 
 
+def speech_language(job):
+    """An explicit speech choice wins; older Portuguese jobs keep their multilingual model."""
+    for lang in (job.get("lang"), (job.get("options") or {}).get("lang")):
+        code = str(lang or "").lower().replace("_", "-").split("-", 1)[0]
+        if fetch_model.known(code):
+            return code
+    return "pt" if job.get("caption_language") == "pt-BR" else fetch_model.DEFAULT
+
+
 def _run_job(job):
     import math
     from concurrent.futures import ThreadPoolExecutor
-    from functools import partial
     d = Path(job["dir"])
     o = job["options"]
     src = job["source"]
-    portuguese = job.get("caption_language") == "pt-BR"
-    transcribe_audio = partial(transcribe.transcribe, multilingual=True) if portuguese else transcribe.transcribe
     # Which game this is: what the creator set, or what the title says. It decides the extra rules the AI
     # reads and the tags every post carries.
     game = job.get("game") or ""
@@ -707,13 +810,14 @@ def _run_job(job):
         _set(job, status="running", stage="Picking up where it stopped", error=None)
     else:
         _set(job, status="running", stage="Getting the audio", progress=0.03, error=None, clips=[], ai={}, done_blocks=0)
-    from . import fetch_model
-    model_dir = config.ASR_MULTILINGUAL_DIR if portuguese else config.ASR_MODEL_DIR
-    if (portuguese or not transcribe.REMOTE) and not fetch_model.ready(model_dir):
-        stage = "Getting the multilingual speech model (one time)" if portuguese else "Getting the speech model (one time, about 480 MB)"
-        _set(job, stage=stage)
-        fetch_model.ensure(model_dir)
+    speech = speech_language(job)
+    if speech == fetch_model.DEFAULT and not transcribe.model_ready() and not transcribe.REMOTE:
+        _set(job, stage="Getting the speech model (one time, about 480 MB)")
+        fetch_model.ensure()
         _set(job, stage="Getting the audio")
+    could_borrow = src["type"] == "url" and config.YT_TRANSCRIPT and media.is_youtube(src["url"])
+    if speech != fetch_model.DEFAULT and not transcribe.REMOTE and not could_borrow and fetch_model.status(speech) == "missing":
+        fetch_model.ensure(speech, start=speech == "pt")  # Portuguese auto-downloads; optional languages need setup first
     fetch = ThreadPoolExecutor(1)
     video = None
     if src["type"] == "url":
@@ -733,7 +837,14 @@ def _run_job(job):
         pieces = span > LONG_VIDEO or meta["duration"] <= 0
         if not pieces:  # shorter video: fetch all of it in the background while the audio is worked on
             video = fetch.submit(media.download, src["url"], d, int(o["quality"]))
-        audio_file = media.download_audio(src["url"], d, lambda p: _set(job, progress=0.03 + 0.1 * p))
+        seen = [-1.0]
+
+        def got(p):                       # the bar moves in whole percents: no need to save the file a hundred times a second
+            if p - seen[0] >= 0.01 or p >= 1:
+                seen[0] = p
+                _set(job, progress=0.03 + 0.1 * p)
+
+        audio_file = media.download_audio(src["url"], d, got)
     else:
         pieces, audio_file = False, Path(src["path"])
         info = media.probe(audio_file)
@@ -784,17 +895,19 @@ def _run_job(job):
         began[clip["id"]] = time.time()
         if src["type"] == "url" and (pieces or not whole_video()):
             _fetch_piece(job, clip, audio)
-        if clip["status"] != "error" and clip.get("captions", True) and yt and yt[1].lower().startswith("en"):
+        if clip["status"] != "error" and clip.get("captions", True) and yt_model:
             # The clip was found with YouTube's transcript. What is shown on screen comes from our own model,
             # run on just this clip: full punctuation, nothing blanked out, timings to the word.
             a0, b0 = max(lo, int((clip["start"] - 1.5) * 16000)), min(hi, int((clip["end"] + 1.5) * 16000))
             try:
-                tw = [dict(w, s=round(w["s"] + a0 / 16000, 2), e=round(w["e"] + a0 / 16000, 2)) for w in transcribe_audio(audio[a0:b0])]
+                tw = [dict(w, s=round(w["s"] + a0 / 16000, 2), e=round(w["e"] + a0 / 16000, 2))
+                      for w in transcribe.transcribe(audio[a0:b0], lang=yt_model)]
             except Exception:  # noqa: BLE001 - the clip is still made, with YouTube's words
                 tw = []
             if len(tw) >= 3:
                 exact[clip["id"]] = (a0 / 16000, b0 / 16000, tw)
                 words_now = tw
+                clip["words_language"] = job.get("lang") or yt_model
         if clip["status"] != "error":
             render_one(job, clip, words_now)
 
@@ -808,13 +921,23 @@ def _run_job(job):
     yt = None
     if src["type"] == "url" and config.YT_TRANSCRIPT and media.is_youtube(src["url"]):
         try:
-            yt = media.youtube_words(src["url"])
+            yt = media.youtube_words(src["url"], allow_translation=job.get("youtube_auto_translate", True))
         except Exception:  # noqa: BLE001 - no transcript to borrow: ours is written as usual
             yt = None
         if yt and not _covers(yt[0], lo / 16000, hi / 16000):
             yt = None
         job["transcript_from"] = "youtube" if yt else "own"
-        job["lang"] = yt[1] if yt else ""          # the language spoken, when YouTube says (decides the captions)
+    # A borrowed English translation describes the text, not what language the speaker used.
+    job["lang"] = getattr(yt, "spoken_language", yt[1]) if yt else speech
+    job["transcript_lang"] = yt[1] if yt else speech
+    # A clip found with YouTube's transcript gets its on-screen words from our own model, when there is one here
+    # for the language YouTube says was spoken (English always; others once they are downloaded).
+    yt_code = ((job["lang"] or "").lower().replace("_", "-").split("-")[0] if yt else "")
+    yt_model = yt_code if fetch_model.known(yt_code) and (yt_code == fetch_model.DEFAULT or fetch_model.ready(yt_code)) else ""
+    if not yt and speech != fetch_model.DEFAULT and not transcribe.REMOTE and not fetch_model.ready(speech):
+        if fetch_model.state[speech]["doing"]:
+            _set(job, stage=f"Waiting for the {fetch_model.label(speech)} speech model to finish downloading")
+        fetch_model.ensure(speech, start=speech == "pt")  # waits for an existing download; Portuguese can start its own
     if resuming:
         try:
             words = json.loads((d / "words.json").read_text(encoding="utf-8"))
@@ -844,7 +967,7 @@ def _run_job(job):
                 if now_on[0] == i and p - last[0] > 0.05:      # only the part being shown moves the bar
                     last[0] = p
                     _set(job, progress=max(job["progress"], 0.14 + 0.78 * ((a_ - lo) + p * (b_ - a_)) / max(1, hi - lo)))
-            heard[i] = ahead.submit(ctx.bind(transcribe_audio), audio[a_:b_], tp)
+            heard[i] = ahead.submit(ctx.bind(transcribe.transcribe), audio[a_:b_], tp, speech)
 
     # The ad breaks and static screens of the whole video, found once. It reads the video end to end,
     # so it is done here rather than for each clip, and only when asked for.
@@ -898,6 +1021,12 @@ def _run_job(job):
                      end=round(c["end"] + shift, 2), style=o["style"], layout=o["layout"],
                      captions=o.get("captions", True), status="queued", version=0,
                      text_language=job.get("caption_language", "en"))
+            if o.get("hook_text"):        # the person's own big text, on every clip, in place of the AI's
+                c["hook"], c["fixed_hook"] = o["hook_text"], True
+            if o.get("description_text"):  # ...and their own description, exactly as written
+                c["description"], c["fixed_description"] = o["description_text"], True
+            else:                          # no description of their own: 3 to 5 fitting hashtags go at the end of the AI's
+                hashtags.apply(c, words, job["title"], job["uploader"], game)
             # Only the gameplay layout uses a webcam, so it is only looked for then, and only once: a
             # stream with no webcam is not looked for again on every clip of it.
             if o["layout"] == "gameplay" and face is False:
