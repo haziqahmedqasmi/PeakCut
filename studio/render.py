@@ -1,4 +1,5 @@
-"""Turns a time range into a vertical clip: 9:16 layout, bouncy word captions, hook title, cover."""
+"""Turns a time range into a clip: vertical 9:16 (or landscape 16:9 with the "wide" layout), bouncy word captions,
+hook title, cover."""
 import re
 import shutil
 import subprocess
@@ -81,8 +82,16 @@ def install_fonts():
 LAYOUTS = {"blur": "Full frame + blurred fill", "zoom": "Zoomed in + blurred fill", "crop": "Fill the screen (centre crop)",
            "left": "Fill the screen, keep the left side", "right": "Fill the screen, keep the right side",
            "fit": "Full frame on black", "split": "Split screen: left half on top, right half below (two people)",
-           "gameplay": "Gameplay fills the screen, facecam in the corner"}
+           "gameplay": "Gameplay fills the screen, facecam in the corner",
+           "wide": "Landscape 16:9 (1920x1080) for regular YouTube videos"}
 _FILLS = ("crop", "left", "right", "gameplay")      # layouts where the picture covers the whole frame
+WIDE_W, WIDE_H = 1920, 1080
+WIDE_SCALE = 0.72       # captions and heading in a 1080-high frame: smaller than in the 1920-high vertical one
+
+
+def frame(layout):
+    """(width, height, text scale) of the finished clip. Every layout is vertical 9:16, except "wide"."""
+    return (WIDE_W, WIDE_H, WIDE_SCALE) if layout == "wide" else (W, H, 1.0)
 
 
 def _ts(t):
@@ -114,6 +123,8 @@ def _groups(words, per):
 
 def geometry(src_w, src_h, layout):
     """Where the video sits in the 1080x1920 frame, and where hook and captions go."""
+    if layout == "wide":    # landscape: the whole picture, heading near the top, captions in the lower part
+        return layout, WIDE_H, 110, 860
     if src_h >= src_w and layout != "crop":
         layout = "crop"  # already vertical or square: nothing to gain from a blurred fill
     if layout not in LAYOUTS:
@@ -132,23 +143,25 @@ def geometry(src_w, src_h, layout):
     return layout, fg_h, max(230, top - 190), min(1640, top + fg_h + 180)
 
 
-def _hook_events(hook, dur, y):
-    """The heading: dark text in a white rounded box that fits it, on one line or two balanced ones."""
-    f, size = _Font.get(HOOK["font"]), HOOK["size"]
+def _hook_events(hook, dur, y, fw=W, k=1.0):
+    """The heading: dark text in a white rounded box that fits it, on one line or two balanced ones.
+    `fw` is the frame width, `k` shrinks it for the landscape frame."""
+    f, size = _Font.get(HOOK["font"]), int(HOOK["size"] * k)
+    max_w = HOOK["max_w"] if fw == W else int(fw * 0.7)
     words = hook.split()
     if not words:
         return []
     lines = [" ".join(words)]
-    if f.width(lines[0], size) > HOOK["max_w"] and len(words) > 1:      # two lines, split where they come out most even
+    if f.width(lines[0], size) > max_w and len(words) > 1:      # two lines, split where they come out most even
         cut = min(range(1, len(words)), key=lambda i: max(f.width(" ".join(words[:i]), size), f.width(" ".join(words[i:]), size)))
         lines = [" ".join(words[:cut]), " ".join(words[cut:])]
     widest = max(f.width(l, size) for l in lines)
-    if widest > HOOK["max_w"]:
-        size = max(40, int(size * HOOK["max_w"] / widest))
+    if widest > max_w:
+        size = max(30, int(size * max_w / widest))
         widest = max(f.width(l, size) for l in lines)
     line_h = f.em(size) * 1.16
-    bw, bh = widest + 2 * HOOK["pad_x"], line_h * len(lines) + 2 * HOOK["pad_y"]
-    x0, y0, r = (W - bw) / 2, y - bh / 2, min(HOOK["radius"], bh / 2)
+    bw, bh = widest + 2 * HOOK["pad_x"] * k, line_h * len(lines) + 2 * HOOK["pad_y"] * k
+    x0, y0, r = (fw - bw) / 2, y - bh / 2, min(HOOK["radius"] * k, bh / 2)
     x1, y1 = x0 + bw, y0 + bh
     n = lambda v: f"{v:.0f}"                                                         # noqa: E731
     box = (f"m {n(x0 + r)} {n(y0)} l {n(x1 - r)} {n(y0)} b {n(x1)} {n(y0)} {n(x1)} {n(y0)} {n(x1)} {n(y0 + r)} "
@@ -159,18 +172,22 @@ def _hook_events(hook, dur, y):
     ev = [f"Dialogue: 3,{span},Hook,,0,0,0,,{{\\an7\\pos(0,0)\\fad(160,0)\\c&H{HOOK['box']}&\\p1}}{box}{{\\p0}}"]
     for i, line in enumerate(lines):
         cy = y - line_h * (len(lines) - 1) / 2 + i * line_h - f.cap_shift(size)
-        ev.append(f"Dialogue: 4,{span},Hook,,0,0,0,,{{\\an5\\pos({W // 2},{cy:.0f})\\fad(160,0)\\fs{size}}}{line}")
+        ev.append(f"Dialogue: 4,{span},Hook,,0,0,0,,{{\\an5\\pos({fw // 2},{cy:.0f})\\fad(160,0)\\fs{size}}}{line}")
     return ev
 
 
-def build_ass(words, start, end, hook, style_name, highlight, hook_y, cap_y) -> str:
+def build_ass(words, start, end, hook, style_name, highlight, hook_y, cap_y, layout=None) -> str:
+    fw, fh, k = frame(layout)
+    cap_max_w = CAP_MAX_W if fw == W else int(fw * 0.75)
     st = STYLES.get(style_name, STYLES["bounce"])
+    if k != 1.0:
+        st = dict(st, size=int(st["size"] * k), outline=max(2, round(st["outline"] * k)))
     words = [dict(w, s=w["s"] - CAPTION_LEAD, e=w["e"] - CAPTION_LEAD) for w in words]
     strong = {_key(h) for h in highlight if _key(h)}
     head = f"""[Script Info]
 ScriptType: v4.00+
-PlayResX: {W}
-PlayResY: {H}
+PlayResX: {fw}
+PlayResY: {fh}
 WrapStyle: 2
 ScaledBorderAndShadow: yes
 
@@ -183,7 +200,7 @@ Style: Hook,{HOOK['font']},{HOOK['size']},&H00{HOOK['ink']},&H00{HOOK['ink']},&H
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     dur = end - start
-    ev = _hook_events(_clean(hook), dur, hook_y)
+    ev = _hook_events(_clean(hook), dur, hook_y, fw, k)
     f = _Font.get(st["font"])
     inside = [dict(w, w=_clean(w["w"])) for w in words if w["s"] >= start - 0.05 and w["s"] < end]
     inside = sorted((w for w in inside if w["w"]), key=lambda w: w["s"])
@@ -204,17 +221,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # they are not placed one by one. The line is drawn whole and centred, in a font the system has for it.
             line = " ".join(texts)
             fs = max(44, min(int(st["size"] * 0.7), int(1500 / max(1, len(line)) * 1.6)))
-            ev.append(f"Dialogue: 1,{_ts(g_start)},{_ts(g_end)},Cap,,60,60,0,,{{\\an5\\pos({W // 2},{cap_y:.0f})\\q0\\fs{fs}}}{line}")
+            ev.append(f"Dialogue: 1,{_ts(g_start)},{_ts(g_end)},Cap,,60,60,0,,{{\\an5\\pos({fw // 2},{cap_y:.0f})\\q0\\fs{fs}}}{line}")
             continue
         size = st["size"]
         gap = f.width("n n", size) - 2 * f.width("n", size) + (2 * st["outline"] + 6) * size / st["size"]   # a space, plus room for both outlines
         total = sum(f.width(t, size) for t in texts) + gap * (len(texts) - 1)
-        if total > CAP_MAX_W:                                  # a long phrase: shrink it to fit, never run off the frame
-            size = max(36, int(size * CAP_MAX_W / total))
+        if total > cap_max_w:                                  # a long phrase: shrink it to fit, never run off the frame
+            size = max(30, int(size * cap_max_w / total))
             gap = f.width("n n", size) - 2 * f.width("n", size) + (2 * st["outline"] + 6) * size / st["size"]   # a space, plus room for both outlines
             total = sum(f.width(t, size) for t in texts) + gap * (len(texts) - 1)
         cy = cap_y - f.cap_shift(size)
-        x = (W - total) / 2
+        x = (fw - total) / 2
         p = st["pop"]
         for i, (w, t) in enumerate(zip(g, texts)):
             wd = f.width(t, size)
@@ -250,6 +267,10 @@ def _filter(layout, fg_h, facecam=None):
                     f"[base]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1[b];"
                     f"[fc]crop={fw}:{fh}:{fx}:{fy},scale={PIP_W}:{pip_h},setsar=1[p];"
                     f"[b][p]overlay={W - PIP_W - PIP_MARGIN}:{PIP_MARGIN}[v0];")
+    if layout == "wide":
+        # Landscape: the whole picture. A 16:9 video fills the frame; any other shape gets black edges.
+        return (f"[0:v]fps={config.OUT_FPS},scale={WIDE_W}:{WIDE_H}:force_original_aspect_ratio=decrease,"
+                f"pad={WIDE_W}:{WIDE_H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1[v0];")
     fill = f"[0:v]fps={config.OUT_FPS},scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H}"
     if layout == "crop" or (layout == "gameplay" and not facecam):
         return fill + ",setsar=1[v0];"
@@ -292,7 +313,7 @@ def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, sr
         layout = "crop"     # no webcam found: the game fills the screen, which is still the right shape
     hook_y = _hook_y(layout, hook_y, face)
     ass = build_ass(words if clip.get("captions", True) else [], start, end, clip.get("hook", ""), clip.get("style", "bounce"),
-                    clip.get("highlight_words", []), hook_y, cap_y)
+                    clip.get("highlight_words", []), hook_y, cap_y, layout)
     # The clip is made in a short work folder and moved into place afterwards. The caption step of ffmpeg cannot
     # open files whose full path is longer than 260 characters on Windows, which a data folder deep inside other
     # folders easily reaches. Inside the work folder every name is short and relative (a drive colon would also
