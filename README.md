@@ -18,7 +18,7 @@ creator's live stream and clip the highlights while the stream is still running.
   spacing and optional daily caps, off by default (see [DEPLOY.md](DEPLOY.md#connecting-youtube-instagram-and-tiktok) for the one-time setup).
 - **No sign-in on your own computer.** It opens straight into the dashboard. On a shared server, switch accounts on
   (`PEAKCUT_ACCOUNTS=1`) for email or Google sign-in and an admin dashboard.
-- **Your own AI.** Gemini, OpenAI, a Codex subscription, Grok, Groq, OpenRouter, Claude, a local model through Ollama, or anything that
+- **Your own AI.** Gemini, OpenAI, a Codex subscription, a Claude subscription, Grok, Groq, OpenRouter, Claude, a local model through Ollama, or anything that
   speaks the OpenAI chat format. No key at all also works: clips are then picked by loudness.
 
 ## Quick start
@@ -85,6 +85,7 @@ PEAKCUT_AI_KEY=your-key-here
 | `gemini` | Google Gemini | https://aistudio.google.com/apikey |
 | `openai` | OpenAI | https://platform.openai.com/api-keys |
 | `codex` | Codex (your ChatGPT subscription) | Sign in through Codex CLI; see below |
+| `claude_sub` | Claude (your Pro or Max subscription) | Sign in through Claude Code; see below |
 | `xai` | Grok (xAI) | https://console.x.ai |
 | `groq` | Groq | https://console.groq.com/keys |
 | `openrouter` | OpenRouter (many models, one key) | https://openrouter.ai/keys |
@@ -133,6 +134,32 @@ PEAKCUT_AI_MODELS=default
 If Codex cannot be found, set `PEAKCUT_CODEX_COMMAND` to the executable's full path. On Windows the adapter also
 queries Windows' registered desktop application when its executable is absent from PATH, and finds the native
 binary inside standard npm installations.
+
+### Use your Claude subscription
+
+Install [Claude Code](https://code.claude.com/docs/en/setup) on the computer that runs PeakCut. Your Claude Pro or
+Max plan is then used for clip selection, titles, captions and pictures, with no API key.
+
+Open **Settings, AI subscription** and press **Connect Claude**. Claude Code opens the official Claude sign-in page.
+On the same computer, sign in and PeakCut notices by itself. From another device, press **Continue sign-in**, sign in,
+and paste the code that page shows into PeakCut. Then choose a model (Sonnet is fast and good for clips, or
+**Automatic** for your plan's usual model) and a reasoning effort, and press **Use this subscription**. The choice is
+saved only after a successful test. For terminal-only setups, `claude auth login` works too.
+
+PeakCut runs `claude -p` for each request, in an empty temporary folder, with every tool, MCP server, setting file
+and memory file switched off, and without saving the session. API keys in the environment are removed for these
+calls, so they always use the plan and never API billing; an API-key login is refused. Calls run one at a time and
+count toward your plan's usage limits; live clipping may need a faster model such as Sonnet or Haiku.
+
+To configure it through `.env` instead of the dashboard:
+
+```ini
+PEAKCUT_AI_PROVIDER=claude_sub
+PEAKCUT_AI_MODELS=sonnet
+```
+
+If Claude Code cannot be found, set `PEAKCUT_CLAUDE_COMMAND` to the executable's full path. Standard npm
+installations and the native installer (`~/.local/bin`) are found automatically.
 
 ### Videos in Arabic
 

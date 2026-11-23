@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from . import admin as admins
 from . import account, load
 from . import (accounts, ai, alerts, auth, brain, config, creators, ctx, db, jobs, live, media, posting,
-               profiles, render, safe, subscription, transcribe, usage)
+               profiles, render, safe, subscription, claude_account, transcribe, usage)
 
 from . import tools as _tools  # noqa: E402
 
@@ -83,6 +83,7 @@ def _startup():
 @app.on_event("shutdown")
 def _close_subscription():
     subscription.connection.close()
+    claude_account.connection.close()
 
 
 class Gate:
@@ -1477,6 +1478,9 @@ def ai_put(request: Request, body: dict = Body(...)):
     if str(body.get("provider") or "").strip().lower() == "codex":
         subscription_use(request, body)
         return ai.public()
+    if str(body.get("provider") or "").strip().lower() == "claude_sub":
+        claude_use(request, body)
+        return ai.public()
     k = body.get("key")
     try:
         out = ai.save(body.get("provider"), body.get("models"), body.get("base_url") or "",
@@ -1624,6 +1628,83 @@ def speech_remove(request: Request, lang: str):
         raise HTTPException(409, str(e))
     ctx.bump()
     return speech_list(request)
+
+
+# ---------------------------------------------------------------- the Claude subscription, through Claude Code
+def _claude_public(state):
+    active = ai.provider() == "claude_sub"
+    return {**state, "active": active, "models": ai.models() if active else ["default"],
+            "reasoning_effort": ai.current()["reasoning_effort"] if active else ""}
+
+
+def _claude_call(do):
+    try:
+        state = do()
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except ai.claude_cli.ClaudeError as e:
+        raise HTTPException(502, str(e))
+    ctx.bump()
+    return _claude_public(state)
+
+
+@app.get("/api/ai/claude")
+def claude_status(request: Request, refresh: bool = False):
+    _admin(request)
+    return _claude_public(claude_account.connection.status(refresh=refresh))
+
+
+@app.get("/api/ai/claude/models")
+def claude_models(request: Request):
+    _admin(request)
+    return {"models": ai.claude_cli.catalog()}
+
+
+@app.post("/api/ai/claude/connect")
+def claude_connect(request: Request):
+    _admin(request)
+    _throttle("claudeconnect:" + ctx.uid(), 8, 600)
+    return _claude_call(claude_account.connection.start)
+
+
+@app.post("/api/ai/claude/code")
+def claude_code(request: Request, body: dict = Body(default={})):
+    _admin(request)
+    _throttle("claudecode:" + ctx.uid(), 10, 600)
+    return _claude_call(lambda: claude_account.connection.send_code(body.get("code")))
+
+
+@app.post("/api/ai/claude/cancel")
+def claude_cancel(request: Request):
+    _admin(request)
+    return _claude_call(claude_account.connection.cancel)
+
+
+@app.post("/api/ai/claude/use")
+def claude_use(request: Request, body: dict = Body(default={})):
+    """Test the chosen model with the Claude plan, and only then make it the AI that PeakCut uses."""
+    _admin(request)
+    _throttle("claudetest:" + ctx.uid(), 20, 600)
+    try:
+        models = ai.validate_models(body.get("models") or "default")
+        effort = ai.claude_cli.validate_effort(body.get("reasoning_effort",
+                                                        ai.current()["reasoning_effort"] if ai.provider() == "claude_sub" else ""))
+        for model in models:
+            if not ai.claude_cli.known_model(model):
+                raise ValueError("Choose an available model from the list.")
+            choice = next((m for m in ai.claude_cli.catalog() if m["id"] == model), None)
+            if effort and choice is not None and effort not in choice["efforts"]:
+                raise ValueError("This model does not support the selected reasoning effort. Choose another level.")
+        result = ai.test_claude_sub(models, reasoning_effort=effort)
+        if ai.provider() != "claude_sub" or ai.models() != models or ai.current()["reasoning_effort"] != effort:
+            ai.save("claude_sub", models, reasoning_effort=effort)
+            usage.forget_all()
+            ctx.bump()
+        return result
+    except (ValueError, TypeError) as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, ai.explain(e) or "The Claude subscription did not answer. Check the connection and model.")
 
 
 # ================================================================ posting, accounts, settings

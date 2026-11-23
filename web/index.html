@@ -1411,6 +1411,7 @@ function viewTab() {
 function go(v, tab, fromHistory) {
   if (v === "settings" && tab === "apps") { v = "social"; tab = null; }
   stopSubscriptionPoll();
+  stopClaudePoll();
   resetClipEditor();
   const dialog = $("#clipdlg");
   if (dialog.open) { dialog.close(); dialog.replaceChildren(); }
@@ -2378,7 +2379,7 @@ const setTabs = () => [
 function aiHints() {
   const k = S.ai, sel = $("#ai_provider"); if (!k || !sel) return;
   const pv = k.providers.find(x => x.id === sel.value) || k.providers[0], same = pv.id === k.provider;
-  const subscription = pv.id === "codex";
+  const claudePlan = pv.id === "claude_sub", subscription = pv.id === "codex" || claudePlan;
   $("#ai_keywrap").hidden = subscription;
   $("#ai_model").disabled = subscription;
   $('[data-act="aimodels"]').disabled = subscription;
@@ -2386,10 +2387,14 @@ function aiHints() {
   const test = $('[data-act="aitest"]');
   if (test) test.hidden = !same;
   $("#ai_codexhelp").hidden = !subscription;
-  $("#ai_codexhelp").textContent = same && k.codex?.subscription
+  $("#ai_codexhelp").textContent = claudePlan
+    ? (same && k.claude_sub?.subscription ? i18n.t("Your Claude account is connected through Claude Code. Requests use your plan's limits.")
+       : same && k.claude_sub?.error ? i18n.detail(k.claude_sub.error) : i18n.t("Connect your Claude account and choose a model in the AI subscription tab."))
+    : same && k.codex?.subscription
     ? i18n.t("Your ChatGPT account is connected through Codex. Requests use your subscription limits.")
     : same && k.codex?.error ? k.codex.error : i18n.t("Connect your ChatGPT account in the AI subscription tab. Requests use your Codex subscription limits.");
-  $("#ai_modelhint").textContent = subscription
+  $("#ai_modelhint").textContent = claudePlan ? i18n.t("Choose the Claude model in the AI subscription tab.")
+    : subscription
     ? i18n.t("Use default to let Codex choose, or Find models for choices from Codex's local cache. A second model after a comma is a fallback.")
     : i18n.t("A fast, inexpensive model is the right choice. Add a second one after a comma to fall back on.");
   if (subscription && !$("#ai_model").value.trim()) $("#ai_model").value = "default";
@@ -2474,8 +2479,83 @@ async function drawSubscription(body, refresh = false, provided = null) {
     });
   }, 2000);
 }
+// Claude works like the ChatGPT section above, through Claude Code on the computer running PeakCut.
+let claudeTimer = null, claudeVersion = 0, claudeUsing = false;
+const claudeEfforts = ["low", "medium", "high", "xhigh", "max"];
+function stopClaudePoll() {
+  clearTimeout(claudeTimer); claudeTimer = null; claudeVersion++;
+}
+function selectedClaudeModel() {
+  const value = $("#cl_model")?.value;
+  if (value === "default") return {id:"default", efforts:claudeEfforts};
+  return (S.claudeCatalog || []).find(m => m.id === value);
+}
+function claudeChoiceChanged() {
+  const k = S.claude, button = $('[data-act="cluse"]');
+  if (!k || !button) return;
+  button.disabled = claudeUsing || !selectedClaudeModel();
+  const changed = (k.models || []).length > 1 || $("#cl_model")?.value !== (k.models || ["default"])[0] || ($("#cl_effort")?.value || "") !== (k.reasoning_effort || "");
+  button.textContent = !k.active ? i18n.t("Use this subscription") : changed ? i18n.t("Save and test") : i18n.t("Test subscription");
+}
+function fillClaudeEfforts(preferred = "") {
+  const model = selectedClaudeModel(), select = $("#cl_effort"); if (!select) return;
+  const choices = model?.efforts || [];
+  select.innerHTML = `<option value="">${i18n.html("Model default{0}", "")}</option>` + choices.map(e => `<option value="${esc(e)}">${esc(effortLabels[e] || e)}</option>`).join("");
+  select.disabled = claudeUsing || !model;
+  select.value = choices.includes(preferred) ? preferred : "";
+  claudeChoiceChanged();
+}
+function claudePoll(body) {
+  claudeTimer = setTimeout(async () => {
+    if (S.view !== "settings" || S.stab !== "subscription" || !body?.isConnected) return;
+    const version = claudeVersion;
+    try {
+      const k = await api("/api/ai/claude");
+      if (version !== claudeVersion) return;
+      // Still waiting: leave the page alone so a code being typed is not wiped.
+      if (k.state === "pending" && k.auth_url === S.claude?.auth_url && (k.error || "") === (S.claude?.error || "")) return claudePoll(body);
+      await drawClaudeSubscription(body, false, k);
+    } catch (err) {
+      const result = $("#cl_result"); if (result) result.textContent = i18n.t("{0} Press Check connection to retry.", err.message);
+    }
+  }, 2000);
+}
+async function drawClaudeSubscription(body, refresh = false, provided = null) {
+  stopClaudePoll();
+  const version = claudeVersion;
+  const [k, catalog] = await Promise.all([provided || api("/api/ai/claude" + (refresh ? "?refresh=1" : "")),
+                                          S.claudeCatalog ? {models:S.claudeCatalog} : api("/api/ai/claude/models")]);
+  if (version !== claudeVersion || S.view !== "settings" || S.stab !== "subscription" || !body?.isConnected) return;
+  S.claude = k; S.claudeCatalog = catalog.models;
+  const connected = k.state === "connected", pending = k.state === "pending", account = k.account || {};
+  const current = (k.models || ["default"])[0];
+  const known = current === "default" || catalog.models.some(m => m.id === current);
+  const options = (known ? "" : `<option value="${esc(current)}">${esc(current)}</option>`) +
+    `<option value="default">${i18n.html("Automatic{0}", " — " + i18n.t("your plan's usual model"))}</option>` +
+    catalog.models.map(m => `<option value="${esc(m.id)}">${esc(i18n.t(m.label))}</option>`).join("");
+  body.innerHTML = `<h2>Claude</h2>
+    <p class="help">${i18n.html("Connect your Claude account (Pro or Max plan) to use it for clip selection, titles and captions. PeakCut uses Claude Code on this computer, and sign-in happens on the official Claude page.")}</p>
+    <div class="ai-state" role="status"><span class="pill ${connected ? "ok" : "warn"}">${connected ? i18n.t("Account connected") : pending ? i18n.t("Waiting for sign-in") : k.installed ? i18n.t("Not connected") : i18n.t("Claude Code not found")}</span></div>
+    ${k.error ? `<p class="help" role="alert">${esc(i18n.detail(k.error))}</p>` : ""}
+    ${connected ? `<dl class="kv"><div><dt>${i18n.html("Account")}</dt><dd>${esc(account.email || i18n.t("Claude account"))}</dd></div><div><dt>${i18n.html("Plan")}</dt><dd>${esc(account.plan ? account.plan[0].toUpperCase() + account.plan.slice(1) : "Claude")}</dd></div><div><dt>${i18n.html("Used by PeakCut")}</dt><dd>${k.active ? i18n.t("Yes") : i18n.t("Not yet")}</dd></div></dl>
+      <div class="ai-form"><label class="f">${i18n.html("Claude model")}<select id="cl_model">${options}</select><span class="hint">${i18n.html("Sonnet is fast and good for clips. Automatic lets Claude Code use your plan's usual model.")}</span></label>
+      <label class="f">${i18n.html("Reasoning effort")}<select id="cl_effort"></select><span class="hint">${i18n.html("Higher effort thinks longer and uses more of your plan. Changes are saved after a successful test.")}</span></label></div>
+      <div class="row" style="margin-top:20px"><button class="btn primary" data-act="cluse">${k.active ? i18n.t("Test subscription") : i18n.t("Use this subscription")}</button><button class="btn" data-act="clrefresh">${i18n.html("Check connection")}</button><button class="btn ghost" data-act="clconnect">${i18n.html("Connect another account")}</button></div>`
+      : pending ? `<p class="help">${i18n.html("A sign-in page may have opened on the computer running PeakCut: sign in there and PeakCut finishes by itself. On another device, use Continue sign-in, then paste the code that page shows.")}</p>
+      <div class="row"><a class="btn primary" href="${esc(k.auth_url || "")}" target="_blank" rel="noopener noreferrer">${i18n.html("Continue sign-in")}</a><button class="btn" data-act="clrefresh">${i18n.html("Check connection")}</button><button class="btn" data-act="clcancel">${i18n.html("Cancel connection")}</button></div>
+      <div class="ai-form" style="margin-top:20px"><label class="f">${i18n.html("Code from the sign-in page")}<input id="cl_code" autocomplete="off" spellcheck="false"><span class="hint">${i18n.html("Only needed when the page shows a code instead of coming back to PeakCut.")}</span></label></div>
+      <div class="row"><button class="btn" data-act="clcode">${i18n.html("Send code")}</button></div>`
+      : `<div class="row"><button class="btn primary" data-act="clconnect" ${k.installed ? "" : "disabled"}>${i18n.html("Connect Claude")}</button><button class="btn" data-act="clrefresh">${i18n.html("Check connection")}</button></div>`}
+    <p class="help" style="margin-top:20px">${i18n.html("This is the account used by Claude Code on this computer. PeakCut never asks for your Claude password or an API key. Requests count toward your plan's usage limits.")}</p>
+    <div class="row"><a class="btn ghost" href="/app/settings/ai?provider=anthropic">${i18n.html("Use an API key instead")}</a>
+      <a class="btn ghost" href="https://support.claude.com/en/articles/17154008-monthly-api-credits-for-max-ultra-and-team-plans" target="_blank" rel="noopener noreferrer">${i18n.html("How to claim API credits")}</a></div>
+    <p class="help" id="cl_result" role="status"></p>`;
+  if (connected) { $("#cl_model").value = current; fillClaudeEfforts(k.reasoning_effort || ""); }
+  if (pending) claudePoll(body);
+}
 async function drawSettings() {
   stopSubscriptionPoll();
+  stopClaudePoll();
   const box = $("#sform"); if (!box) return;
   const tab = S.stab || setTabs()[0][0], me = S.status.user;
   if (tab !== "subscription") S.subscriptionDraft = null;
@@ -2518,17 +2598,18 @@ async function drawSettings() {
     }
     if (tab === "subscription") {
       body.innerHTML = `<section class="set-sec" id="codex-subscription"><h2>ChatGPT / Codex</h2><p class="help" role="status">${i18n.html("Loading…")}</p></section>
-        <section class="set-sec"><h2>Claude</h2>
-          <p class="help">${i18n.html("Use Claude for clips and captions with a Claude Console API key. Eligible Max, Ultra and Team plans can use monthly API credits after linking a Console organization.")}</p>
-          <div class="row"><a class="btn" href="/app/settings/ai?provider=anthropic">${i18n.html("Set up Claude")}</a>
-            <a class="btn ghost" href="https://support.claude.com/en/articles/17154008-monthly-api-credits-for-max-ultra-and-team-plans" target="_blank" rel="noopener noreferrer">${i18n.html("How to claim API credits")}</a></div>
-        </section>`;
-      const codexSection = $("#codex-subscription");
+        <section class="set-sec" id="claude-subscription"><h2>Claude</h2><p class="help" role="status">${i18n.html("Loading…")}</p></section>`;
+      const codexSection = $("#codex-subscription"), claudeSection = $("#claude-subscription");
+      const claudeDrawn = drawClaudeSubscription(claudeSection).catch(err => {
+        claudeSection.innerHTML = `<h2>Claude</h2><p class="help" role="alert">${esc(i18n.detail(err.message))}</p>
+          <button class="btn" data-act="clrefresh">${i18n.html("Check connection")}</button>`;
+      });
       try { await drawSubscription(codexSection); }
       catch (err) {
         codexSection.innerHTML = `<h2>ChatGPT / Codex</h2><p class="help" role="alert">${esc(i18n.detail(err.message))}</p>
           <button class="btn" data-act="subrefresh">${i18n.html("Check connection")}</button>`;
       }
+      await claudeDrawn;
     }
     if (tab === "ai") {
       const k = await api("/api/ai");
@@ -3165,6 +3246,8 @@ document.addEventListener("change", async e => {
   }
   if (t.id === "sub_model") return fillSubscriptionEfforts($("#sub_effort")?.value || "");
   if (t.id === "sub_effort") return subscriptionChoiceChanged();
+  if (t.id === "cl_model") return fillClaudeEfforts($("#cl_effort")?.value || "");
+  if (t.id === "cl_effort") return claudeChoiceChanged();
   if (t.id === "ai_provider") {
     const same = t.value === S.ai.provider;
     $("#ai_models").innerHTML = "";
@@ -3232,6 +3315,45 @@ document.addEventListener("click", async e => {
       b.disabled = true;
       try { const k = await send("/api/ai/subscription/cancel"); await drawSubscription($("#codex-subscription"), false, k); }
       finally { b.disabled = false; }
+      return;
+    }
+    if (a === "clrefresh") {
+      b.disabled = true;
+      try { await drawClaudeSubscription($("#claude-subscription"), true); } finally { b.disabled = false; }
+      return;
+    }
+    if (a === "clconnect" || a === "clcancel" || a === "clcode") {
+      const code = $("#cl_code")?.value.trim() || "";
+      if (a === "clcode" && !code) return toast(i18n.t("Paste the code shown after signing in."), "bad");
+      b.disabled = true;
+      try {
+        const k = await send({clconnect:"/api/ai/claude/connect", clcancel:"/api/ai/claude/cancel", clcode:"/api/ai/claude/code"}[a],
+                             a === "clcode" ? {code} : undefined);
+        await drawClaudeSubscription($("#claude-subscription"), false, k);
+      } finally { b.disabled = false; }
+      return;
+    }
+    if (a === "cluse") {
+      if (claudeUsing) return;
+      claudeUsing = true;
+      b.disabled = true;
+      $("#cl_model").disabled = true; $("#cl_effort").disabled = true;
+      const models = [$("#cl_model").value.trim() || "default"], effort = $("#cl_effort").value;
+      let message = "";
+      try {
+        const result = await send("/api/ai/claude/use", {models, reasoning_effort:effort});
+        message = i18n.t("Subscription is ready. {0} answered successfully.", result.model);
+      } catch (err) { message = i18n.t("The subscription test failed. {0}", err.message); }
+      finally {
+        try {
+          S.status = await api("/api/status"); drawShell();
+          await drawClaudeSubscription($("#claude-subscription"), true);
+        } finally {
+          claudeUsing = false;
+          if ($("#cl_model")) { $("#cl_model").disabled = false; fillClaudeEfforts($("#cl_effort")?.value || ""); }
+        }
+        if ($("#cl_result")) $("#cl_result").textContent = message;
+      }
       return;
     }
     if (a === "subuse") {

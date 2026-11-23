@@ -1,7 +1,7 @@
-"""Talking to the AI service. Use your own key or Codex subscription, and choose the service and model in the dashboard
+"""Talking to the AI service. Use your own key, your Codex subscription or your Claude subscription, and choose the service and model in the dashboard
 (Settings, AI) or in .env. What is saved from the dashboard is kept in ai.json in the data folder and wins.
 
-    PEAKCUT_AI_PROVIDER   gemini | openai | codex | xai | groq | openrouter | anthropic | ollama | custom
+    PEAKCUT_AI_PROVIDER   gemini | openai | codex | claude_sub | xai | groq | openrouter | anthropic | ollama | custom
     PEAKCUT_AI_MODELS     one or more model ids, comma separated, tried in this order
     PEAKCUT_AI_KEY        your key (or PEAKCUT_AI_KEY_FILE, a file holding it)
     PEAKCUT_AI_BASE_URL   only for "custom" (any service that speaks the OpenAI chat format), or to override
@@ -19,7 +19,7 @@ import threading
 
 import httpx
 
-from . import config, codex
+from . import config, codex, claude_cli
 
 # name -> (label shown on the pages, address, how it is spoken to, where to get a key, an example model id)
 PROVIDERS = {
@@ -32,9 +32,12 @@ PROVIDERS = {
     "ollama": ("Ollama (on this machine)", "http://127.0.0.1:11434/v1", "openai", "https://ollama.com", "llama3.1"),
     "custom": ("Custom (OpenAI-compatible)", "", "openai", "", ""),
     "codex": ("Codex (ChatGPT subscription)", "", "codex", "", "default"),
+    "claude_sub": ("Claude (Claude subscription)", "", "claude_sub", "", "default"),
 }
 ALIASES = {"google": "gemini", "grok": "xai", "claude": "anthropic", "local": "ollama"}
-NO_KEY = {"ollama", "custom", "codex"}
+NO_KEY = {"ollama", "custom", "codex", "claude_sub"}
+SUBSCRIPTIONS = {"codex", "claude_sub"}       # signed in through the service's own program: no key, no address
+EFFORT_SETTING = {"codex": "PEAKCUT_CODEX_REASONING_EFFORT", "claude_sub": "PEAKCUT_CLAUDE_REASONING_EFFORT"}
 
 # ---------------------------------------------------------------- the settings in use
 _lock = threading.Lock()
@@ -67,10 +70,10 @@ def current() -> dict:
     p = str(d.get("provider") or config.AI_PROVIDER or "").strip().lower()
     p = ALIASES.get(p, p)
     return {"provider": p,
-            "reasoning_effort": str(d.get("reasoning_effort", config.env("PEAKCUT_CODEX_REASONING_EFFORT", ""))).strip().lower() if p == "codex" else "",
+            "reasoning_effort": str(d.get("reasoning_effort", config.env(EFFORT_SETTING[p], ""))).strip().lower() if p in SUBSCRIPTIONS else "",
             "models": list(d["models"]) if d.get("provider") else list(config.AI_MODELS),
-            "base_url": "" if p == "codex" else (str(d.get("base_url") or "") if d.get("provider") else config.AI_BASE_URL).rstrip("/"),
-            "key": "" if p == "codex" else str(d["key"]) if d.get("provider") and "key" in d else config.ai_key()}
+            "base_url": "" if p in SUBSCRIPTIONS else (str(d.get("base_url") or "") if d.get("provider") else config.AI_BASE_URL).rstrip("/"),
+            "key": "" if p in SUBSCRIPTIONS else str(d["key"]) if d.get("provider") and "key" in d else config.ai_key()}
 
 
 def provider() -> str:
@@ -98,6 +101,8 @@ def ready() -> bool:
     c = current()
     if c["provider"] == "codex":
         return bool(c["models"] and codex.status()["subscription"])
+    if c["provider"] == "claude_sub":
+        return bool(c["models"] and claude_cli.status()["subscription"])
     return bool(c["provider"] in PROVIDERS and c["models"] and base_url() and (c["key"] or c["provider"] in NO_KEY))
 
 
@@ -110,6 +115,7 @@ def public() -> dict:
             "key_hint": c["key"][-4:] if len(c["key"]) >= 12 else "", "ready": ready(), "label": label(),
             "saved_here": bool(_from_dashboard().get("provider")),
             "codex": codex.status() if c["provider"] == "codex" else None,
+            "claude_sub": claude_cli.status() if c["provider"] == "claude_sub" else None,
             "providers": [{"id": k, "label": v[0], "address": v[1], "needs_key": k not in NO_KEY, "key_url": v[3], "example": v[4]}
                           for k, v in PROVIDERS.items()]}
 
@@ -133,15 +139,16 @@ def save(provider_id: str, model_ids, address: str = "", new_key=None, reasoning
     if p not in PROVIDERS:
         raise ValueError("Choose one of the AI services in the list.")
     ms = validate_models(model_ids)
-    address = "" if p == "codex" else str(address or "").strip().rstrip("/")[:300]
+    address = "" if p in SUBSCRIPTIONS else str(address or "").strip().rstrip("/")[:300]
     if address and not re.fullmatch(r"https?://[^\s]+", address):
         raise ValueError("The address has to start with http:// or https://")
     if p == "custom" and not address:
         raise ValueError("A custom service needs its address, for example http://127.0.0.1:1234/v1")
     old = current()
-    effort = codex.validate_effort(old["reasoning_effort"] if reasoning_effort is None and old["provider"] == p else reasoning_effort) if p == "codex" else ""
+    effort = old["reasoning_effort"] if reasoning_effort is None and old["provider"] == p else reasoning_effort
+    effort = codex.validate_effort(effort) if p == "codex" else claude_cli.validate_effort(effort) if p == "claude_sub" else ""
     k = old["key"] if new_key is None and old["provider"] == p else str(new_key or "").strip()[:400]
-    if p == "codex":
+    if p in SUBSCRIPTIONS:
         k = ""
     if not k and p not in NO_KEY:
         raise ValueError("Paste the key for this service.")
@@ -166,6 +173,8 @@ def list_models(provider_id=None, address=None, with_key=None) -> list:
         raise ValueError("Choose one of the AI services in the list.")
     if p == "codex":
         return codex.list_models()
+    if p == "claude_sub":
+        return ["default", *(m["id"] for m in claude_cli.catalog())]
     k = str(with_key or "").strip() or (c["key"] if c["provider"] == p else "")
     base = str(address or "").strip().rstrip("/") or (c["base_url"] if c["provider"] == p else "") or PROVIDERS[p][1]
     if not base:
@@ -205,14 +214,30 @@ def test_codex(model_ids, reasoning_effort=None) -> dict:
     return {"ok": True, "model": ms[0], "reasoning_effort": effort, "tokens": sent + wrote}
 
 
+def test_claude_sub(model_ids, reasoning_effort=None) -> dict:
+    """Test the chosen Claude subscription model before replacing any working AI settings."""
+    ms = validate_models(model_ids)
+    old = current()
+    effort = claude_cli.validate_effort(old["reasoning_effort"] if reasoning_effort is None and old["provider"] == "claude_sub" else reasoning_effort)
+    text, sent, wrote = claude_cli.run(ms[0], _wrapped('Answer with a JSON array that holds the single string "ok".',
+                                                       {"type": "ARRAY", "items": {"type": "STRING"}}), reasoning_effort=effort)
+    if _parse(text) != ["ok"]:
+        raise AIError("Claude did not return the expected test answer. Try again.")
+    return {"ok": True, "model": ms[0], "reasoning_effort": effort, "tokens": sent + wrote}
+
+
 def test() -> dict:
     """One tiny request with the settings in use, to prove the key, the address and the model all work."""
     ms = models()
     if provider() == "codex":
         codex.status(refresh=True)
+    if provider() == "claude_sub":
+        claude_cli.status(refresh=True)
     if not ready():
         if provider() == "codex":
             raise codex.CodexError(codex.status()["error"] or "Save a Codex model under Settings, AI first.")
+        if provider() == "claude_sub":
+            raise claude_cli.ClaudeError(claude_cli.status()["error"] or "Choose a Claude model under Settings, AI subscription first.")
         raise ValueError("Save a service, a model and a key first.")
     out, sent, wrote = call(ms[0], 'Answer with a JSON array that holds the single string "ok".', {"type": "ARRAY", "items": {"type": "STRING"}})
     return {"ok": True, "model": ms[0], "tokens": sent + wrote, "answer": str(out)[:80]}
@@ -232,7 +257,7 @@ problem = {"text": "", "at": 0.0}       # why the AI last failed, for the dashbo
 
 def explain(e) -> str:
     """What went wrong with an AI call, in words the owner can act on."""
-    if isinstance(e, codex.CodexError):
+    if isinstance(e, (codex.CodexError, claude_cli.ClaudeError)):
         return str(e)
     text, low = str(e), str(e).lower()
     name = (models() or ["?"])[0]
@@ -368,6 +393,9 @@ def call(model: str, prompt: str, schema: dict, timeout: float | None = None):
     if how == "codex":
         text, sent, wrote = codex.run(model, prompt, schema=schema, timeout=timeout, reasoning_effort=current()["reasoning_effort"])
         return _parse(text), sent, wrote
+    if how == "claude_sub":
+        text, sent, wrote = claude_cli.run(model, _wrapped(prompt, schema), timeout=timeout, reasoning_effort=current()["reasoning_effort"])
+        return _parse(text), sent, wrote
     return {"gemini": _gemini, "openai": _openai, "anthropic": _anthropic}[how](model, prompt, schema, timeout)
 
 
@@ -382,6 +410,8 @@ def see(prompt: str, image: bytes, timeout: float | None = None) -> tuple[str, i
     model = models()[0]
     if provider() == "codex":
         return codex.run(model, prompt, image=image, timeout=timeout, reasoning_effort=current()["reasoning_effort"])
+    if provider() == "claude_sub":
+        return claude_cli.run(model, prompt, image=image, timeout=timeout, reasoning_effort=current()["reasoning_effort"])
     b64 = base64.b64encode(image).decode()
     how = PROVIDERS[provider()][2]
     if how == "gemini":

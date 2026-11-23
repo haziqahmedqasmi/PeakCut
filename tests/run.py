@@ -69,6 +69,7 @@ def main() -> int:
                 ("upstream features with Portuguese and edited clips", ["tests/test_merge_clips.py"]),
                 ("Codex subscription", ["tests/test_codex.py"]),
                 ("ChatGPT account connection", ["tests/test_subscription.py"]),
+                ("Claude subscription through Claude Code", ["tests/test_claude_sub.py"]),
                 ("no sign-in, and the AI key from the dashboard", ["tests/test_local.py"]),
                 ("Hindi and Urdu captions in Roman letters", ["tests/test_roman.py"]),
                 ("turning captions off and back on", ["tests/test_captions.py"]),
