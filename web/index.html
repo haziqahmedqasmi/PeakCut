@@ -464,6 +464,17 @@ img.av{object-fit:cover}
 .ai-form{display:grid;gap:18px;max-width:560px}
 .ai-form select{width:100%}
 .ai-form .with{display:flex;gap:8px}.ai-form .with input{flex:1;min-width:0}
+.model-picker{position:relative;width:100%}
+.model-drop{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:60;background:var(--bg);border:1px solid var(--line-2);border-radius:var(--r);overflow:hidden;opacity:0;pointer-events:none;transition:opacity .15s ease}
+.model-drop.open{opacity:1;pointer-events:auto}
+.model-drop-head{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--muted);border-bottom:1px solid var(--line);font-size:12px;color:var(--dim);font-weight:600}
+.model-drop-head span{color:var(--faint);font-size:11px;font-weight:500}
+.model-drop-list{max-height:220px;overflow-y:auto;padding:4px;scrollbar-width:thin;display:flex;flex-direction:column;gap:1px}
+.model-drop-item{display:flex;align-items:center;justify-content:space-between;width:100%;padding:8px 10px;border:0;border-radius:6px;background:transparent;color:var(--text);font-size:13px;font-family:inherit;text-align:left;cursor:pointer;transition:background-color .15s ease,color .15s ease}
+.model-drop-item:hover{background:var(--muted);color:var(--brand-ink)}
+.model-drop-item.on{background:var(--brand-soft);color:var(--brand-deep);font-weight:600}
+.model-drop-item .tag{font-size:11px;padding:2px 6px;border-radius:4px;background:var(--line);color:var(--dim)}
+.model-drop-empty{padding:20px 14px;text-align:center;color:var(--faint);font-size:13px}
 .ai-form .hint{font-size:12px;font-weight:400;color:var(--dim)}
 .ai-form .hint a{color:var(--brand-deep);font-weight:600}
 .ai-form .hint a:hover{color:var(--brand-ink)}
@@ -2626,8 +2637,8 @@ function openAcct() {
     ${on ? `<button class="danger" data-act="logout">${ic("signout")}Sign out</button>` : ""}`;
   openPop(p, $("[data-act=acctmenu]"));
 }
-document.addEventListener("click", e => { if (!e.target.closest(".pop, [data-act=bell], [data-act=acctmenu]")) closePops(); });
-document.addEventListener("keydown", e => { if (e.key === "Escape") closePops(); });
+document.addEventListener("click", e => { if (!e.target.closest(".pop, [data-act=bell], [data-act=acctmenu]")) closePops(); if (!e.target.closest("#model_picker")) closeModelDrop(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") { closePops(); closeModelDrop(); } });
 /* new notifications pop up as a small card with a soft chime */
 let lastNotice = Number(localStorage.getItem("lastNotice") || 0), chimeCtx = null;
 function chime() {
@@ -5649,6 +5660,43 @@ const setTabs = () => [
   ["apps", "Connected apps", "plug", "Where your clips get posted"],
   ...(S.status.user?.is_admin ? [["speech", "Speech models", "chat", "The languages PeakCut can hear"],
                                  ["storage", "Storage", "folder", "Where videos and clips are kept"]] : [])];
+let currentModels = [];
+function renderModelList(filter = "") {
+  const list = $("#model_drop_list"), count = $("#model_drop_count"), inp = $("#ai_model");
+  if (!list) return;
+  const target = filter !== undefined && filter !== null ? filter : (inp?.value || "");
+  const lastPart = target.split(",").pop().trim();
+  const q = lastPart.toLowerCase();
+  const filtered = q ? currentModels.filter(m => m.toLowerCase().includes(q)) : currentModels;
+  if (count) count.textContent = `${filtered.length} of ${currentModels.length}`;
+  if (!filtered.length) {
+    list.innerHTML = `<div class="model-drop-empty">${currentModels.length ? "No matching models" : "No models found"}</div>`;
+    return;
+  }
+  const curr = (inp?.value || "").split(",").map(x => x.trim());
+  list.innerHTML = filtered.map(m => {
+    const isSel = curr.includes(m);
+    return `<button type="button" class="model-drop-item ${isSel ? "on" : ""}" data-model="${esc(m)}">
+      <span>${esc(m)}</span>
+      ${isSel ? `<span class="tag">Selected</span>` : ""}
+    </button>`;
+  }).join("");
+}
+function openModelDrop(filter) {
+  const drop = $("#model_drop");
+  if (!drop || !currentModels.length) return;
+  if (filter !== undefined && filter !== null) {
+    renderModelList(filter);
+  } else if (!drop.classList.contains("open")) {
+    renderModelList();
+  }
+  drop.classList.add("open");
+}
+function closeModelDrop() {
+  const drop = $("#model_drop");
+  if (drop) drop.classList.remove("open");
+}
+
 function aiHints() {
   const k = S.ai, sel = $("#ai_provider"); if (!k || !sel) return;
   const pv = k.providers.find(x => x.id === sel.value) || k.providers[0], same = pv.id === k.provider;
@@ -5674,8 +5722,19 @@ async function drawSettings() {
             <label class="f">AI service<select id="ai_provider">${k.providers.map(x => `<option value="${esc(x.id)}" ${x.id === k.provider ? "selected" : ""}>${esc(x.label)}</option>`).join("")}</select></label>
             <label class="f">Key<input id="ai_key" type="password" autocomplete="off" spellcheck="false"><span class="hint" id="ai_keyhint"></span></label>
             <label class="f" id="ai_basewrap">Address<input id="ai_base" value="${esc(k.base_url || "")}" spellcheck="false"><span class="hint">Where the service answers. Only needed for a custom service.</span></label>
-            <label class="f">Model<span class="with"><input id="ai_model" list="ai_models" value="${esc(k.models.join(", "))}" spellcheck="false"><button class="btn" type="button" data-act="aimodels">Find models</button></span>
-              <datalist id="ai_models"></datalist><span class="hint">A fast, inexpensive model is the right choice. Add a second one after a comma to fall back on.</span></label>
+            <label class="f">Model
+              <div class="model-picker" id="model_picker">
+                <span class="with">
+                  <input id="ai_model" value="${esc(k.models.join(", "))}" spellcheck="false" autocomplete="off">
+                  <button class="btn" type="button" data-act="aimodels">Find models</button>
+                </span>
+                <div class="model-drop" id="model_drop">
+                  <div class="model-drop-head"><b>Available models</b><span id="model_drop_count"></span></div>
+                  <div class="model-drop-list" id="model_drop_list"></div>
+                </div>
+              </div>
+              <span class="hint">A fast, inexpensive model is the right choice. Add a second one after a comma to fall back on.</span>
+            </label>
           </div>
           <div class="row" style="margin-top:20px"><button class="btn primary" data-act="aisave">Save and test</button>${k.ready ? `<button class="btn" data-act="aitest">Test again</button>` : ""}</div></section>`;
       aiHints();
@@ -6036,7 +6095,7 @@ document.addEventListener("change", async e => {
     if (t.id === "o_captions") t.dataset.overridden = "true";
     syncCaptionStyle(t);
   }
-  if (t.id === "ai_provider") { $("#ai_models").innerHTML = ""; if (S.ai && t.value !== S.ai.provider) { $("#ai_model").value = ""; $("#ai_base").value = ""; } return aiHints(); }
+  if (t.id === "ai_provider") { currentModels = []; closeModelDrop(); if (S.ai && t.value !== S.ai.provider) { $("#ai_model").value = ""; $("#ai_base").value = ""; } return aiHints(); }
   if (t.dataset.sel) {
     const k = t.dataset.sel;
     if (t.checked) sel().add(k); else sel().delete(k);
@@ -6057,7 +6116,31 @@ document.addEventListener("change", async e => {
   saveCreator(true);
 });
 
+document.addEventListener("input", e => {
+  if (e.target.id === "ai_model" && currentModels.length) {
+    openModelDrop(e.target.value);
+  }
+});
+document.addEventListener("focusin", e => {
+  if (e.target.id === "ai_model" && currentModels.length) {
+    openModelDrop(e.target.value);
+  }
+});
+
 document.addEventListener("click", async e => {
+  const mi = e.target.closest("[data-model]");
+  if (mi) {
+    const val = mi.dataset.model;
+    const inp = $("#ai_model");
+    if (inp) {
+      const parts = inp.value.split(",");
+      parts[parts.length - 1] = val;
+      inp.value = parts.join(", ");
+      inp.focus();
+    }
+    closeModelDrop();
+    return;
+  }
   const b = e.target.closest("[data-act]"); if (!b) return;
   const a = b.dataset.act, d = b.dataset;
   if (b.tagName === "A") e.preventDefault();
@@ -6070,9 +6153,14 @@ document.addEventListener("click", async e => {
       b.disabled = true;
       try {
         const r = await send("/api/ai/models", {provider: $("#ai_provider").value, base_url: $("#ai_base").value, key: $("#ai_key").value});
-        $("#ai_models").innerHTML = r.models.map(m => `<option value="${esc(m)}">`).join("");
-        toast(r.models.length ? `${r.models.length} models found. Click the model box to pick one.` : "The service listed no models. Type the model yourself.", r.models.length ? "ok" : "");
-        if (r.models.length) $("#ai_model").focus();
+        currentModels = r.models || [];
+        if (currentModels.length) {
+          openModelDrop();
+          toast(`${currentModels.length} models found. Choose one below.`, "ok");
+        } else {
+          closeModelDrop();
+          toast("The service listed no models. Type the model yourself.", "");
+        }
       } finally { b.disabled = false; }
       return;
     }
