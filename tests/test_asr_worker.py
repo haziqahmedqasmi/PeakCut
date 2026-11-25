@@ -1,11 +1,14 @@
 """The speech machine starts fresh when the card's memory fills: right away when a request fails for lack of card
 memory, and when idle once the memory is nearly full. It holds no data, so a restart loses nothing."""
-import os, sys
+import os, sys, tempfile
 os.environ["PEAKCUT_ASR_TOKEN"] = "t"
+os.environ["PEAKCUT_DATA"] = tempfile.mkdtemp(prefix="pc-asr-")   # never the real data folder
 sys.path.insert(0, ".")
 import numpy as np                                   # noqa: E402
 from fastapi.testclient import TestClient           # noqa: E402
 from studio import asr_worker, transcribe            # noqa: E402
+
+asr_worker.fetch_model.ready = lambda lang=None: True   # the speech model is replaced below, so none is needed here
 
 fails = []
 

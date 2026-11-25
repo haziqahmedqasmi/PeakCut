@@ -2131,6 +2131,15 @@ def ai_put(request: Request, body: dict = Body(...)):
     return out
 
 
+@app.delete("/api/ai")
+def ai_forget(request: Request):
+    _admin(request)
+    out = ai.forget()
+    usage.forget_all()
+    ctx.bump()
+    return out
+
+
 @app.post("/api/ai/models")
 def ai_models(request: Request, body: dict = Body(default={})):
     _admin(request)

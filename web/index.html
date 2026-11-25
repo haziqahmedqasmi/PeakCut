@@ -5677,7 +5677,7 @@ async function drawSettings() {
             <label class="f">Model<span class="with"><input id="ai_model" list="ai_models" value="${esc(k.models.join(", "))}" spellcheck="false"><button class="btn" type="button" data-act="aimodels">Find models</button></span>
               <datalist id="ai_models"></datalist><span class="hint">A fast, inexpensive model is the right choice. Add a second one after a comma to fall back on.</span></label>
           </div>
-          <div class="row" style="margin-top:20px"><button class="btn primary" data-act="aisave">Save and test</button>${k.ready ? `<button class="btn" data-act="aitest">Test again</button>` : ""}</div></section>`;
+          <div class="row" style="margin-top:20px"><button class="btn primary" data-act="aisave">Save and test</button>${k.ready ? `<button class="btn" data-act="aitest">Test again</button>` : ""}${k.saved_here ? `<button class="btn ghost" data-act="aiforget">Remove key</button>` : ""}</div></section>`;
       aiHints();
     }
     if (tab === "speech") {
@@ -6085,6 +6085,16 @@ document.addEventListener("click", async e => {
         S.status = await api("/api/status"); drawShell(); await drawSettings();
         if (ok) toast(`Saved. ${ok.model} answered, so the AI is ready.`, "ok");
         else toast(`Saved, but the test failed. ${why}`, "bad");
+      } finally { b.disabled = false; }
+      return;
+    }
+    if (a === "aiforget") {
+      if (!await ask("Remove the AI key?", "The service, model and key saved here are deleted. Until you add a key again, clips are picked by loudness.", "Remove", true)) return;
+      b.disabled = true;
+      try {
+        const r = await send("/api/ai", {}, "DELETE");
+        S.status = await api("/api/status"); drawShell(); await drawSettings();
+        toast(r.has_key ? "Removed. A key in the .env file is still used: delete it there to stop it." : "Key removed. Clips are picked by loudness until you add one.", "ok");
       } finally { b.disabled = false; }
       return;
     }

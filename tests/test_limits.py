@@ -23,6 +23,7 @@ u, _ = auth._create("owner@example.com", "Owner", password_hash="x")
 started = []
 live.Session.start = lambda self: (live.SESSIONS.__setitem__(self.job["id"], self), started.append(self))
 load.busy = lambda: False
+live.transcribe.model_ready = lambda *a, **k: True   # recordings are not really started, so no speech model is needed
 with ctx.as_user(u.id):
     cs = [creators.create({"name": f"Streamer {i}", "channel": f"https://www.twitch.tv/streamer{i}"}) for i in range(60)]
     check("more than 50 creators can be added", len(creators.all_creators()), 60)
