@@ -150,6 +150,16 @@ def save(provider_id: str, model_ids, address: str = "", new_key=None) -> dict:
     return public()
 
 
+def forget() -> dict:
+    """Remove what was saved from the dashboard: the service, the models and the key. A key set in .env, if there
+    is one, is used again; without one, clips are picked by loudness."""
+    with _lock:
+        _file().unlink(missing_ok=True)
+        _file().with_suffix(".tmp").unlink(missing_ok=True)
+        _saved["at"] = None
+    return public()
+
+
 def list_models(provider_id=None, address=None, with_key=None) -> list:
     """The model ids a service offers, so the settings page can show a list to pick from."""
     c = current()
