@@ -4,13 +4,7 @@ import sys
 import tempfile
 import threading
 import time
-
-os.environ["PEAKCUT_DATA"] = tempfile.mkdtemp()
-sys.path.insert(0, sys.argv[1])
-from studio import config, jobs, load  # noqa: E402
-
-load.MIN_FREE_RAM_GB = 0.0  # this checks the processor; how much memory the test machine has free is not the point
-config.JOB_WORKERS = 8      # the ceiling on videos at once; the test is about load, not about how many cores this machine has
+import multiprocessing
 
 fails = []
 
@@ -21,28 +15,40 @@ def check(name, ok, extra=""):
         fails.append(name)
 
 
-# ---- the monitor measures something real
-load.start()
-time.sleep(2.5)
-idle = load.state()
-check("monitor reads the processor", 0 <= idle["cpu"] <= 100, str(idle))
-check("monitor reads free memory and disk", idle["ram_free_gb"] > 0.1 and idle["disk_free_gb"] > 0.1)
-
-
 def burn(until):
     while time.time() < until:
         sum(i * i for i in range(20000))
 
 
-import multiprocessing  # noqa: E402
-
 if __name__ == "__main__":
-    stop = time.time() + 22
+    # PeakCut is loaded only here. On Windows every burner process loads this file again, and dozens of them each
+    # loading PeakCut (and numpy) can run the machine out of memory, so fewer cores get busy and the test fails.
+    os.environ["PEAKCUT_DATA"] = tempfile.mkdtemp()
+    sys.path.insert(0, sys.argv[1])
+    from studio import config, jobs, load  # noqa: E402
+
+    load.MIN_FREE_RAM_GB = 0.0  # this checks the processor; how much memory the test machine has free is not the point
+    config.JOB_WORKERS = 8      # the ceiling on videos at once; the test is about load, not about how many cores this machine has
+
+    # ---- the monitor measures something real
+    load.start()
+    time.sleep(2.5)
+    idle = load.state()
+    check("monitor reads the processor", 0 <= idle["cpu"] <= 100, str(idle))
+    check("monitor reads free memory and disk", idle["ram_free_gb"] > 0.1 and idle["disk_free_gb"] > 0.1)
+
+    stop = time.time() + 45
     ps = [multiprocessing.Process(target=burn, args=(stop,)) for _ in range(os.cpu_count() or 4)]
     [p.start() for p in ps]
-    time.sleep(18)
+    # On Windows each burner first loads this whole file again, which takes a while with many cores, so wait for
+    # the load to show (up to 40 s) instead of a fixed time
+    t0 = time.time()
+    while not load.busy() and time.time() - t0 < 40:
+        time.sleep(0.5)
+    time.sleep(1)
     hot = load.state()
     check("it sees a fully loaded processor", hot["cpu"] > 80 and hot["busy"], str(hot))
+    [p.terminate() for p in ps]
     [p.join() for p in ps]
     t0 = time.time()
     while load.busy() and time.time() - t0 < 15:
