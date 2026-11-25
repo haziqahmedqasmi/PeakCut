@@ -2212,6 +2212,9 @@ textarea.cpg-in{height:auto;padding:8px 12px;resize:vertical}.cpg-in:focus{borde
 
 <script src="/assets/gradient-ascii.js"></script>
 <script>
+/* Twitch's player refuses to run inside a page opened by a number (127.0.0.1), but accepts "localhost", which is the
+   same machine. So a page opened by the loopback number moves itself to localhost (same port, path and #view). */
+if (/^(127\.\d+\.\d+\.\d+|\[::1\])$/.test(location.hostname)) location.replace(location.href.replace(location.hostname, "localhost"));
 /* ============================================================ helpers */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -2556,7 +2559,7 @@ function drawStream() {
     pl.dataset.src = src;
     const ipHost = /^[\d.]+$|^\[/.test(location.hostname);
     pl.innerHTML = k === "twitch" && ipHost
-      ? `<div class="noembed">${platLogo(k)}<b>Twitch only plays inside sites with a web address</b><span>It will play here once PeakCut is on its domain, or open PeakCut at localhost instead of ${esc(location.hostname)}.</span><a class="btn sm" href="${esc(p.channel)}" target="_blank" rel="noopener">Watch on Twitch ${ic("upright")}</a></div>`
+      ? `<div class="noembed">${platLogo(k)}<b>Twitch only plays inside sites with a web address</b><span>It will play here once PeakCut is on its domain, or open PeakCut by its name (for example localhost) instead of the number ${esc(location.hostname)}.</span><a class="btn sm" href="${esc(p.channel)}" target="_blank" rel="noopener">Watch on Twitch ${ic("upright")}</a></div>`
       : src ? `<iframe src="${src}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen title="${PLAT[k].name} live stream"></iframe>` : "";
     watchLive(pl.querySelector("iframe"));
   }
