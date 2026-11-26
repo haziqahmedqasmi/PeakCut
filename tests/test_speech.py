@@ -40,10 +40,12 @@ downloads = []
 
 
 def archive(name):
-    """A tiny stand-in for the real archive: the right folder name, the four files."""
+    """A tiny stand-in for the real archive: the right folder name and model files."""
     src = Path(tempfile.mkdtemp(prefix="pc-tar-")) / name
     src.mkdir()
-    for n in ("tokens.txt", "encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx"):
+    names = ("small-tokens.txt", "small-encoder.int8.onnx", "small-decoder.int8.onnx") if name == "sherpa-onnx-whisper-small" else (
+        "tokens.txt", "encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx")
+    for n in names:
         (src / n).write_bytes(b"model")
     out = io.BytesIO()
     with tarfile.open(fileobj=out, mode="w:bz2") as t:
@@ -61,14 +63,14 @@ class Answer(io.BytesIO):
         self.headers = {"Content-Length": str(len(data))}
 
 
-def fake_open(url, timeout=None):
+def fake_open(url, timeout=None, context=None):
     downloads.append(url)
     lang = next(k for k, m in fetch_model.MODELS.items() if m[2] == url)
     return Answer(ARCHIVES[lang] + (b"changed" if lang in tampered else b""))
 
 
 # ---- the list of models, and where Arabic comes from
-check("English and Arabic are known", sorted(fetch_model.MODELS), ["ar", "en"])
+check("English, Arabic and Hindi/Hinglish are known", sorted(fetch_model.MODELS), ["ar", "en", "hi"])
 check("Arabic is downloaded from its own address, not English's", fetch_model.MODELS["ar"][2] != fetch_model.MODELS["en"][2], True)
 check("Arabic's address names one fixed version of the file, not the latest",
       fetch_model.MODELS["ar"][2], lambda u: "/resolve/main/" not in u and re.search(r"/resolve/[0-9a-f]{40}/", u))
@@ -101,8 +103,8 @@ check("...and so does loading the model for transcribing", ("Speech models" in s
 
 # ---- the routes: list, download, remove
 r = c.get("/api/speech").json()["models"]
-check("the page lists both languages with their size", [(m["lang"], m["state"], m["size_mb"] > 0) for m in r],
-      [("en", "missing", True), ("ar", "missing", True)])
+check("the page lists every language with its size", [(m["lang"], m["state"], m["size_mb"] > 0) for m in r],
+      [("en", "missing", True), ("ar", "missing", True), ("hi", "missing", True)])
 check("an unknown language is refused", c.post("/api/speech/xx", headers=ORIGIN).status_code, 400)
 check("another website cannot start a download", c.post("/api/speech/ar", headers={"Origin": "https://evil.example"}).status_code, 403)
 check("...and nothing was downloaded", downloads, [])
@@ -163,6 +165,11 @@ words = transcribe._words(tokens, [0.0, 0.1, 0.2, 0.3, 0.4, 0.6, 0.7, 0.8, 1.0],
 check("Arabic pieces join into words, vowel marks and the stretching line removed, punctuation kept",
       [w["w"] for w in words], ["الكتاب", "جميل،", "ok"])
 check("live word matching works in Arabic letters", (live._plain("الكتابُ"), live._plain("Clip-That!")), ("الكتاب", "clipthat"))
+
+from types import SimpleNamespace  # noqa: E402
+whisper = SimpleNamespace(segment_texts=[" नमस्ते दुनिया"], segment_timestamps=[1.0], segment_durations=[2.0])
+check("Whisper segment timings are spread over words without token timestamps",
+      transcribe._whisper_tokens(whisper, 5.0), (["▁नमस्ते", "▁दुनिया"], [1.0, 2.0]))
 
 from studio import roman  # noqa: E402
 check("Arabic without the AI is spelled in Roman letters the caption font can draw, hamza and commas too",

@@ -23,8 +23,8 @@ creator's live stream and clip the highlights while the stream is still running.
 
 ## Quick start
 
-You need Python 3.10 or newer and `ffmpeg`. On Windows: `winget install Gyan.FFmpeg`. On a Mac: `brew install ffmpeg`.
-On Linux: `sudo apt install ffmpeg`. PeakCut finds it by itself and tells you in the dashboard if it is missing.
+You need Python 3.10 or newer and `ffmpeg` with ASS/libass subtitle support. On Windows: `winget install Gyan.FFmpeg`. On a Mac: `brew install ffmpeg`.
+On Linux: `sudo apt install ffmpeg`. Check that `ffmpeg -filters` lists `ass`. PeakCut finds ffmpeg by itself and tells you in the dashboard if it is missing.
 
 Put PeakCut in a short folder that stays put: `C:\peakcut` on Windows, `~/peakcut` on a Mac or Linux. Not inside a
 temporary folder or an AI assistant's workspace: those get cleaned up, and on Windows a folder that deep stops the

@@ -11,10 +11,13 @@ import time
 from pathlib import Path
 
 NEEDED = ("ffmpeg", "ffprobe")
-HELP = ("PeakCut needs ffmpeg to work on video, and it isn't installed on this computer yet. "
-        + ("Open a terminal and run:  winget install Gyan.FFmpeg" if sys.platform == "win32" else
-           "Run:  brew install ffmpeg" if sys.platform == "darwin" else "Run:  sudo apt install ffmpeg")
-        + "  Then close PeakCut and start it again.")
+_INSTALL = ("Open a terminal and run:  winget install Gyan.FFmpeg" if sys.platform == "win32" else
+            "Run:  brew install ffmpeg" if sys.platform == "darwin" else "Run:  sudo apt install ffmpeg")
+_RESTART = "  Then close PeakCut and start it again."
+HELP = ("PeakCut needs ffmpeg to work on video, but it isn't installed or available to PeakCut. "
+        + _INSTALL + _RESTART)
+ASS_HELP = ("The ffmpeg PeakCut is using doesn't include ASS subtitle support (libass), which it needs to render clips. "
+            "Install a full ffmpeg build with libass enabled and make sure PeakCut uses it. " + _INSTALL + _RESTART)
 _seen = {"at": 0.0, "missing": list(NEEDED)}
 
 
@@ -74,8 +77,12 @@ def missing() -> list:
 
 
 def explain(e) -> str:
-    """The plain-words version of "the program could not be found", or "" if the error is something else."""
+    """Explain a missing ffmpeg program or subtitle filter in plain words."""
     text = str(e)
+    if "ffmpeg is not installed" in text.lower():
+        return HELP
+    if "no such filter: 'ass'" in text.lower():
+        return ASS_HELP
     not_found = isinstance(e, FileNotFoundError) or "WinError 2" in text or "No such file or directory: 'ff" in text
     return HELP if not_found and (missing() or "ffmpeg" in text or "ffprobe" in text or "WinError 2" in text) else ""
 

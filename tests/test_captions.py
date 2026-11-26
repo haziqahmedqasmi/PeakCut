@@ -101,6 +101,30 @@ def main(data):
             ass = encode.call_args.args[-1]
             check("the renderer honors captions off even when it receives spoken words",
                   not has_dialogue(ass, "Cap") and has_dialogue(ass, "Hook", "KEEP THE HOOK"))
+
+        work, out = Path(data) / "short-work", Path(data) / "rendered"
+        work.mkdir()
+        calls = {}
+
+        class Result:
+            returncode = 0
+            stderr = ""
+
+        def fake_encode(command, **kwargs):
+            calls["filter"] = command[command.index("-filter_complex") + 1]
+            (Path(kwargs["cwd"]) / "clip01.mp4").touch()
+            return Result()
+
+        def fake_cover(command, cwd=None, **kwargs):
+            (Path(cwd) / "clip01.jpg").touch()
+            return ""
+
+        with (patch.object(render.subprocess, "run", side_effect=fake_encode),
+              patch.object(render, "run", side_effect=fake_cover),
+              patch.object(render, "_qsv_ok", None)):
+            render._render_in(work, Path(data) / "source.mp4", out, "clip01", 0, 3, "crop", 1920, "")
+        check("the ASS filter names its file explicitly for ffmpeg",
+              "[v0]ass=filename=clip01.ass:fontsdir=f[v]" in calls["filter"])
     finally:
         db.engine.dispose()
 

@@ -1406,7 +1406,7 @@ function drawAdd(variant) {
 const LAYOUT_SHORT = {blur:"Blurred fill", zoom:"Zoomed in", crop:"Fill screen", left:"Keep left", right:"Keep right", fit:"Black bars", split:"Split screen", gameplay:"Gameplay + facecam"};
 /* The language spoken in the video picks which speech model writes the transcript. Languages other than English
    need their model downloaded once (Settings → Speech models). */
-const LANG_NATIVE = {ar:"العربية"};
+const LANG_NATIVE = {ar:"العربية", hi:"हिंदी"};
 const speechLangs = () => S.status.speech || {en:{label:"English", state:"ready", size_mb:0}};
 const langName = k => { const m = speechLangs()[k]; return m ? m.label + (LANG_NATIVE[k] ? " · " + LANG_NATIVE[k] : "") : k; };
 function langSeg(val) {
