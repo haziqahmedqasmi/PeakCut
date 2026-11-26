@@ -661,7 +661,7 @@ def judge_signals(z, chat, start, now, unit="messages", timeout=None):
     out, _model, spent = ask_ai(prompt, SIG_SCHEMA, purpose="Live: reaction judge", timeout=timeout)
     moments = [{"start": _num(m.get("start")), "end": _num(m.get("end")), "score": int(_num(m.get("score"))),
                 "reason": str(m.get("reason", ""))} for m in _items(out)
-               if _num(m.get("start"), -1) >= 0 and _num(m.get("end"), -1) > 0]
+               if 0 <= _num(m.get("start"), -1) < _num(m.get("end"), -1)]
     return moments, spent
 
 
@@ -1018,9 +1018,14 @@ def listen(audio: tuple, pcm, dur: float, a: float, b: float, min_len: int, max_
     if inside:                                        # never cut a word: the cut moves to the quiet just around it
         s = _quiet(pcm, s, max(0.0, min(s, inside[0]["s"]) - 0.35), min(inside[0]["s"], s + 0.15))
         e = _quiet(pcm, e, max(e - 0.1, inside[-1]["e"]), min(dur, max(e, inside[-1]["e"]) + 0.45))
+    start_t, end_t = round(max(0.0, s), 2), round(min(dur, e), 2)
+    if end_t <= start_t:
+        start_t, end_t = round(max(0.0, a), 2), round(min(dur, b), 2)
+        if end_t <= start_t:
+            raise RuntimeError(f"Invalid clip timestamps from audio alignment: start ({start_t:.2f}s) must be before end ({end_t:.2f}s).")
     hook = hook_text(out.get("hook")) if heading and isinstance(out.get("hook"), str) else ""
-    return {"start": round(max(0.0, s), 2), "end": round(min(dur, e), 2), "lang": lang,
-            "words": [w for w in words if s - 0.2 <= w["s"] < e], "hook": hook if 2 <= len(hook.split()) <= 10 else ""}
+    return {"start": start_t, "end": end_t, "lang": lang,
+            "words": [w for w in words if start_t - 0.2 <= w["s"] < end_t], "hook": hook if 2 <= len(hook.split()) <= 10 else ""}
 
 
 FIX_SCHEMA = {"type": "ARRAY", "items": {"type": "STRING"}}

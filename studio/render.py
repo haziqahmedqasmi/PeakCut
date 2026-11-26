@@ -639,8 +639,12 @@ def render_clip(src: Path, out_dir: Path, name: str, clip: dict, words: list, sr
     extras: what the creator's campaign puts on every clip: {"logo": {"path", "pos", "size"}, "note": "a fixed line",
     "cam": where the streamer's cam was found in the source (shares of its frame)}."""
     extras = extras or {}
+    start, end = float(clip["start"]), float(clip["end"])
+    if start < 0:
+        start = 0.0
+    if end <= start:
+        raise ValueError(f"Invalid clip timestamps: start ({start:.2f}s) must be before end ({end:.2f}s).")
     out_dir.mkdir(parents=True, exist_ok=True)
-    start, end = clip["start"], clip["end"]
     look = templates.clean_look(clip["look"]) if isinstance(clip.get("look"), dict) else templates.legacy(clip.get("style", "bounce"), clip.get("layout", "blur"))
     gs, crop = look.get("game_src"), ""
     if gs:                                # only this part of the video is shown (a zoomed-in stream, say)

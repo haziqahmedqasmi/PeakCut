@@ -1113,7 +1113,10 @@ def _clip_span(clip, src_offset, src_end):
     `src_end`. A second of give is allowed at the edges, because the picture stops between two frames."""
     if clip["end"] > src_end + 1:
         return None
-    return max(clip["start"], src_offset), min(clip["end"], src_end)
+    start, end = max(clip["start"], src_offset), min(clip["end"], src_end)
+    if end <= start:
+        return None
+    return start, end
 
 
 def _pieces_on_disk(s):

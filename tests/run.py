@@ -110,7 +110,8 @@ def main() -> int:
                 ("live recording gets past the opening ad, and says when it is stuck", ["tests/test_live_recovery.py"]),
                 ("updating from an older PeakCut: everything is still there", ["tests/test_upgrade.py"]),
                 ("the app icon and the updated message", ["tests/test_app_icon.py"]),
-                ("no working AI key, no clipping", ["tests/test_need_key.py"])]
+                ("no working AI key, no clipping", ["tests/test_need_key.py"]),
+                ("clip timestamps stay in order before ffmpeg runs", ["tests/test_clip_timestamps.py"])]
         for name, args in runs:
             print(f"\n=== {name} ===", flush=True)
             r = subprocess.run([sys.executable, *args], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
