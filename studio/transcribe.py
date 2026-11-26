@@ -23,7 +23,11 @@ _lock = threading.Lock()
 _CPUS = os.cpu_count() or 4
 PROVIDER = os.environ.get("PEAKCUT_ASR_PROVIDER", "cpu").strip().lower() or "cpu"      # "cuda" on a graphics card
 THREADS = int(os.environ.get("PEAKCUT_ASR_THREADS") or (4 if _CPUS >= 8 else max(2, _CPUS - 2)))
-COPIES = int(os.environ.get("PEAKCUT_ASR_COPIES") or (1 if PROVIDER != "cpu" else max(1, _CPUS // THREADS) if _CPUS >= 8 else 1))
+# With a graphics-card machine (PEAKCUT_ASR_URL), this machine's processors only stand in while it is away: one
+# copy, so captions here never take more than a few cores from recordings and the website. Without one, every core
+# this machine can spare.
+COPIES = int(os.environ.get("PEAKCUT_ASR_COPIES") or (1 if PROVIDER != "cpu" or os.environ.get("PEAKCUT_ASR_URL", "").strip()
+                                                      else max(1, _CPUS // THREADS) if _CPUS >= 8 else 1))
 IDLE = int(os.environ.get("PEAKCUT_ASR_IDLE_MINUTES", "15")) * 60      # a language unused this long is put away
 
 
