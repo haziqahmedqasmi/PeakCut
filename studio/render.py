@@ -737,34 +737,9 @@ def _render_in(work: Path, src: Path, out_dir: Path, name: str, start, end, layo
     (work / "f").mkdir()
     for f in config.FONTS_DIR.glob("*.ttf"):
         shutil.copyfile(f, work / "f" / f.name)
-    more, last, n, frame = [], "v1", 1, {}
-    if cam:                                              # the cam's rounded corners and border: pictures, as inputs
-        for k, f in cam_frame(cam, look.get("cam_style"), work, name).items():
-            more += ["-loop", "1", "-i", f.name]
-            frame[k] = n
-            n += 1
-    if picture:                                           # the podcast split's own graph
-        fc = picture
-    elif cam:
-        fc = cam_filter(cam, layout, fg_h, crop, frame)
-    else:
-        fc = _filter(layout, fg_h, face).replace("[0:v]", "[0:v]" + crop, 1)
-    fc += f"[v0]ass={name}.ass:fontsdir=f[v1]"
-    logo = extras.get("logo")
-    if logo and Path(logo.get("path", "")).is_file():
-        args, scale, at = _logo(logo, n)
-        more += args
-        fc += f";{scale};[{last}][lg]overlay={at}:shortest=1[vl]"
-        last, n = "vl", n + 1
-    for i, e in enumerate(info["emoji"]):
-        png = work / f"{name}.e{i}.png"
-        if emoji_png(e["ch"], png, e["size"]):
-            more += ["-loop", "1", "-i", png.name]
-            fc += (f";[{n}:v]format=rgba,fade=t=in:st=0:d=0.16:alpha=1[e{i}];"
-                   f"[{last}][e{i}]overlay={e['x']}:{e['y']}:shortest=1[ve{i}]")
-            last, n = f"ve{i}", n + 1
-    base = ["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.2f}", "-t", f"{end - start:.2f}", "-i", str(src), *more,
-            "-filter_complex", fc, "-map", f"[{last}]", "-map", "0:a:0", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
+    fc = _filter(layout, fg_h, face) + f"[v0]ass=filename={name}.ass:fontsdir=f[v]"
+    base = ["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.2f}", "-t", f"{end - start:.2f}", "-i", str(src),
+            "-filter_complex", fc, "-map", "[v]", "-map", "0:a:0", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
             "-c:a", "aac", "-b:a", "160k", "-ar", "48000"]
     for k, v in (meta or {}).items():
         if v:

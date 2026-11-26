@@ -1,6 +1,6 @@
 """The errors people hit on a fresh install: ffmpeg not found ("[WinError 2]"), the speech model not downloaded,
 and an AI model name the service does not know. Runs against the code directly; nothing is downloaded."""
-import io, os, shutil, sys, tarfile, tempfile
+import io, os, shutil, ssl, sys, tarfile, tempfile
 from pathlib import Path
 os.environ["PEAKCUT_DATA"] = tempfile.mkdtemp(prefix="pc-tools-"); os.environ["DATABASE_URL"] = ""
 os.environ.pop("PEAKCUT_MODELS", None)          # this test makes and removes a model: only ever inside its own folder
@@ -25,6 +25,11 @@ check("with ffmpeg nowhere, both programs are reported missing", tools.setup(), 
 err = FileNotFoundError(2, "The system cannot find the file specified")
 check("the bare Windows error becomes what to do about it", "ffmpeg" in safe.friendly(err) and "install" in safe.friendly(err), True)
 check("...also when it arrives as text", "ffmpeg" in safe.friendly(RuntimeError("[WinError 2] The system cannot find the file specified")), True)
+check("yt-dlp's partial-download error explains how to find ffmpeg",
+      safe.friendly(RuntimeError("ERROR: You have requested downloading the video partially, "
+                                 "but ffmpeg is not installed. Aborting")), tools.HELP)
+check("a build without ASS subtitle support explains how to fix it",
+      safe.friendly(RuntimeError("No such filter: 'ass'")), tools.ASS_HELP)
 check("an unrelated error is left as it is", safe.friendly(ValueError("That link is a playlist.")), "That link is a playlist.")
 tools._places = lambda: [Path(hidden)]
 check("installed but not on the PATH yet: found in its folder and used from there", (tools.setup(), bool(shutil.which("ffmpeg"))), ([], True))
@@ -57,8 +62,9 @@ def model_bytes():
         t.add(src, arcname=config.ASR_MODEL_NAME)
     return out.getvalue()
 seen = {}
-def fake_open(req, timeout=None):
+def fake_open(req, timeout=None, context=None):
     seen["timeout"] = timeout
+    seen["context"] = context
     return Stream(model_bytes())
 fetch_model.urllib.request.urlopen = fake_open
 fetch_model.ensure()
@@ -66,8 +72,10 @@ check("the model is downloaded by itself and put in place whole", (fetch_model.r
       (True, ["decoder.int8.onnx", "encoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"]))
 check("nothing is left over from the download", sorted(p.name for p in config.MODELS_DIR.iterdir()), [config.ASR_MODEL_NAME])
 check("the download gives up on a silent connection instead of waiting forever", seen["timeout"], lambda t: t is not None and 0 < t <= 120)
+check("the model download verifies certificates using the configured CA bundle",
+      (seen["context"].verify_mode, seen["context"].check_hostname), (ssl.CERT_REQUIRED, True))
 shutil.rmtree(d)
-def no_internet(req, timeout=None):
+def no_internet(req, timeout=None, context=None):
     raise OSError("getaddrinfo failed")
 fetch_model.urllib.request.urlopen = no_internet
 try:
@@ -77,7 +85,7 @@ except RuntimeError as e:
 check("no internet: said in plain words, and no half model left behind", ("internet" in said, fetch_model.ready(), d.exists()), (True, False, False))
 check("the real reason is shown too, so it can be fixed", "getaddrinfo failed" in said, True)
 check("and so is how to try again by hand", "python -m studio.fetch_model" in said, True)
-fetch_model.urllib.request.urlopen = lambda req, timeout=None: Stream(model_bytes(), stall=True)
+fetch_model.urllib.request.urlopen = lambda req, timeout=None, context=None: Stream(model_bytes(), stall=True)
 try:
     fetch_model.ensure(); said = ""
 except RuntimeError as e:

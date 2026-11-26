@@ -2,18 +2,22 @@
 
 English comes first and by itself, the first time it is needed (about 480 MB). The others are only downloaded when
 someone asks for them, from Settings -> Speech models or when adding a video in that language. To add a language,
-add a row to MODELS: any NVIDIA NeMo transducer model exported for sherpa-onnx works the same way.
+add a row to MODELS and use a supported sherpa-onnx recognizer for its model format.
 
 A model is unpacked next to where it will live and moved into place only when it is whole, so a download that was
 cut off can never leave half a model behind. When a model's fingerprint (SHA-256) is known, the downloaded file is
 checked against it before anything is unpacked. (python -m studio.fetch_model [language] gets one ahead of time.)"""
 import hashlib
+import ssl
 import shutil
 import sys
 import tarfile
 import threading
 import time
 import urllib.request
+
+import certifi
+from tqdm import tqdm
 
 from . import config, safe
 
@@ -27,8 +31,12 @@ MODELS = {
            "Parakeet TDT 0.6b v2 by NVIDIA (CC-BY-4.0)", ""),
     "ar": ("Arabic", config.ASR_MODEL_AR, config.ASR_MODEL_AR_URL, 107,
            "FastConformer Arabic by NVIDIA (CC-BY-4.0)", config.ASR_MODEL_AR_SHA256),
+    "hi": ("Hindi / Hinglish", "sherpa-onnx-whisper-small",
+           _SHERPA + "sherpa-onnx-whisper-small.tar.bz2", 610,
+           "Whisper Small Multilingual INT8 by OpenAI (MIT)", ""),
 }
-DEFAULT = "en"
+DEFAULT = "hi"
+WHISPER = {"hi"}
 WAIT = 60   # seconds of silence from the connection before giving up, so a stalled download cannot hang everything
 
 _locks = {lang: threading.Lock() for lang in MODELS}
@@ -52,11 +60,15 @@ def folder(lang: str = DEFAULT):
 
 
 def ready(lang: str = DEFAULT) -> bool:
-    """Is the whole model there: the word list and all three parts?"""
+    """Is the whole model there: the word list and all required parts?"""
     d = folder(lang)
-    if not (d / "tokens.txt").is_file():
-        return False
-    return all(any(d.glob(f"{part}*.onnx")) for part in ("encoder", "decoder", "joiner"))
+    if lang in WHISPER:
+        return (d / "small-tokens.txt").is_file() and all(
+            any(d.glob(f"small-{part}*.onnx")) for part in ("encoder", "decoder")
+        )
+    return (d / "tokens.txt").is_file() and all(
+        any(d.glob(f"{part}*.onnx")) for part in ("encoder", "decoder", "joiner")
+    )
 
 
 def status(lang: str) -> str:
@@ -85,14 +97,19 @@ def ensure(lang: str = DEFAULT, start: bool = True) -> None:
 def _save(lang: str, dest) -> str:
     """Save the archive to dest, giving up if the connection goes quiet for WAIT seconds. Returns its SHA-256."""
     st, digest = state[lang], hashlib.sha256()
-    with urllib.request.urlopen(MODELS[lang][2], timeout=WAIT) as r, open(dest, "wb") as f:
+    context = ssl.create_default_context()
+    context.load_verify_locations(cafile=certifi.where())
+    with urllib.request.urlopen(MODELS[lang][2], timeout=WAIT, context=context) as r, open(dest, "wb") as f:
         total, got = int(r.headers.get("Content-Length") or 0), 0
-        while chunk := r.read(1 << 20):
-            f.write(chunk)
-            digest.update(chunk)
-            got += len(chunk)
-            if total > 0:
-                st["percent"] = min(99, got * 100 // total)
+        with tqdm(total=total or None, unit="B", unit_scale=True,
+                  desc=f"Downloading {label(lang)} speech model", leave=False) as progress:
+            while chunk := r.read(1 << 20):
+                f.write(chunk)
+                digest.update(chunk)
+                got += len(chunk)
+                progress.update(len(chunk))
+                if total > 0:
+                    st["percent"] = min(99, got * 100 // total)
     return digest.hexdigest()
 
 

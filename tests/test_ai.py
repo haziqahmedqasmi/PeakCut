@@ -4,6 +4,8 @@ import json
 import os
 import sys
 import tempfile
+from types import ModuleType
+from unittest.mock import patch
 
 os.environ["PEAKCUT_DATA"] = tempfile.mkdtemp(prefix="pc-ai-")
 os.environ["DATABASE_URL"] = ""
@@ -26,6 +28,10 @@ class Reply:
 
     def json(self):
         return self._data
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
 
 
 CLIP = {"start": 1, "end": 20, "score": 80, "hook": "WOW", "title": "t", "description": "d", "hashtags": ["a"], "reason": "r"}
@@ -129,6 +135,31 @@ ai.httpx.get = lambda url, **k: Reply(200, LISTING)
 found = ai.list_models("gemini", with_key="test-key-123456")
 check("gemini discovery lists only text generation models, bare ids",
       found == ["gemini-2.5-flash", "gemma-3-27b-it"], str(found))
+from local_llm import test_gemini_response  # noqa: E402
+gemini_seen = {}
+
+
+def fake_interaction_create(model, input):
+    gemini_seen["model"] = model
+    gemini_seen["input"] = input
+    return type("Interaction", (), {"output_text": "Gemini is ready."})()
+
+
+class FakeGenAIClient:
+    def __init__(self, api_key):
+        gemini_seen["api_key"] = api_key
+        self.interactions = type("Interactions", (), {"create": staticmethod(fake_interaction_create)})()
+
+
+google_module = ModuleType("google")
+genai_module = ModuleType("google.genai")
+genai_module.Client = FakeGenAIClient
+google_module.genai = genai_module
+with patch.dict(sys.modules, {"google": google_module, "google.genai": genai_module}):
+    gemini_text = test_gemini_response("Say hello", "models/gemini-2.5-flash")
+check("Gemini response helper returns text and calls the selected model",
+      gemini_text == "Gemini is ready."
+      and gemini_seen == {"api_key": "test-key-123456", "model": "gemini-2.5-flash", "input": "Say hello"})
 ai.save("gemini", found[0], "", "test-key-123456")
 seen.clear()
 ai.httpx.post = fake_post
