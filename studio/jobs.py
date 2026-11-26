@@ -623,9 +623,12 @@ HEAR_BEFORE, HEAR_AFTER = 8, 20
 def _clip_sound(src: Path, a: float, b: float) -> tuple:
     """This stretch of a file's sound: small and compressed for the AI, and as 16 kHz samples to find quiet moments."""
     import tempfile
+    a, b = max(0.0, float(a)), float(b)
+    if b <= a:
+        raise ValueError(f"Invalid clip audio range: start ({a:.2f}s) must be before end ({b:.2f}s).")
     with tempfile.TemporaryDirectory(prefix="pc-listen-") as tmp:
         wav, small = Path(tmp) / "a.wav", Path(tmp) / "a.ogg"
-        media.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{max(0.0, a):.2f}", "-t", f"{b - a:.2f}", "-i", str(src), "-vn",
+        media.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{a:.2f}", "-t", f"{b - a:.2f}", "-i", str(src), "-vn",
                    "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(wav)])
         pcm = media.load_audio(wav)
         try:
@@ -746,8 +749,13 @@ def render_one(job, clip, words):
         src = Path(clip["src"]) if clip.get("src") else Path(job["source_path"])
         if not src.is_file():
             raise RuntimeError("The original video is no longer kept, so this clip can't be made again. Add the video again to get new clips from it.")
-        if not clip.get("src"):
-            clip["end"] = min(clip["end"], job["duration"])
+        if not clip.get("src") and job.get("duration"):
+            new_end = min(clip["end"], job["duration"])
+            if new_end <= clip["start"]:
+                raise RuntimeError(f"Invalid clip timestamps: start ({clip['start']:.2f}s) must be before end ({new_end:.2f}s).")
+            clip["end"] = new_end
+        if clip["end"] <= clip["start"]:
+            raise RuntimeError(f"Invalid clip timestamps: start ({clip['start']:.2f}s) must be before end ({clip['end']:.2f}s).")
         if not clip.get("heard") and not clip.get("version") and not clip.get("listen_error") and can_listen():
             try:                         # the first time only: a clip someone has re-trimmed keeps their cut
                 usage.set_context(job.get("creator"), job.get("title") or "")
@@ -773,7 +781,10 @@ def render_one(job, clip, words):
                 clip["hook"] = render.split_hook(clip["hook"])[0]
         heard = clip.get("heard")
         caps = shows(job, clip)[0] and clip.get("captions", True)     # the style shows captions, and they are not turned off
-        local = dict(clip, start=clip["start"] - off, end=clip["end"] - off, hook=roman.to_roman(clip.get("hook") or ""))
+        local_start, local_end = max(0.0, clip["start"] - off), clip["end"] - off
+        if local_end <= local_start:
+            raise RuntimeError(f"Invalid clip timestamps: start ({clip['start']:.2f}s) must be before end ({clip['end']:.2f}s).")
+        local = dict(clip, start=local_start, end=local_end, hook=roman.to_roman(clip.get("hook") or ""))
         span = [round(clip["start"], 2), round(clip["end"], 2), "en2"]      # "en2": captions made always-English
         if not caps:                           # a style without captions: no words, and no AI call for them
             raw = []
@@ -1094,8 +1105,12 @@ def _piece_again(job, clip):
         meta = media.probe(piece)
     except Exception as e:  # noqa: BLE001
         raise RuntimeError(f"Could not fetch this part of the video: {safe.friendly(e, 250)}") from e
-    clip.update(src=str(piece), src_offset=round(want, 2), src_end=round(want + meta["duration"], 2))
-    clip["end"] = min(clip["end"], clip["src_end"])
+    src_offset, src_end = round(want, 2), round(want + meta["duration"], 2)
+    new_end = min(clip["end"], src_end)
+    if new_end <= clip["start"]:
+        piece.unlink(missing_ok=True)
+        raise RuntimeError(f"The fetched video section ({src_offset:.2f}s-{src_end:.2f}s) does not cover this clip ({clip['start']:.2f}s-{clip['end']:.2f}s).")
+    clip.update(src=str(piece), src_offset=src_offset, src_end=src_end, end=new_end)
     job.setdefault("width", meta["width"])
     job.setdefault("height", meta["height"])
 
@@ -1144,8 +1159,12 @@ def _fetch_piece_once(job, clip, full_audio):
             wav.unlink(missing_ok=True)
         meta = media.probe(piece)
         off = want if exact else media.find_offset(full_audio, part, want)
-        clip.update(src=str(piece), src_offset=round(off, 2), src_end=round(off + meta["duration"], 2))
-        clip["start"], clip["end"] = max(clip["start"], clip["src_offset"]), min(clip["end"], clip["src_end"])
+        src_offset, src_end = round(off, 2), round(off + meta["duration"], 2)
+        new_start, new_end = max(clip["start"], src_offset), min(clip["end"], src_end)
+        if new_end <= new_start:
+            piece.unlink(missing_ok=True)
+            raise RuntimeError(f"The fetched video section ({src_offset:.2f}s-{src_end:.2f}s) does not cover this clip ({clip['start']:.2f}s-{clip['end']:.2f}s).")
+        clip.update(src=str(piece), src_offset=src_offset, src_end=src_end, start=new_start, end=new_end)
         job.setdefault("width", meta["width"])
         job.setdefault("height", meta["height"])
     except media.YouTubeBlocked:
