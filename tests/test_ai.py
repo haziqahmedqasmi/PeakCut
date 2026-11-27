@@ -43,6 +43,8 @@ def fake_post(url, json=None, headers=None, timeout=None, **_k):  # noqa: A002
         return Reply(200, {"choices": [{"message": {"content": "```json\n" + globals()["json_text"]({"items": [CLIP]}) + "\n```"}}],
                            "usage": {"prompt_tokens": 90, "completion_tokens": 20}})
     if url.endswith("/messages"):
+        if "temperature" in json:                      # newer Claude models refuse it: asked again without it
+            return Reply(400, {"type": "error", "error": {"message": "`temperature` is deprecated for this model."}})
         return Reply(200, {"content": [{"type": "text", "text": "Here you go: " + globals()["json_text"]({"items": [CLIP]})}],
                            "usage": {"input_tokens": 70, "output_tokens": 10}})
     return Reply(404, {})
@@ -78,6 +80,8 @@ use("anthropic")
 out, sent, wrote = ai.call("model-a", "hello", brain.SCHEMA)
 check("anthropic: answer found inside a sentence, tokens read", out == [CLIP] and (sent, wrote) == (70, 10), str((out, sent, wrote)))
 check("anthropic: key and version headers", seen[0][2].get("x-api-key") == "test-key-123456" and "anthropic-version" in seen[0][2])
+check("anthropic: a refused temperature is dropped and asked again",
+      len(seen) == 2 and "temperature" in seen[0][1] and "temperature" not in seen[1][1])
 
 use("custom", "http://127.0.0.1:1234/v1")
 out, _s, _w = ai.call("model-a", "hello", brain.SCHEMA)
@@ -168,6 +172,9 @@ check("a 400 about the request itself is not called an unknown model",
       "doesn't know" not in explained('HTTP 400 {"error": {"message": "Invalid value at generation_config.response_schema", "status": "INVALID_ARGUMENT"}}'))
 check("a 404 that is not about a model is not called an unknown model",
       "doesn't know" not in explained('HTTP 404 {"error": {"message": "Method not allowed for this path"}}'))
+refused_setting = explained('HTTP 400 {"type":"error","error":{"type":"invalid_request_error","message":"`temperature` is deprecated for this model."}}')
+check("a refused request setting is not reported as a retired or unknown model",
+      "retired" not in refused_setting and "doesn't know" not in refused_setting, refused_setting)
 check("quota is still quota", "limit" in explained('HTTP 429 {"error": {"status": "RESOURCE_EXHAUSTED"}}'))
 ai.httpx.get, ai.httpx.post = real_get, real_post_fn
 

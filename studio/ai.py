@@ -335,7 +335,10 @@ def explain(e, about: str = "") -> str:
         return f"{service} is very busy right now. Try again in a minute, or pick another model."
     if status in ("401", "403") or "api key" in low or "api_key" in low or "unauthorized" in low or "permission" in low:
         return f"{service} refused the key. Paste a working key on the AI page."
-    if "no longer available" in low or "deprecated" in low or "retired" in low or "discontinued" in low:
+    # A complaint about one request setting ("`temperature` is deprecated for this model") is not a retired model.
+    refused_setting = bool(re.search(r"\b(temperature|top_p|top_k|max_tokens|stop_sequences|response_format|tool_choice|"
+                                     r"frequency_penalty|presence_penalty|thinking)\b", low))
+    if not refused_setting and ("no longer available" in low or "deprecated" in low or "retired" in low or "discontinued" in low):
         return f"{service} has retired \"{name}\" (or it isn't available to new keys). Open the AI page, press Find models and pick a newer model."
     # Only a 404 that is about a model says the model is unknown. A 400 like "API key not found" or a stray
     # "404" inside some other message must not be reported as an unknown model.
@@ -711,9 +714,15 @@ def _openai(model, prompt, schema, timeout=None, temperature=0.4, images=None):
 def _anthropic(model, prompt, schema, timeout=None, temperature=0.4, images=None):
     content = [{"type": "image", "source": {"type": "base64", "media_type": typ, "data": base64.b64encode(raw).decode()}}
                for raw, typ in (images or [])] + [{"type": "text", "text": _wrapped(prompt, schema)}]
-    body = {"model": model, "max_tokens": 8192, "temperature": temperature, "messages": [{"role": "user", "content": content}]}
-    r = httpx.post(f"{base_url()}/messages", json=body, timeout=timeout or 180,
-                   headers={"x-api-key": key(), "anthropic-version": "2023-06-01"})
+    body = {"model": model, "max_tokens": 8192, "messages": [{"role": "user", "content": content}]}
+    # Some models refuse temperature ("deprecated for this model"), so it is dropped on a refusal and asked again,
+    # exactly as _openai does.
+    r = None
+    for extra in ({"temperature": temperature}, {}):
+        r = httpx.post(f"{base_url()}/messages", json={**body, **extra}, timeout=timeout or 180,
+                       headers={"x-api-key": key(), "anthropic-version": "2023-06-01"})
+        if r.status_code not in (400, 422):
+            break
     if r.status_code != 200:
         _fail(r, model)
     data = r.json()
