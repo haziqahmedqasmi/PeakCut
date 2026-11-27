@@ -19,12 +19,13 @@ FONTS = {"Poppins ExtraBold": "Poppins-ExtraBold.ttf", "Poppins Black": "Poppins
          "Luckiest Guy": "LuckiestGuy-Regular.ttf", "Lilita One": "LilitaOne-Regular.ttf", "Titan One": "TitanOne-Regular.ttf",
          "Permanent Marker": "PermanentMarker-Regular.ttf", "Righteous": "Righteous-Regular.ttf"}
 # how the word being said stands out: grows in its colour, sits in a box of that colour, the said words fill with it, or nothing
-ANIMS = {"pop": "Pop", "box": "Box", "fill": "Fill", "none": "Plain"}
+ANIMS = {"pop": "Pop", "box": "Box", "fill": "Fill", "none": "Plain", "neon": "Neon Glow"}
 LAYOUTS = ("blur", "zoom", "crop", "left", "right", "fit", "split", "gameplay", "podcast")
 MAX_OWN = 30
 
 _CAP = {"show": True, "anim": "pop", "font": "Poppins ExtraBold", "color": "FFFFFF", "hi": "FFF000", "key": "FFFFFF", "outline": 7,
-        "shadow": False, "size": 132, "per": 3, "upper": True, "pop": 112, "y": None, "bg": False, "bgc": "000000"}
+        "shadow": False, "size": 132, "per": 3, "upper": True, "pop": 112, "y": None, "bg": False, "bgc": "000000",
+        "hue_shift": False, "two_tone": False, "glow": 65, "italic": False, "wipe": False}
 # the heading: its font, text colour, and the rounded box behind it (on or off, and its colour)
 _HOOK = {"show": True, "y": None, "font": "Poppins ExtraBold", "color": "0E1014", "bg": True, "bgc": "FFFFFF"}
 
@@ -47,6 +48,7 @@ BUILTIN = [
     {"id": "b-bounce", "name": "Bounce", "look": _look(LEGACY["bounce"])},
     {"id": "b-hype", "name": "Hype", "look": _look(LEGACY["hype"])},
     {"id": "b-clean", "name": "Clean", "look": _look(LEGACY["clean"])},
+    {"id": "b-neon", "name": "Neon Bloom", "look": _look({"anim": "neon", "font": "Poppins Black", "color": "FFFFFF", "hi": "7CFF2B", "key": "2CF5FF", "outline": 0, "shadow": True, "size": 124, "per": 4, "upper": True, "pop": 100, "y": 50.0, "bg": False, "bgc": "000000", "hue_shift": True, "two_tone": True, "glow": 70, "italic": False, "wipe": False}, layout="crop")},
     {"id": "b-box", "name": "Box", "look": _look({"anim": "box", "font": "Poppins Black", "size": 118, "hi": "FF2E63",
                                                   "outline": 0, "shadow": True, "per": 3})},
     {"id": "b-fill", "name": "Fill", "look": _look({"anim": "fill", "font": "Titan One", "size": 112, "hi": "4ADE80",
@@ -100,7 +102,10 @@ def clean_look(raw) -> dict:
            "size": _num(c.get("size"), 60, 200, _CAP["size"]), "per": _num(c.get("per"), 1, 5, _CAP["per"]),
            "upper": bool(c.get("upper", _CAP["upper"])),
            "pop": _num(c.get("pop"), 100, 120, _CAP["pop"]), "y": _pct(c.get("y")),
-           "bg": bool(c.get("bg")), "bgc": _hex(c.get("bgc"), _CAP["bgc"])}
+           "bg": bool(c.get("bg")), "bgc": _hex(c.get("bgc"), _CAP["bgc"]),
+           "hue_shift": bool(c.get("hue_shift", _CAP["hue_shift"])), "two_tone": bool(c.get("two_tone", _CAP["two_tone"])),
+           "glow": _num(c.get("glow"), 0, 100, _CAP["glow"]), "italic": bool(c.get("italic", _CAP["italic"])),
+           "wipe": bool(c.get("wipe", _CAP["wipe"]))}
     hook = {"show": bool(h.get("show", True)), "y": _pct(h.get("y")),
             "font": h.get("font") if h.get("font") in FONTS else _HOOK["font"], "color": _hex(h.get("color"), _HOOK["color"]),
             "bg": bool(h.get("bg", True)), "bgc": _hex(h.get("bgc"), _HOOK["bgc"])}
