@@ -2063,7 +2063,7 @@ textarea.cpg-in{height:auto;padding:8px 12px;resize:vertical}.cpg-in:focus{borde
 .tpe-tabs{margin-bottom:14px}
 .tpe-sec{padding:0 0 16px;margin-bottom:16px;border-bottom:1px solid var(--line)}.tpe-sec:last-child{border-bottom:0}
 .tpe-sec h4{margin:0 0 10px;font-size:13px}
-.tpe-anims,.tpe-lays{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.tpe-lays{grid-template-columns:repeat(3,minmax(0,110px))}
+.tpe-anims,.tpe-lays{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}.tpe-lays{grid-template-columns:repeat(3,minmax(0,110px))}
 .tpe-opt{display:flex;flex-direction:column;align-items:center;gap:6px;padding:6px;border:1px solid var(--line);border-radius:10px;background:#fff;cursor:pointer;min-width:0;transition:border-color .15s ease,background-color .15s ease}
 .tpe-opt:hover{border-color:var(--brand)}.tpe-opt.on{border-color:var(--brand);background:var(--brand-soft)}
 .tpe-opt .tp9{border-radius:6px;max-width:72px}.tpe-opt em{font-style:normal;font-size:12px;font-weight:600}
@@ -2082,7 +2082,7 @@ textarea.cpg-in{height:auto;padding:8px 12px;resize:vertical}.cpg-in:focus{borde
 .tpe-place{display:flex;align-items:center;gap:8px}.tpe-place b{font-size:13px}
 .campbar .cb-w{margin:0 -2px}
 .ce3-tpl{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-@media (max-width:760px){.tpe-body{grid-template-columns:1fr}.tpe-l{position:static;max-width:240px;margin:0 auto}.tpe-anims{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:760px){.tpe-body{grid-template-columns:1fr}.tpe-l{position:static;max-width:240px;margin:0 auto}.tpe-anims{grid-template-columns:repeat(3,1fr)}}
 /* ---- the style picker */
 .tpc{display:inline-flex;min-width:0}
 .tpc-btn{gap:8px;max-width:190px}.tpc-btn .pv{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -2149,6 +2149,15 @@ textarea.cpg-in{height:auto;padding:8px 12px;resize:vertical}.cpg-in:focus{borde
 .tpe-pre .tp9{max-width:none}
 .tp9-cap span[data-i]{display:inline-block;transform-origin:50% 55%;will-change:transform}
 .tp9-cap span.bx{-webkit-text-stroke:0;text-shadow:none}
+.tp9-cap.neon{letter-spacing:-.02em;line-height:1.09;-webkit-text-stroke:0 !important;text-shadow:none !important;transition:opacity .14s linear}
+.tp9-cap.neon .tp9-line{display:block;white-space:nowrap}
+.tp9-cap.neon.neon-italic .tp9-line{transform:skewX(-10deg)}
+.tp9-cap.neon.neon-wipe .tp9-line{-webkit-mask-image:linear-gradient(90deg,#000 calc(var(--wp,100%) - 14%),transparent var(--wp,100%));mask-image:linear-gradient(90deg,#000 calc(var(--wp,100%) - 14%),transparent var(--wp,100%))}
+.tp9-cap.neon span[data-i]{will-change:transform,opacity}
+.tp9-cap.neon .tp9-line.l-white span[data-i]{color:var(--nw,#FFFFFF);text-shadow:0 0 calc(var(--nz,1)*.93cqw) rgba(255,255,255,.35),0 calc(var(--nz,1)*.19cqw) calc(var(--nz,1)*.32cqw) rgba(0,0,0,.92),0 calc(var(--nz,1)*.46cqw) calc(var(--nz,1)*1.48cqw) rgba(0,0,0,.85)}
+.tp9-cap.neon .tp9-line.l-neon span[data-i]{color:rgb(var(--nc,124,255,43));text-shadow:0 0 calc(var(--nz,1)*var(--ng,1)*.74cqw) rgba(var(--nc,124,255,43),var(--nop3,.84)),0 0 calc(var(--nz,1)*var(--ng,1)*2.68cqw) rgba(var(--nc,124,255,43),var(--nop2,.54)),0 calc(var(--nz,1)*.19cqw) calc(var(--nz,1)*.32cqw) rgba(0,0,0,.92),0 calc(var(--nz,1)*.46cqw) calc(var(--nz,1)*1.48cqw) rgba(0,0,0,.85)}
+.tp9-cap.neon.hue-css .tp9-line.l-neon span[data-i]{animation:tpNeonHue 1.5s linear infinite alternate}
+@keyframes tpNeonHue{0%{color:#C8FF00;text-shadow:0 0 calc(var(--nz,1)*var(--ng,1)*.74cqw) rgba(200,255,0,var(--nop3,.84)),0 0 calc(var(--nz,1)*var(--ng,1)*2.68cqw) rgba(200,255,0,var(--nop2,.54)),0 calc(var(--nz,1)*.19cqw) calc(var(--nz,1)*.32cqw) rgba(0,0,0,.92),0 calc(var(--nz,1)*.46cqw) calc(var(--nz,1)*1.48cqw) rgba(0,0,0,.85)}33%{color:#4BFF4B;text-shadow:0 0 calc(var(--nz,1)*var(--ng,1)*.74cqw) rgba(75,255,75,var(--nop3,.84)),0 0 calc(var(--nz,1)*var(--ng,1)*2.68cqw) rgba(75,255,75,var(--nop2,.54)),0 calc(var(--nz,1)*.19cqw) calc(var(--nz,1)*.32cqw) rgba(0,0,0,.92),0 calc(var(--nz,1)*.46cqw) calc(var(--nz,1)*1.48cqw) rgba(0,0,0,.85)}66%{color:#20FFD0;text-shadow:0 0 calc(var(--nz,1)*var(--ng,1)*.74cqw) rgba(32,255,208,var(--nop3,.84)),0 0 calc(var(--nz,1)*var(--ng,1)*2.68cqw) rgba(32,255,208,var(--nop2,.54)),0 calc(var(--nz,1)*.19cqw) calc(var(--nz,1)*.32cqw) rgba(0,0,0,.92),0 calc(var(--nz,1)*.46cqw) calc(var(--nz,1)*1.48cqw) rgba(0,0,0,.85)}100%{color:#1CF0FF;text-shadow:0 0 calc(var(--nz,1)*var(--ng,1)*.74cqw) rgba(28,240,255,var(--nop3,.84)),0 0 calc(var(--nz,1)*var(--ng,1)*2.68cqw) rgba(28,240,255,var(--nop2,.54)),0 calc(var(--nz,1)*.19cqw) calc(var(--nz,1)*.32cqw) rgba(0,0,0,.92),0 calc(var(--nz,1)*.46cqw) calc(var(--nz,1)*1.48cqw) rgba(0,0,0,.85)}}
 /* lighter previews; the picker's filter; the preview video list; boxes drawn on the video */
 .tp9-fill{background-size:cover;background-position:center}
 .tp9-fill img{display:none}
@@ -2241,7 +2250,6 @@ textarea.cpg-in{height:auto;padding:8px 12px;resize:vertical}.cpg-in:focus{borde
 /* the cam's picture fills its box a hair past the edge, so no gap shows between it and a rounded edge or border */
 .tp9-cam.real video,.tp9-cam.real img{inset:-2%;width:104%;height:104%}
 </style>
-</head>
 <body>
 <div class="app" id="app">
   <aside class="side" aria-label="Sidebar">
@@ -5279,14 +5287,45 @@ const tplVid = st => `<video class="tpv" data-src="${tplSrc("mp4")}" poster="${t
 const tplPx = v => (v / 10.8).toFixed(3) + "cqw";
 S.tplPlay ||= {};          // what each playing preview shows, by its key
 // The captions of a style. `o.t` (a word counter) plays them: the words move on one at a time, a group at a time.
+const NEON_DEFAULT_HI = "7CFF2B", NEON_PALETTE = ["7CFF2B", "2CF5FF", "FFE91F"], CAP_NEON_DEF = {hue_shift: false, two_tone: false, glow: 65, italic: false, wipe: false};
+const hexToRgbTuple = h => [0, 2, 4].map(i => parseInt((h || NEON_DEFAULT_HI).slice(i, i + 2), 16)).join(",");
+function shiftHexHue(hex, deg) {
+  let [r, g, b] = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, l = (mx + mn) / 2;
+  let h = 0, s = d ? d / (1 - Math.abs(2 * l - 1)) : 0;
+  if (d) h = (mx === r ? ((g - b) / d + (g < b ? 6 : 0)) : mx === g ? ((b - r) / d + 2) : ((r - g) / d + 4)) / 6;
+  h = (h + deg / 360 + 1) % 1;
+  const f = n => { const k = (n + h * 12) % 12, a = s * Math.min(l, 1 - l); return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)))).toString(16).padStart(2, "0"); };
+  return (f(0) + f(8) + f(4)).toUpperCase();
+}
+function neonSplit(words, twoTone) {
+  if (!twoTone || words.length < 2) return [{words, offset: 0, neon: true}];
+  let bestCut = 1, bestW = Infinity;
+  for (let cut = 1; cut < words.length; cut++) {
+    const w = Math.max(words.slice(0, cut).join(" ").length, words.slice(cut).join(" ").length);
+    if (w < bestW) { bestW = w; bestCut = cut; }
+  }
+  return [{words: words.slice(0, bestCut), offset: 0, neon: false}, {words: words.slice(bestCut), offset: bestCut, neon: true}];
+}
 function tplCap(look, o = {}) {
   if (look.cap.show === false) return "";
   const c = look.cap, g = tplGeo(look), capY = c.y != null ? c.y * 19.2 : g.cap;
   const z = look._zoom || 1, em = c.size * (S.tpl.em?.[c.font] || .72) * z, n = Math.max(1, Math.min(c.per, 5));
   const groups = Math.max(1, Math.floor(TPL_WORDS.length / n));
-  let on = Math.min(1, n - 1), from = 0;
-  if (o.group != null) { from = o.group % groups * n; on = -1; }          // playing: the animation loop styles the words
+  let on = Math.min(1, n - 1), from = 0, gi = 0;
+  if (o.group != null) { gi = o.group; from = o.group % groups * n; on = -1; }
   const words = TPL_WORDS.slice(from, from + n).map(w => c.upper ? w.toUpperCase() : w);
+  if (c.anim === "neon") {
+    const gn = Math.max(0, Math.min(1, (c.glow ?? 65) / 100));
+    const ng = (.55 + .65 * gn).toFixed(3), nop2 = (gn > .02 ? .22 + .46 * gn : 0).toFixed(3), nop3 = (gn > .02 ? .65 + .25 * gn : 0).toFixed(3);
+    const hi = (c.hi || NEON_DEFAULT_HI).toUpperCase(), baseNeon = hi === NEON_DEFAULT_HI ? NEON_PALETTE[gi % NEON_PALETTE.length] : hi;
+    const useCssHue = !!c.hue_shift && hi === NEON_DEFAULT_HI;
+    const inner = neonSplit(words, !!c.two_tone).map((ln, li) =>
+      `<span class="tp9-line ${ln.neon ? "l-neon" : "l-white"}" data-ln="${li}">${ln.words.map((w, wi) => `<span data-i="${ln.offset + wi}">${esc(w)}</span>`).join(" ")}</span>`).join("");
+    const cls = ["tp9-cap neon", o.edit ? "drag" : "", useCssHue ? "hue-css" : "", c.italic ? "neon-italic" : "", c.wipe ? "neon-wipe" : ""].filter(Boolean).join(" ");
+    const vars = `--nz:${z.toFixed(3)};--ng:${ng};--nop2:${nop2};--nop3:${nop3};--nw:#${c.color || "FFFFFF"};--nc:${hexToRgbTuple(baseNeon)}`;
+    return `<div class="${cls}" data-drag="cap" data-name="Captions"${o.group != null ? ` data-g="${o.group}"` : ""} style="top:${(capY / 19.2).toFixed(2)}%;font-family:'pcf ${esc(c.font)}',sans-serif;font-size:${tplPx(em)};${vars}">${c.bg ? `<span class="cbg" style="background:#${c.bgc};padding:${tplPx(em * .16)} ${tplPx(em * .3)};border-radius:${tplPx(em * .24)}">${inner}</span>` : inner}</div>`;
+  }
   const pad = c.anim === "box" ? `padding:0 ${tplPx(em * .16)};border-radius:${tplPx(em * .14)};` : "";
   const word = (w, i) => {
     const key = i === n - 1 && n > 2 && c.key !== c.color, act = i === on && c.anim !== "none";
@@ -5309,8 +5348,29 @@ function mixHex(a, b, x) {
   const p = h => [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)), A = p(a), B = p(b);
   return A.map((v, i) => Math.round(v + (B[i] - v) * Math.max(0, Math.min(1, x))).toString(16).padStart(2, "0")).join("");
 }
-function tplAnim(cap, c, within) {
+function tplAnim(cap, c, within, n = 3) {
   const i = Math.floor(within), u = (within - i) * TPL_STEP, pop = (c.pop || 112) / 100;
+  if (c.anim === "neon") {
+    const elapsed = within * TPL_STEP, rem = n * TPL_STEP - elapsed;
+    cap.style.opacity = rem < .14 ? Math.max(0, rem / .14).toFixed(3) : "1";
+    const hi = (c.hi || NEON_DEFAULT_HI).toUpperCase();
+    if (c.hue_shift && hi !== NEON_DEFAULT_HI) {
+      const stops = [0, 28, 56, 84].map(d => shiftHexHue(hi, d));
+      const cyc = (elapsed / 1.5) % 2, p = cyc <= 1 ? cyc : 2 - cyc, seg = Math.min(2, Math.floor(p * 3));
+      cap.style.setProperty("--nc", hexToRgbTuple(mixHex(stops[seg], stops[seg + 1], p * 3 - seg)));
+    }
+    cap.querySelectorAll("[data-i]").forEach(s => {
+      const j = Number(s.dataset.i);
+      if (j < i) { s.style.opacity = "1"; s.style.transform = ""; }
+      else if (j === i) { const p = ease(u / .17), sc = .94 + .06 * p, ty = (1 - p) * .37; s.style.opacity = p.toFixed(3); s.style.transform = p >= .999 ? "" : `translateY(${ty.toFixed(3)}cqw) scale(${sc.toFixed(3)})`; }
+      else { s.style.opacity = "0"; s.style.transform = "translateY(.37cqw) scale(.94)"; }
+    });
+    if (c.wipe) cap.querySelectorAll(".tp9-line").forEach(ln => {
+      const sp = [...ln.querySelectorAll("[data-i]")], a = Number(sp[0]?.dataset.i || 0), b = Number(sp[sp.length - 1]?.dataset.i || 0);
+      ln.style.setProperty("--wp", (Math.max(0, Math.min(1, (within - a) / Math.max(1, b - a + .65))) * 114).toFixed(1) + "%");
+    });
+    return;
+  }
   cap.querySelectorAll("[data-i]").forEach(s => {
     const j = Number(s.dataset.i), base = s.hasAttribute("data-key") ? c.key : c.color;
     let col = base, sc = 1, box = false;
@@ -5378,7 +5438,7 @@ function tplWatch() { $$(".tp9[data-play]:not([data-io]),video.tpv:not([data-io]
     if (cap.dataset.g !== String(group)) {          // the next few words
       cap.outerHTML = tplCap(look, {group, edit: key === "edit"}); cap = p.querySelector(":scope > .tp9-cap");
     }
-    if (c.anim !== "none") tplAnim(cap, c, k - group * n);
+    if (c.anim !== "none") tplAnim(cap, c, k - group * n, n);
   }
   const tick = Math.floor(T * 4);
   if (tick !== S.tplK) {                           // four times a second: new previews, and the videos kept together
@@ -5495,6 +5555,7 @@ function drawTplTab(body) {
 const CAP_PRESETS = [
   ["Classic pop", {anim: "pop", font: "Poppins ExtraBold", color: "FFFFFF", hi: "FFF000", key: "FFFFFF", outline: 7, shadow: false, size: 128, per: 3, upper: true, pop: 112, bg: false, bgc: "000000", y: null}],
   ["Big word", {anim: "pop", font: "Luckiest Guy", color: "FFFFFF", hi: "FFE600", key: "FFFFFF", outline: 10, shadow: true, size: 186, per: 1, upper: true, pop: 108, bg: false, bgc: "000000", y: 50}],
+  ["Neon Bloom", {anim: "neon", font: "Poppins Black", color: "FFFFFF", hi: "7CFF2B", key: "2CF5FF", outline: 0, shadow: true, size: 124, per: 4, upper: true, pop: 100, bg: false, bgc: "000000", y: 50, hue_shift: true, two_tone: true, glow: 70, italic: false, wipe: false}],
   ["Subtitle", {anim: "none", font: "Poppins ExtraBold", color: "FFFFFF", hi: "FFFFFF", key: "FFFFFF", outline: 0, shadow: false, size: 74, per: 5, upper: false, pop: 100, bg: true, bgc: "0E1014", y: 84}],
   ["Purple box", {anim: "box", font: "Poppins Black", color: "FFFFFF", hi: "7C3AED", key: "FFFFFF", outline: 0, shadow: true, size: 112, per: 3, upper: true, pop: 100, bg: false, bgc: "000000", y: 66}],
   ["Karaoke", {anim: "fill", font: "Titan One", color: "FFFFFF", hi: "4ADE80", key: "FFFFFF", outline: 8, shadow: false, size: 108, per: 4, upper: false, pop: 100, bg: false, bgc: "000000", y: 74}],
@@ -5531,7 +5592,7 @@ const LAYOUT_PRESETS = [
 ];
 const same = (a, b) => Object.keys(b).every(k => JSON.stringify(a[k] ?? null) === JSON.stringify(b[k] ?? null));
 const CAM_AT = {top: {x: 0, y: 0, w: 100, h: 40}, bottom: {x: 0, y: 60, w: 100, h: 40}, corner: {x: 4, y: 4, w: 44, h: 17}};
-const TPL_COLORS = ["FFFFFF", "FFF000", "FFE600", "FF8B33", "FF3C3C", "FF2E63", "A78BFA", "6BD7FF", "4ADE80", "0E1014"];
+const TPL_COLORS = ["FFFFFF", "7CFF2B", "2CF5FF", "FFE91F", "FFF000", "FF8B33", "FF3C3C", "FF2E63", "A78BFA", "6BD7FF", "4ADE80", "0E1014"];
 function tplOpen(t, copy, quiet) {
   S.tplEdit = {id: copy ? null : t.id, name: copy ? `${t.name} copy` : t.name, look: JSON.parse(JSON.stringify(t.look)), tab: "captions", dirty: !!copy};
   S.styv = copy ? "new" : t.id;
@@ -5603,25 +5664,29 @@ function tplCtl() {
     `<button type="button" class="tpe-opt${same(part, v) ? " on" : ""}" data-act="tplpre" data-k="${E.tab}" data-i="${i}">${E.tab === "heading" ? hookSample(v) : E.tab === "captions" ? capSample(v, i) : tplPrev(look(v), {mini: true, play: `pre-${E.tab}-${i}`, video: false})}<em>${esc(name)}</em></button>`).join("")}</div></div>`;
   // a caption preset as its captions alone, as big as the tile allows (fewer words at a time, bigger), still moving
   const capSample = (v, i) => {
-    const per = Math.max(1, Math.min(v.per, 5)), key = `pre-captions-${i}`;
-    const L = {...E.look, cap: {...c, ...v, y: 50}, hook: {...E.look.hook, show: false}, layout: "crop", cam: null,
-               // as big as fits: about 5.5 letters a word, each about 0.62 of the letter size, in 88% of the tile
-               _zoom: Math.min(3, 88 / ((v.size * (S.tpl.em?.[v.font] || .72) / 10.8) * 0.62 * per * 5.5))};
+    const per = Math.max(1, Math.min(v.per, 5)), key = `pre-captions-${i}`, perLine = v.two_tone && per >= 2 ? Math.ceil(per / 2) : per;
+    const L = {...E.look, cap: {...c, ...CAP_NEON_DEF, ...v, y: 50}, hook: {...E.look.hook, show: false}, layout: "crop", cam: null,
+               _zoom: Math.min(3, 88 / ((v.size * (S.tpl.em?.[v.font] || .72) / 10.8) * 0.62 * perLine * 5.5))};
     S.tplPlay[key] = L;
     return `<div class="tp9 cps" data-play="${key}" style="background-image:url('${tplSrc("blur.jpg")}')">${tplCap(L, {group: Math.floor(performance.now() / 1000 / TPL_STEP / per)})}</div>`;
   };
   // a heading preset as the heading itself, big enough to read, on a picture of the video
   const hookSample = v => `<span class="hps" style="background-image:url('${tplSrc("blur.jpg")}')"><span style="font-family:'pcf ${esc(v.font)}',sans-serif;color:#${v.color};${v.bg ? `background:#${v.bgc};` : ""}${v.outline ? `-webkit-text-stroke:${v.outline / 3}px #000;paint-order:stroke fill;` : ""}">He did it</span></span>`;
   if (E.tab === "captions") {
-    const pre = presets(CAP_PRESETS, c, v => ({...E.look, cap: {...c, ...v}, hook: {...E.look.hook, show: false}, layout: "crop", cam: null}));
-    const anim = Object.entries(S.tpl.anims || {}).map(([k, l]) => tile("cap.anim", k, `${tplPrev({...E.look, cap: {...c, anim: k, per: 2, y: 50, size: Math.max(c.size, 150)}, hook: {show: false}, layout: "crop"}, {mini: true, play: "anim-" + k})}<em>${esc(l)}</em>`, c.anim === k)).join("");
+    const pre = presets(CAP_PRESETS, c, v => ({...E.look, cap: {...c, ...CAP_NEON_DEF, ...v}, hook: {...E.look.hook, show: false}, layout: "crop", cam: null}));
+    const anim = Object.entries(S.tpl.anims || {}).map(([k, l]) => {
+      const aCap = k === "neon" ? {...c, anim: "neon", per: c.two_tone ? 4 : 2, y: 50, size: Math.max(c.size, 136), outline: 0, glow: c.glow ?? 70, hi: c.anim === "neon" ? c.hi : NEON_DEFAULT_HI, hue_shift: c.anim === "neon" ? c.hue_shift : true} : {...c, anim: k, per: 2, y: 50, size: Math.max(c.size, 150)};
+      return tile("cap.anim", k, `${tplPrev({...E.look, cap: aCap, hook: {show: false}, layout: "crop"}, {mini: true, play: "anim-" + k})}<em>${esc(l)}</em>`, c.anim === k);
+    }).join("");
     if (c.show === false) { box.innerHTML = `<div class="tpe-sec">${toggle("cap.show", "Show the captions", false)}</div>`; return; }
+    const isNeon = c.anim === "neon", glowLbl = v => v < 35 ? "Subtle" : v < 75 ? "Medium" : "Intense";
+    const neonCtl = isNeon ? `<div class="tpe-sec"><h4>Neon Bloom</h4>${toggle("cap.hue_shift", "Dynamic hue-shift", !!c.hue_shift)}${toggle("cap.two_tone", "Two-tone lines (White + Neon)", !!c.two_tone)}${range("cap.glow", "Glow intensity", 0, 100, c.glow ?? 65, glowLbl)}${toggle("cap.italic", "Italic hype mode", !!c.italic)}${toggle("cap.wipe", "Feathered wipe", !!c.wipe)}</div>` : "";
     box.innerHTML = `<div class="tpe-sec">${toggle("cap.show", "Show the captions", true)}</div>${pre}<div class="tpe-sec"><h4>Animation</h4><div class="tpe-anims">${anim}</div></div>
-      <div class="tpe-sec"><h4>Font</h4>${fonts("cap.font")}</div>
-      <div class="tpe-sec"><h4>Colours</h4>${colors("cap.color", "Text")}${c.anim !== "none" ? colors("cap.hi", c.anim === "box" ? "Box" : "Word being said") : ""}${colors("cap.key", "Key words")}
+      ${neonCtl}<div class="tpe-sec"><h4>Font</h4>${fonts("cap.font")}</div>
+      <div class="tpe-sec"><h4>Colours</h4>${colors("cap.color", isNeon && c.two_tone ? "Line 1 (White)" : "Text")}${c.anim !== "none" ? colors("cap.hi", c.anim === "box" ? "Box" : isNeon ? "Neon accent" : "Word being said") : ""}${isNeon ? "" : colors("cap.key", "Key words")}
         ${toggle("cap.bg", "Background behind the words", c.bg)}${c.bg ? colors("cap.bgc", "Background colour") : ""}</div>
       <div class="tpe-sec"><h4>Size and shape</h4>${range("cap.size", "Size", 60, 200, c.size, v => v < 95 ? "Small" : v < 140 ? "Medium" : "Large")}
-        ${range("cap.outline", "Outline", 0, 14, c.outline, v => v ? v : "None")}${toggle("cap.shadow", "Shadow", c.shadow)}
+        ${isNeon ? "" : range("cap.outline", "Outline", 0, 14, c.outline, v => v ? v : "None") + toggle("cap.shadow", "Shadow", c.shadow)}
         <div class="tpe-row"><span>Words at a time</span><div class="seg tpe-per">${[1, 2, 3, 4, 5].map(v => `<button type="button" data-tf="cap.per" data-v="${v}" aria-pressed="${c.per === v}">${v}</button>`).join("")}</div></div>
         ${toggle("cap.upper", "Capital letters", c.upper)}${place("cap.y", c.y)}</div>`;
   } else if (E.tab === "heading") {
@@ -5668,7 +5733,7 @@ document.addEventListener("input", e => {
   const t = e.target; if (!S.tplEdit) return;
   if (t.id === "tpe_name") { S.tplEdit.name = t.value; S.tplEdit.dirty = true; return; }
   if (t.dataset.tr === "cam_style.bw" && (Number(t.value) > 0) !== (S.tplEdit.look.cam_style?.bw > 0)) { tplSet(t.dataset.tr, Number(t.value)); return tplCtl(); }
-  if (t.dataset.tr) { tplSet(t.dataset.tr, Number(t.value)); const b = t.nextElementSibling; if (b) b.textContent = t.dataset.tr === "cap.size" ? (t.value < 95 ? "Small" : t.value < 140 ? "Medium" : "Large") : t.dataset.tr === "hook.size" ? (t.value < 85 ? "Small" : t.value < 115 ? "Medium" : "Large")
+  if (t.dataset.tr) { tplSet(t.dataset.tr, Number(t.value)); const b = t.nextElementSibling; if (b) b.textContent = t.dataset.tr === "cap.size" ? (t.value < 95 ? "Small" : t.value < 140 ? "Medium" : "Large") : t.dataset.tr === "cap.glow" ? (t.value < 35 ? "Subtle" : t.value < 75 ? "Medium" : "Intense") : t.dataset.tr === "hook.size" ? (t.value < 85 ? "Small" : t.value < 115 ? "Medium" : "Large")
     : t.dataset.tr === "cam_style.r" ? (Number(t.value) >= 50 ? "Round" : Number(t.value) ? t.value + "%" : "None")
     : t.dataset.tr === "cam_style.bw" ? (Number(t.value) ? t.value + " px" : "None") : (Number(t.value) || "None"); }
   if (t.dataset.tc) { tplSet(t.dataset.tc, t.value.slice(1).toUpperCase()); }
@@ -5799,7 +5864,7 @@ async function tplAct(a, d) {
   if (a === "tplauto") { tplSet(d.k, null); return tplCtl(); }
   if (a === "tplpre") {           // a preset: every option of that part at once; the captions keep their place
     const E = S.tplEdit, i = Number(d.i);
-    if (d.k === "captions") Object.assign(E.look.cap, CAP_PRESETS[i][1]);
+    if (d.k === "captions") Object.assign(E.look.cap, CAP_NEON_DEF, CAP_PRESETS[i][1]);
     else if (d.k === "heading") Object.assign(E.look.hook, HOOK_PRESETS[i][1]);
     else { const v = LAYOUT_PRESETS[i][1]; E.look.layout = v.layout; E.look.cam = v.cam ? {...v.cam} : null; E.look.cam_style = {...v.cam_style}; }
     E.dirty = true; tplPaint(); return tplCtl();

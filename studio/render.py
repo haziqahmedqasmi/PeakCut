@@ -1,4 +1,5 @@
 """Turns a time range into a vertical clip: 9:16 layout, bouncy word captions, hook title, cover."""
+import colorsys
 import re
 import shutil
 import subprocess
@@ -185,10 +186,10 @@ def _key(word):
     return re.sub(r"[^a-z0-9']", "", word.lower())
 
 
-def _groups(words, per):
+def _groups(words, per, max_chars=16):
     out, cur = [], []
     for w in words:
-        if cur and (len(cur) >= per or sum(len(x["w"]) for x in cur) + len(w["w"]) > 16
+        if cur and (len(cur) >= per or sum(len(x["w"]) for x in cur) + len(w["w"]) > max_chars
                     or w["s"] - cur[-1]["e"] > 0.45 or cur[-1]["w"][-1:] in ".?!"):
             out.append(cur)
             cur = []
@@ -291,8 +292,125 @@ def _hook_events(hook, dur, y, info=None, look=None):
     return ev
 
 
-def _bgr(rgb):
-    return rgb[4:6] + rgb[2:4] + rgb[0:2]
+NEON_DEFAULT_HI = "7CFF2B"
+NEON_PALETTE_RGB = ("7CFF2B", "2CF5FF", "FFE91F")
+NEON_HUE_STOPS_RGB = ("C8FF00", "4BFF4B", "20FFD0", "1CF0FF")
+
+
+def rgb_to_ass_bgr(rgb: str, with_tag: bool = False) -> str:
+    h = str(rgb or "FFFFFF").strip().lstrip("#").upper()
+    if len(h) != 6:
+        h = "FFFFFF"
+    bgr = h[4:6] + h[2:4] + h[0:2]
+    return f"&H{bgr}&" if with_tag else bgr
+
+
+_bgr = rgb_to_ass_bgr
+
+
+def _shift_rgb_hue(rgb: str, deg: float) -> str:
+    r, g, b = (int(rgb[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+    h, l, s = colorsys.rgb_to_hls(r, g, b)
+    r2, g2, b2 = colorsys.hls_to_rgb((h + deg / 360.0) % 1.0, l, s)
+    return f"{int(round(r2 * 255)):02X}{int(round(g2 * 255)):02X}{int(round(b2 * 255)):02X}"
+
+
+def _neon_hue_stops(hi_rgb: str) -> list:
+    if hi_rgb.upper() == NEON_DEFAULT_HI:
+        return [rgb_to_ass_bgr(c) for c in NEON_HUE_STOPS_RGB]
+    return [rgb_to_ass_bgr(_shift_rgb_hue(hi_rgb, d)) for d in (0, 28, 56, 84)]
+
+
+def _neon_hue_tags(stops_bgr: list, dur_ms: int) -> tuple:
+    cycle = list(stops_bgr) + list(reversed(stops_bgr[1:-1]))
+    step = min(500, max(160, dur_ms // 3)) if dur_ms < 1500 else 500
+    tags, t, idx = [], 0, 1
+    while t < dur_ms and len(tags) < 8:
+        t2 = min(dur_ms, t + step)
+        c = cycle[idx % len(cycle)]
+        tags.append(f"\\t({t},{t2},\\1c&H{c}&\\3c&H{c}&)")
+        t, idx = t2, idx + 1
+    return stops_bgr[0], "".join(tags)
+
+
+def _neon_split_lines(g, texts, f, size, two_tone):
+    if not two_tone or len(texts) < 2:
+        return [(g, texts, True)]
+    best_cut, best_w = 1, None
+    for cut in range(1, len(texts)):
+        w = max(f.width(" ".join(texts[:cut]), size), f.width(" ".join(texts[cut:]), size))
+        if best_w is None or w < best_w:
+            best_w, best_cut = w, cut
+    return [(g[:best_cut], texts[:best_cut], False), (g[best_cut:], texts[best_cut:], True)]
+
+
+def _neon_word_stream(line_words, line_texts, start, g_start, dur_ms, target_alpha):
+    parts = []
+    for w, t in zip(line_words, line_texts):
+        w0 = max(0, int(round((w["s"] - start - g_start) * 1000)))
+        w1 = min(dur_ms, w0 + 160)
+        if w1 <= w0:
+            w1 = w0 + 80
+        parts.append(f"{{\\alpha&HFF&\\t({w0},{w1},0.55,\\alpha{target_alpha})}}{t}")
+    return " ".join(parts)
+
+
+def _neon_group_events(g, texts, gi, start, g_start, g_end, cap_y, f, st) -> list:
+    dur_ms = max(160, int(round((g_end - g_start) * 1000)))
+    fad_out = min(140, max(40, dur_ms // 3))
+    ts_s, ts_e = _ts(g_start), _ts(g_end)
+    size = st["size"]
+    lines = _neon_split_lines(g, texts, f, size, st["two_tone"])
+    widest = max(f.width(" ".join(lt), size) for _, lt, _ in lines)
+    max_w = CAP_MAX_W - (40 if st["italic"] else 0)
+    if widest > max_w:
+        size = max(36, int(size * max_w / widest))
+    em = f.em(size)
+    fsp = f"{-0.02 * em:.1f}"
+    fax = "\\fax-0.18" if st["italic"] else ""
+    line_h = em * 1.09
+    glow_n = max(0.0, min(1.0, st["glow"] / 100.0))
+    l2_bord, l2_blur = round(4.5 + 8.5 * glow_n, 1), round(12.0 + 16.0 * glow_n, 1)
+    l2_alpha = f"&H{int(round((1.0 - (0.22 + 0.46 * glow_n)) * 255)):02X}&"
+    l3_bord, l3_blur = round(1.0 + 1.8 * glow_n, 1), round(3.0 + 4.5 * glow_n, 1)
+    l3_alpha = f"&H{int(round((1.0 - (0.65 + 0.25 * glow_n)) * 255)):02X}&"
+    hi_rgb = st["hi_rgb"]
+    active_rgb = NEON_PALETTE_RGB[gi % len(NEON_PALETTE_RGB)] if hi_rgb == NEON_DEFAULT_HI else hi_rgb
+    neon_c0, hue_t = _neon_hue_tags(_neon_hue_stops(hi_rgb), dur_ms) if st["hue_shift"] else (rgb_to_ass_bgr(active_rgb), "")
+    white_bgr = st["base"]
+    ev = []
+    if st["bg"]:
+        widest_now = max(f.width(" ".join(lt), size) for _, lt, _ in lines)
+        ch = f.cap * size / (f.asc + f.desc)
+        bh = line_h * (len(lines) - 1) + ch
+        px, py = size * 0.28, ch * 0.55
+        box = _round_box((W - widest_now) / 2 - px, cap_y - bh / 2 - py, (W + widest_now) / 2 + px, cap_y + bh / 2 + py, min(size * 0.22, ch))
+        ev.append(f"Dialogue: 0,{ts_s},{ts_e},Cap,,0,0,0,,{{\\an7\\pos(0,0)\\bord0\\shad0\\fad(0,{fad_out})\\c&H{st['bgc']}&\\p1}}{box}{{\\p0}}")
+    for li, (lw, lt, is_neon) in enumerate(lines):
+        mid_y = cap_y - line_h * (len(lines) - 1) / 2 + li * line_h
+        cy, cx = mid_y - f.cap_shift(size), W / 2
+        clip = ""
+        if st["wipe"]:
+            line_w = f.width(" ".join(lt), size)
+            pad_x, pad_y = 64, int(em * 0.85)
+            x0, x1 = int(max(0, cx - line_w / 2 - pad_x)), int(min(W, cx + line_w / 2 + pad_x))
+            y0, y1 = int(max(0, mid_y - pad_y)), int(min(H, mid_y + pad_y))
+            w_a = max(0, int(round((lw[0]["s"] - start - g_start) * 1000)))
+            w_b = min(dur_ms, max(w_a + 180, int(round((lw[-1]["s"] - start - g_start) * 1000)) + 220))
+            clip = f"\\clip({x0},{y0},{x0},{y1})\\t({w_a},{w_b},0.65,\\clip({x0},{y0},{x1},{y1}))"
+        common = f"\\an5\\fs{size}\\fsp{fsp}{fax}\\fad(0,{fad_out}){clip}"
+        ws = lambda a: _neon_word_stream(lw, lt, start, g_start, dur_ms, a)  # noqa: E731
+        ev.append(f"Dialogue: 0,{ts_s},{ts_e},Cap,,0,0,0,,{{{common}\\pos({cx:.0f},{cy + 5:.0f})\\bord0\\shad0\\blur15\\1c&H000000&\\3c&H000000&}}{ws('&H28&')}")
+        ev.append(f"Dialogue: 1,{ts_s},{ts_e},Cap,,0,0,0,,{{{common}\\pos({cx:.0f},{cy + 2:.0f})\\bord1.5\\shad0\\blur3.5\\1c&H000000&\\3c&H000000&}}{ws('&H15&')}")
+        if is_neon:
+            if glow_n > 0.02:
+                ev.append(f"Dialogue: 2,{ts_s},{ts_e},Cap,,0,0,0,,{{{common}\\pos({cx:.0f},{cy:.0f})\\bord{l2_bord}\\shad0\\blur{l2_blur}\\1c&H{neon_c0}&\\3c&H{neon_c0}&{hue_t}}}{ws(l2_alpha)}")
+                ev.append(f"Dialogue: 3,{ts_s},{ts_e},Cap,,0,0,0,,{{{common}\\pos({cx:.0f},{cy:.0f})\\bord{l3_bord}\\shad0\\blur{l3_blur}\\1c&H{neon_c0}&\\3c&H{neon_c0}&{hue_t}}}{ws(l3_alpha)}")
+            ev.append(f"Dialogue: 3,{ts_s},{ts_e},Cap,,0,0,0,,{{{common}\\pos({cx:.0f},{cy:.0f})\\bord0\\shad0\\blur0.4\\1c&H{neon_c0}&\\3c&H{neon_c0}&{hue_t}}}{ws('&H00&')}")
+        else:
+            ev.append(f"Dialogue: 2,{ts_s},{ts_e},Cap,,0,0,0,,{{{common}\\pos({cx:.0f},{cy:.0f})\\bord2\\shad0\\blur10\\1c&H{white_bgr}&\\3c&H{white_bgr}&}}{ws('&HA6&')}")
+            ev.append(f"Dialogue: 3,{ts_s},{ts_e},Cap,,0,0,0,,{{{common}\\pos({cx:.0f},{cy:.0f})\\bord0\\shad0\\blur0.4\\1c&H{white_bgr}&\\3c&H{white_bgr}&}}{ws('&H00&')}")
+    return ev
 
 
 def _cap_style(cap):
@@ -302,9 +420,13 @@ def _cap_style(cap):
     cap = templates.clean_look({"cap": cap})["cap"]
     size = cap["size"]
     pop = cap["pop"] if cap["anim"] == "pop" else 100
-    return {"font": cap["font"], "size": size, "base": _bgr(cap["color"]), "active": _bgr(cap["hi"]),
-            "strong": _bgr(cap["key"]), "outline": cap["outline"], "shadow": 4 if cap["shadow"] else 0,
-            "pop": pop, "upper": cap["upper"], "per": cap["per"], "anim": cap["anim"], "bg": cap["bg"], "bgc": _bgr(cap["bgc"])}
+    is_neon = cap["anim"] == "neon"
+    return {"font": cap["font"], "size": size, "base": rgb_to_ass_bgr(cap["color"]), "active": rgb_to_ass_bgr(cap["hi"]),
+            "strong": rgb_to_ass_bgr(cap["key"]), "hi_rgb": cap["hi"],
+            "outline": 0 if is_neon else cap["outline"], "shadow": 0 if is_neon else (4 if cap["shadow"] else 0),
+            "pop": pop, "upper": cap["upper"], "per": cap["per"], "anim": cap["anim"], "bg": cap["bg"], "bgc": rgb_to_ass_bgr(cap["bgc"]),
+            "hue_shift": cap["hue_shift"], "two_tone": cap["two_tone"], "glow": cap["glow"],
+            "italic": cap["italic"], "wipe": cap["wipe"]}
 
 
 def _round_box(x0, y0, x1, y1, r):
@@ -392,7 +514,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     inside = sorted((w for w in inside if w["w"]), key=lambda w: w["s"])
     for i, w in enumerate(inside[:-1]):
         w["e"] = max(w["s"], min(w["e"], inside[i + 1]["s"]))
-    groups = _groups(inside, st["per"])
+    groups = _groups(inside, st["per"], max_chars=28 if st["anim"] == "neon" and st["two_tone"] and st["per"] >= 2 else 16)
     spots = None
     if places and groups:
         groups, spots = _placed(groups, places, start)
@@ -448,6 +570,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             line = " ".join(texts)
             fs = max(44, min(int(st["size"] * 0.7), int(1500 / max(1, len(line)) * 1.6)))
             ev.append(f"Dialogue: 1,{_ts(g_start)},{_ts(g_end)},Cap,,60,60,0,,{{\\an5\\pos({W // 2},{cap_y:.0f})\\q0\\fs{fs}}}{line}")
+            continue
+        if st["anim"] == "neon":
+            ev.extend(_neon_group_events(g, texts, gi, start, g_start, g_end, cap_y, f, st))
             continue
         size = st["size"]
         gap = f.width("n n", size) - 2 * f.width("n", size) + (2 * st["outline"] + 6) * size / st["size"] + (size * 0.2 if st["anim"] == "box" else 0)   # a space, plus room for both outlines
