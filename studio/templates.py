@@ -5,10 +5,14 @@ Ready-made templates (BUILTIN) can't be changed, only copied. Each account keeps
 users/<user>/templates.json, plus which template is its default. A clip keeps a copy of its template's look (`look`),
 so changing or deleting a template later never changes clips already made."""
 import copy
+import hashlib
 import json
 import re
 import secrets
+import shutil
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import config, ctx
@@ -359,6 +363,16 @@ def sample_v() -> int:
     return int(f.stat().st_mtime) if f.is_file() else 0
 
 
+def _preview_stills(mp4: Path, jpg: Path, blur: Path):
+    """First picture of a sample clip, plus the blurred version behind it."""
+    import subprocess
+    from . import media
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", "0", "-i", str(mp4), "-frames:v", "1", "-q:v", "4", str(jpg)],
+                   capture_output=True, timeout=60, creationflags=media.NO_WINDOW, check=True)
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(jpg), "-vf", "scale=96:54,boxblur=6:2,eq=brightness=-0.14:saturation=1.15,scale=320:180",
+                    "-q:v", "5", str(blur)], capture_output=True, timeout=60, creationflags=media.NO_WINDOW, check=True)
+
+
 def sample() -> tuple:
     """(video, picture) the style previews play: ten silent seconds of the video the account picked for it, else its
     newest video, so people see their styles on their own footage; or moving colours when they have none yet.
@@ -407,10 +421,7 @@ def sample() -> tuple:
     if not ok and not make(["-f", "lavfi", "-i", f"gradients=s=640x360:c0=0x5B3B2C:c1=0xC26A3A:c2=0x3A5A6B:c3=0xFF8B33:speed=0.03:d={SAMPLE_SECONDS}"]):
         raise RuntimeError("Couldn't make the style preview video")
     tmp.replace(mp4)
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", "0", "-i", str(mp4), "-frames:v", "1", "-q:v", "4", str(jpg)],
-                   capture_output=True, timeout=60, creationflags=media.NO_WINDOW, check=True)
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(jpg), "-vf", "scale=96:54,boxblur=6:2,eq=brightness=-0.14:saturation=1.15,scale=320:180",
-                    "-q:v", "5", str(blur)], capture_output=True, timeout=60, creationflags=media.NO_WINDOW, check=True)
+    _preview_stills(mp4, jpg, blur)
     made.write_text(key, encoding="utf-8")
     (d / "style-sample-cam.json").unlink(missing_ok=True)
     return mp4, jpg
@@ -435,6 +446,300 @@ def sample_cam():
         cam = None
     f.write_text(json.dumps({"cam": cam}), encoding="utf-8")
     return cam
+
+
+LINK_SAMPLE_SECONDS = 5
+LINK_CACHE_MAX = 8
+KIND_LABELS = {"cam": "Facecam found", "podcast": "2 speakers found", "person": "Person on camera",
+               "screen": "Full-screen scene", "vertical": "Vertical video"}
+_link_lock = threading.Lock()
+_link_inflight: dict = {}
+_stream_cache: dict = {}
+
+
+def _link_key(url: str) -> str:
+    return hashlib.sha256(url.strip().encode("utf-8")).hexdigest()[:16]
+
+
+def _link_dir(key: str) -> Path:
+    if not re.fullmatch(r"[0-9a-f]{16}", key or ""):
+        raise KeyError("Invalid sample key")
+    return config.user_dir(ctx.uid()) / "link-samples" / key
+
+
+def _prune_link_cache(root: Path):
+    if not root.is_dir():
+        return
+    dirs = sorted((p for p in root.iterdir() if p.is_dir()), key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in dirs[LINK_CACHE_MAX:]:
+        shutil.rmtree(old, ignore_errors=True)
+
+
+def _cached_stream(url: str) -> dict:
+    now = time.time()
+    with _link_lock:
+        hit = _stream_cache.get(url)
+        if hit and now < hit[0]:
+            return hit[1]
+    from . import media
+    info = media.stream_info(url)
+    with _link_lock:
+        if len(_stream_cache) > 64:
+            _stream_cache.pop(next(iter(_stream_cache)))
+        _stream_cache[url] = (now + 240, info)
+    return info
+
+
+def _ffmpeg_net_args(sinfo: dict) -> list:
+    args = []
+    if sinfo.get("proxy"):
+        args += ["-http_proxy", sinfo["proxy"]]
+    headers = sinfo.get("headers") or {}
+    ua = str(headers.get("User-Agent") or "").replace("\r", "").replace("\n", "")
+    if ua:
+        args += ["-user_agent", ua]
+    extra = [f"{str(k).strip()}: {str(v).replace(chr(13), '').replace(chr(10), '')}"
+             for k, v in headers.items() if k and v and str(k).lower() not in ("user-agent", "host", "connection", "accept-encoding")]
+    if extra:
+        args += ["-headers", "\r\n".join(extra) + "\r\n"]
+    return args
+
+
+def _sample_times(dur: float, is_live: bool) -> list:
+    if is_live or dur <= 6:
+        return [0.0]
+    if dur <= 30:
+        return [round(dur * f, 1) for f in (0.2, 0.5, 0.78)]
+    return [round(dur * f, 1) for f in (0.22, 0.48, 0.72)]
+
+
+def _render_sample_clip(inp_args: list, tmp_mp4: Path, out_mp4: Path, timeout: int = 45) -> bool:
+    import subprocess
+    from . import media
+    subprocess.run(["ffmpeg", "-y", "-v", "error", *inp_args, "-an",
+                    "-vf", "scale=640:360:force_original_aspect_ratio=increase,crop=640:360,fps=24",
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(tmp_mp4)],
+                   capture_output=True, timeout=timeout, creationflags=media.NO_WINDOW)
+    if tmp_mp4.is_file() and tmp_mp4.stat().st_size > 12000:
+        tmp_mp4.replace(out_mp4)
+        return True
+    tmp_mp4.unlink(missing_ok=True)
+    return False
+
+
+def _cut_moment_clip(url: str, sinfo: dict, t: float, d: Path, fallback_jpg: Path | None) -> None:
+    import subprocess
+    from . import media
+    mp4, jpg, blur = d / "sample.mp4", d / "sample.jpg", d / "sample-blur.jpg"
+    tmp_mp4 = d / "sample.tmp.mp4"
+    dur = float(sinfo.get("duration") or 0)
+    is_live = bool(sinfo.get("is_live"))
+    seek = 0.0 if is_live else (max(0.0, min(t, max(0.0, dur - LINK_SAMPLE_SECONDS - 0.5))) if dur > LINK_SAMPLE_SECONDS + 1 else 0.0)
+    ok = False
+    if sinfo.get("url"):
+        net = _ffmpeg_net_args(sinfo)
+        ss = [] if is_live else ["-ss", f"{seek:.2f}"]
+        ok = _render_sample_clip([*net, *ss, "-t", str(LINK_SAMPLE_SECONDS), "-i", sinfo["url"]], tmp_mp4, mp4)
+    if not ok and not is_live:
+        try:
+            end = seek + LINK_SAMPLE_SECONDS + 1
+            seg = media.download_section(url, d, "seg.tmp", seek, end, height=480)
+            ok = _render_sample_clip(["-ss", "0", "-t", str(LINK_SAMPLE_SECONDS), "-i", str(seg)], tmp_mp4, mp4)
+            seg.unlink(missing_ok=True)
+        except media.YouTubeBlocked:
+            raise
+        except Exception:  # noqa: BLE001
+            for p in d.glob("seg.tmp*"):
+                p.unlink(missing_ok=True)
+    if not ok and fallback_jpg and fallback_jpg.is_file():
+        ok = _render_sample_clip(["-loop", "1", "-t", str(LINK_SAMPLE_SECONDS), "-i", str(fallback_jpg)], tmp_mp4, mp4, timeout=30)
+    if not ok:
+        raise RuntimeError("Couldn't grab a preview from that video.")
+    _preview_stills(mp4, jpg, blur)
+
+
+def link_sample(url: str, moment: int | None = None) -> dict:
+    """Quickly grab 2-3 frames from inside a pasted video URL, detect framing/facecam, and cut a 5s preview clip."""
+    import subprocess
+    from . import facecam, media
+    url = url.strip()
+    key = _link_key(url)
+    root = config.user_dir(ctx.uid()) / "link-samples"
+    d = root / key
+    meta_path, mp4, jpg, blur = d / "meta.json", d / "sample.mp4", d / "sample.jpg", d / "sample-blur.jpg"
+
+    # Fast cache hit (or switch active moment in already-probed video)
+    if moment is None and meta_path.is_file() and mp4.is_file() and mp4.stat().st_size > 12000 and jpg.is_file() and blur.is_file():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            d.touch()
+            return meta
+        except Exception:  # noqa: BLE001
+            pass
+
+    slot_key = (ctx.uid(), key, moment)
+    with _link_lock:
+        running = _link_inflight.get(slot_key)
+        if running is None:
+            owner = True
+            running = {"ev": threading.Event(), "meta": None, "err": None}
+            _link_inflight[slot_key] = running
+        else:
+            owner = False
+
+    if not owner:
+        running["ev"].wait(timeout=70)
+        if running["err"] is not None:
+            raise running["err"]
+        if running["meta"] is not None:
+            return running["meta"]
+
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        # Switch between already-captured moments
+        if moment is not None and meta_path.is_file():
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            moments = meta.get("moments") or [0.0]
+            idx = max(0, min(len(moments) - 1, int(moment)))
+            if idx == meta.get("active") and mp4.is_file():
+                running["meta"] = meta
+                return meta
+            sinfo = _cached_stream(url)
+            fb = d / f"f{idx}.jpg"
+            _cut_moment_clip(url, sinfo, moments[idx], d, fb if fb.is_file() else None)
+            meta["active"] = idx
+            meta["best_t"] = moments[idx]
+            meta["v"] = int(time.time() * 1000)
+            meta_path.write_text(json.dumps(meta), encoding="utf-8")
+            running["meta"] = meta
+            return meta
+
+        sinfo = _cached_stream(url)
+        dur = float(sinfo.get("duration") or 0)
+        is_live = bool(sinfo.get("is_live"))
+        vertical = bool(sinfo.get("height") and sinfo.get("width") and sinfo["height"] > sinfo["width"])
+        ts = _sample_times(dur, is_live)
+        net = _ffmpeg_net_args(sinfo)
+        frames = [None] * len(ts)
+
+        def grab_one(idx, t):
+            out_f = d / f"f{idx}.jpg"
+            ss = [] if is_live else ["-ss", f"{t:.2f}"]
+            cmd = ["ffmpeg", "-y", "-v", "error", *net, *ss, "-i", sinfo["url"], "-frames:v", "1",
+                   "-vf", "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720", "-q:v", "3", str(out_f)]
+            subprocess.run(cmd, capture_output=True, timeout=22, creationflags=media.NO_WINDOW)
+            if out_f.is_file() and out_f.stat().st_size > 2000:
+                frames[idx] = out_f
+            else:
+                out_f.unlink(missing_ok=True)
+
+        if sinfo.get("url") and not is_live:
+            with ThreadPoolExecutor(max_workers=min(3, len(ts))) as pool:
+                futs = [pool.submit(grab_one, i, t) for i, t in enumerate(ts)]
+                for f in futs:
+                    f.result()
+
+        valid_pairs = [(i, frames[i]) for i in range(len(ts)) if frames[i] is not None]
+        seg_tmp = None
+        if not valid_pairs:
+            # Segmented manifest / live fallback: pull one brief stretch once and grab up to 3 frames from it
+            t0 = 0.0 if is_live else ts[len(ts) // 2]
+            t1 = (4.5 if is_live else min(dur or (t0 + 6.0), t0 + 6.0))
+            seg_tmp = media.download_section(url, d, "seg.tmp", t0, t1, height=480)
+            local_ts = [0.5, 2.0, 3.5]
+            frames = [None] * len(local_ts)
+            for idx, lt in enumerate(local_ts):
+                out_f = d / f"f{idx}.jpg"
+                subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{lt:.2f}", "-i", str(seg_tmp), "-frames:v", "1",
+                                "-vf", "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720", "-q:v", "3", str(out_f)],
+                               capture_output=True, timeout=20, creationflags=media.NO_WINDOW)
+                if out_f.is_file() and out_f.stat().st_size > 2000:
+                    frames[idx] = out_f
+            ts = [round(t0 + lt, 1) for lt in local_ts]
+            valid_pairs = [(i, frames[i]) for i in range(len(ts)) if frames[i] is not None]
+
+        # Normalize saved frame slots cleanly as f0..f{N-1}
+        valid_paths = [p for _, p in valid_pairs]
+        kept_ts = [ts[i] for i, _ in valid_pairs]
+        for n, (_, p) in enumerate(valid_pairs):
+            target = d / f"f{n}.jpg"
+            if p != target:
+                p.replace(target)
+                valid_paths[n] = target
+
+        if vertical:
+            analysis = {"cam": None, "kind": "vertical", "best": 0}
+        elif valid_paths:
+            analysis = facecam.analyze_sample(valid_paths)
+        else:
+            analysis = {"cam": None, "kind": "screen", "best": 0}
+
+        best_idx = max(0, min(len(valid_paths) - 1, int(analysis.get("best") or 0))) if valid_paths else 0
+        best_t = kept_ts[best_idx] if kept_ts else 0.0
+        fb_jpg = valid_paths[best_idx] if valid_paths else None
+
+        if seg_tmp is not None and seg_tmp.is_file():
+            tmp_mp4 = d / "sample.tmp.mp4"
+            if not _render_sample_clip(["-ss", "0", "-t", str(LINK_SAMPLE_SECONDS), "-i", str(seg_tmp)], tmp_mp4, mp4):
+                _cut_moment_clip(url, sinfo, best_t, d, fb_jpg)
+            else:
+                _preview_stills(mp4, jpg, blur)
+            seg_tmp.unlink(missing_ok=True)
+        else:
+            _cut_moment_clip(url, sinfo, best_t, d, fb_jpg)
+        for p in d.glob("seg.tmp*"):
+            p.unlink(missing_ok=True)
+
+        kind = analysis["kind"]
+        meta = {"key": key, "v": int(time.time() * 1000), "url": url, "title": sinfo.get("title") or "",
+                "kind": kind, "kind_label": KIND_LABELS.get(kind, "Full-screen scene"),
+                "sample_cam": analysis.get("cam"), "duration": dur, "active": best_idx,
+                "best_t": best_t, "moments": kept_ts, "frames": len(valid_paths)}
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+        _prune_link_cache(root)
+        running["meta"] = meta
+        return meta
+    except Exception as e:
+        running["err"] = e
+        raise
+    finally:
+        with _link_lock:
+            _link_inflight.pop(slot_key, None)
+        running["ev"].set()
+
+
+def link_sample_file(key: str, ext: str):
+    """Cached preview video or picture for a pasted link sample."""
+    if ext not in ("mp4", "jpg", "blur.jpg", "f0.jpg", "f1.jpg", "f2.jpg"):
+        return None
+    try:
+        d = _link_dir(key)
+    except KeyError:
+        return None
+    name = "sample.mp4" if ext == "mp4" else "sample.jpg" if ext == "jpg" else "sample-blur.jpg" if ext == "blur.jpg" else ext
+    p = d / name
+    return p if p.is_file() else None
+
+
+def link_sample_cam(key: str) -> dict:
+    """Re-run cam finder (including AI if configured) on the cached pasted-link frames/sample."""
+    from . import facecam
+    d = _link_dir(key)
+    meta_path, mp4 = d / "meta.json", d / "sample.mp4"
+    if not meta_path.is_file() or not mp4.is_file():
+        raise KeyError("Preview expired")
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    fpaths = [d / f"f{i}.jpg" for i in range(int(meta.get("frames") or 0)) if (d / f"f{i}.jpg").is_file()]
+    cam = facecam.find([mp4, *fpaths], 12)
+    meta["sample_cam"] = cam
+    if cam:
+        meta["kind"] = "cam"
+        meta["kind_label"] = KIND_LABELS["cam"]
+    elif meta.get("kind") == "cam":
+        meta["kind"] = "screen"
+        meta["kind_label"] = KIND_LABELS["screen"]
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    return meta
 
 
 def label(tid) -> str:
