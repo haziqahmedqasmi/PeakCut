@@ -112,7 +112,7 @@ with ctx.as_user(u.id):
     fc = render.cam_filter(plan, "crop", 1920)
     check("the game fills the rest under a stacked cam", "pad=1080:1920:0:768" in fc and "overlay=0:0:shortest=1[v0]" in fc)
     corner = render.cam_plan({"x": 4, "y": 4, "w": 44, "h": 17}, {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}, 1920, 1080)
-    check("a corner cam sits over the game", not corner["stack"] and "[s0]fps" in render.cam_filter(corner, "blur", 608))
+    check("a corner cam sits over the game", not corner["stack"] and "[s0]setpts=PTS-STARTPTS,fps" in render.cam_filter(corner, "blur", 608))
     check("no cam found: no cam in the clip", render.cam_plan(t["look"]["cam"], None, 1280, 720) is None)
     creators.update(c["id"], {"cam": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.3}})
     check("a streamer keeps where their cam is", creators.get(c["id"])["cam"] == {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.3})
