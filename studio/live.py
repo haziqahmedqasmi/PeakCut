@@ -865,14 +865,13 @@ class Session:
         """Runs on the render worker: copy the needed buffer pieces, then make the clip."""
         if not self._cut(clip):
             return
-        # Only the gameplay layout uses a webcam, and only once the clip's own file is written: the
-        # webcam is looked for in it, once per stream.
-        if clip.get("layout") == "gameplay":
-            if not self.facecam_checked:
-                self.facecam_box = self._find_facecam(clip["src"])
-                self.facecam_checked = True
-            if self.facecam_box:
-                clip["facecam"] = self.facecam_box
+        # Looked for once per stream, in the clip's own piece of it, whatever layout this clip was made
+        # with: the answer stays on the stream, so a later clip or a re-make of this one can still use it.
+        if not self.facecam_checked:
+            self.facecam_box = self._find_facecam(clip["src"])
+            self.facecam_checked = True
+        if self.facecam_box:
+            clip["facecam"] = self.facecam_box
         jobs.render_one(self.job, clip, list(self.words))
 
     def _cut(self, clip) -> bool:

@@ -558,6 +558,13 @@ def request_render(jid, cid, changes: dict):
         new["style"] = DEFAULTS["style"]
     if new.get("layout") not in render.LAYOUTS:
         new["layout"] = DEFAULTS["layout"]
+    if new.get("layout") == "gameplay" and not new.get("facecam"):
+        # The gameplay layout is the one that puts the webcam in the corner, and a clip can be switched to
+        # it long after it was made, when no webcam was ever looked for. Look now, so this re-make still gets
+        # the picture; a look that finds nothing leaves the clip exactly as it would have been.
+        box = _facecam_again(job, clip)
+        if box:
+            new["facecam"] = box
     new.pop("draft", None)
     clip.update(new, status="queued")
     clip.pop("draft", None)
@@ -1166,14 +1173,12 @@ def _covers(words: list, start: float, end: float) -> bool:
     return len(inside) >= 25 * minutes and inside[-1]["s"] >= start + 0.85 * (end - start)
 
 
-def _facecam(job) -> list | None:
-    """Where the webcam is in the source: once for the whole video, for every clip of it.
+def _webcam_in(path) -> list | None:
+    """Where the webcam is in this file, as [x, y, w, h], or None. Only a sure answer is used.
 
-    Only a sure answer is used. A box that is a scoreboard drawn over the game would
-    put a picture of a scoreboard in the corner of the clip. One frame is also shown to
-    the AI, which tells a person from a game character better than any measurement can;
-    what it says is measured again on the picture, so it cannot do any harm."""
-    path = job.get("source_path")
+    A box that is a scoreboard drawn over the game would put a picture of a scoreboard in the corner of
+    the clip. One frame is also shown to the AI, which tells a person from a game character better than
+    any measurement can; what it says is measured again on the picture, so it cannot do any harm."""
     if not path or not Path(path).is_file():
         return None
     try:
@@ -1182,8 +1187,31 @@ def _facecam(job) -> list | None:
         return None
     if not box or box.get("conf") != "high":
         return None
-    job["facecam"] = [box["x"], box["y"], box["w"], box["h"]]
-    return job["facecam"]
+    return [box["x"], box["y"], box["w"], box["h"]]
+
+
+def _facecam(job) -> list | None:
+    """Where the webcam is in the source: once for the whole video, for every clip of it."""
+    box = _webcam_in(job.get("source_path"))
+    if box:
+        job["facecam"] = box
+    return box
+
+
+def _facecam_again(job, clip) -> list | None:
+    """A clip being re-made with the gameplay layout, on a video made before a webcam was ever looked for.
+
+    Look now, and keep the answer on the video so its other clips can use it too. Only a file that is
+    still here can be looked at: the video itself, or, for a live clip, its own saved piece of the stream.
+    A source that has since been cleaned up gives nothing rather than an error."""
+    if job.get("facecam"):
+        return job["facecam"]
+    for path in (job.get("source_path"), clip.get("src")):
+        box = _webcam_in(path)
+        if box:
+            job["facecam"] = box
+            return box
+    return None
 
 
 def _run_job(job):
@@ -1455,9 +1483,10 @@ def _run_job(job):
                 c["description"], c["fixed_description"] = o["description_text"], True
             else:                          # no description of their own: 3 to 5 fitting hashtags go at the end of the AI's
                 hashtags.apply(c, words, job["title"], job["uploader"], game)
-            # Only the gameplay layout uses a webcam, so it is only looked for then, and only once: a
-            # stream with no webcam is not looked for again on every clip of it.
-            if o["layout"] == "gameplay" and face is False:
+            # Looked for once for the whole video, whatever layout these clips are being made in: someone
+            # may switch a clip to the gameplay layout when re-making it, or make the rest of the video
+            # with it, and the answer is then already known. A video with no webcam is looked at once.
+            if face is False:
                 face = _facecam(job)
             if face:
                 c["facecam"] = face

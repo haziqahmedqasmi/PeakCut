@@ -46,6 +46,10 @@ ASPECT_MAX = 3.20          # the widest: a banner or a ticker is wider than this
 STILL_FRAC = 0.35          # how much of the game's own movement a webcam picture may have
 STILL_MIN = 6.0            # and the floor, for a game that itself is almost still
 STILL_SHARE = 0.30         # at most this much of a webcam picture may be moving, or the game is showing through
+STILLER = 0.35             # a measured webcam must move at most this much of what moves around it
+STILL_AI = 1.15            # a box the AI named may move as much as the game around it, but no more: its
+                           # word decides what a picture holds, and an animated streamer is far from still
+INWARD = 0.03              # how much of a named box's own side may come off when snapping it to a border
 EDGE_FLUSH = 0.02          # a side this close to the frame's own edge is the edge
 MATCH = 0.35               # how much a box the AI points at must cover a measured box to be that box
 EDGE = 2.2                 # how much brighter than the average line a border must be
@@ -133,11 +137,22 @@ def _stillness(frames: np.ndarray) -> np.ndarray:
     return frames.astype(np.float32).std(axis=0)
 
 
-def _plausible(x0, y0, x1, y1, still, light, game, share=STILL_SHARE):
+def _plausible(x0, y0, x1, y1, still, light, game, share=STILL_SHARE, strict=False, cap=STILL_FRAC):
     """Could this rectangle be a webcam picture? Judged on its shape, its stillness and its light.
 
     Returns how much it moves, or None. Nothing here says which corner it is in: a webcam may sit in a
-    corner, along one edge, or with a margin all round."""
+    corner, along one edge, or with a margin all round.
+
+    `strict` adds the one test that needs the picture around the box as well: a webcam moves noticeably
+    less than the game it sits on. A box found by measuring the borders has to pass it. Without it, a
+    frame that is hardly moving anywhere (a paused game, a menu screen, a photo mode) makes every panel
+    on it look like a camera, and one is invented where there is none. A box a model has already called
+    a person does not: the model has said what is in it, which no measurement can.
+
+    `cap` is how much of the game's own movement the picture inside may have, as a part of it: a measured
+    box gets the strict share, and a box a model named is allowed nearly all of it, because a streamer
+    moving about is not a still picture.
+    """
     bw, bh = (x1 - x0) / W, (y1 - y0) / H
     if not (MIN_SIZE <= bw <= MAX_SIZE and MIN_SIZE <= bh <= MAX_SIZE):
         return None
@@ -149,7 +164,7 @@ def _plausible(x0, y0, x1, y1, still, light, game, share=STILL_SHARE):
     inside = still[b:d, a:c]
     if not inside.size:
         return None
-    cut = max(STILL_MIN, STILL_FRAC * game)
+    cut = max(STILL_MIN, cap * game)
     moving = float(np.median(inside))
     if moving > cut:
         return None                    # it changes with the game: it is the game
@@ -157,6 +172,12 @@ def _plausible(x0, y0, x1, y1, still, light, game, share=STILL_SHARE):
         return None                    # a good part of it moves: the game is showing through
     if float(light[b:d, a:c].mean()) < 0.30 * float(light.mean()):
         return None                    # a black hole, not a picture
+    if strict:
+        around = np.ones(still.shape, dtype=bool)
+        around[b:d, a:c] = False
+        outer = float(np.median(still[around])) if around.any() else 0.0
+        if outer <= 1e-6 or moving > STILLER * outer:
+            return None                # nothing around it moves either, or it moves as much: not a camera
     return moving
 
 
@@ -180,7 +201,7 @@ def _local(vpeaks, hpeaks, still, light):
                     score = wscore + hy0 + [hs[v] for v in (y1,) if v in hs]
                     if len(score) < 2:
                         continue       # a box needs two borders of its own, or it is just the frame
-                    moving = _plausible(x0, y0, x1, y1, still, light, game)
+                    moving = _plausible(x0, y0, x1, y1, still, light, game, strict=True)
                     if moving is None:
                         continue
                     key = (min(score), (x1 - x0) * (y1 - y0))
@@ -219,10 +240,22 @@ def _full_frame(path: str | Path) -> np.ndarray | None:
 
 
 def _best(profile: np.ndarray, approx: float, span: float) -> float:
-    """The strongest change near a guessed line."""
+    """The real border nearest a guessed line.
+
+    Nearest, not strongest: a busy picture has stronger lines than the webcam's own edge all over it, and
+    taking the strongest one within reach jumps to a panel a long way off. A line has to be a border at all
+    (EDGE times the average) to be worth moving to; among those, the closest one wins, and a tie goes to the
+    stronger."""
     lo, hi = max(0, int(approx - span)), min(len(profile), int(approx + span) + 1)
     seg = profile[lo:hi]
-    return float(lo + seg.argmax()) if len(seg) else float(approx)
+    if not len(seg):
+        return float(approx)
+    base = float(np.median(profile)) or 1.0
+    borders = np.where(seg > EDGE * base)[0]
+    if not len(borders):
+        return float(lo + int(seg.argmax()))
+    pick = min(borders, key=lambda i: (abs((lo + i) - approx), -seg[i]))
+    return float(lo + int(pick))
 
 
 def _snap(path: str | Path, box, w: int, h: int, span: float = 0.0):
@@ -270,8 +303,12 @@ def _corner(x0, y0, x1, y1, w, h) -> str:
     return "middle"
 
 
-def _finish(path: str | Path, found: dict, w: int, h: int, still: np.ndarray) -> dict | None:
-    """The box in source pixels, with how sure it is that this is really a camera."""
+def _finish(path: str | Path, found: dict, w: int, h: int, still: np.ndarray, sure: bool = False) -> dict | None:
+    """The box in source pixels, with how sure it is that this is really a camera.
+
+    `sure` says the AI named this box (or agreed with it). Its word is the better one on what a picture
+    holds, so the stillest test is not what decides: a streamer who moves about, on a game that is also
+    moving, is exactly the case where measuring alone cannot tell a camera from the game."""
     snapped = _snap(path, (found["x"], found["y"], found["x1"], found["y1"]), w, h)
     if not snapped:
         return None
@@ -281,8 +318,9 @@ def _finish(path: str | Path, found: dict, w: int, h: int, still: np.ndarray) ->
     inside = still[int(found["y"]):int(found["y1"]), int(found["x"]):int(found["x1"])]
     game = float(np.median(still))
     moving = float(np.median(inside)) if inside.size else 99.0
-    # sure of it when the picture inside hardly moves while the game around it is racing
-    conf = "high" if moving <= max(3.0, 0.25 * game) else "low"
+    # sure of it when the picture inside hardly moves while the game around it is racing, or when the AI
+    # has said a person is in it
+    conf = "high" if sure or moving <= max(3.0, 0.25 * game) else "low"
     return {"x": int(round(x0)), "y": int(round(y0)), "w": int(round(x1 - x0)), "h": int(round(y1 - y0)),
             "corner": _corner(x0, y0, x1, y1, w, h), "score": found.get("score", 0.0), "conf": conf}
 
@@ -315,21 +353,35 @@ def _seen(path: str | Path, box, w: int, h: int, still: np.ndarray, light: np.nd
     """A box the model proposed, put onto the picture's real borders and checked like any other.
 
     A model reads a picture well but places a box roughly, and it can be wrong about the whole thing. So
-    its box is only believed where the borders are really there and the picture inside really is still."""
+    its box is only believed where the borders are really there, where it holds something bigger than a
+    stamp, and where it does not move more than the game it sits on. What it may not be judged on is being
+    perfectly still: the model has already said a person is in it, and an animated streamer is not still."""
     fx, fy, fw, fh = box
-    snapped = _snap(path, (fx * W, fy * H, (fx + fw) * W, (fy + fh) * H), w, h, span=0.12)
+    # A model places a box roughly, so its sides are pulled onto the nearest real border. The window is
+    # kept short on purpose: the further it may reach, the more chance it lands on a panel edge that has
+    # nothing to do with the webcam.
+    snapped = _snap(path, (fx * W, fy * H, (fx + fw) * W, (fy + fh) * H), w, h, span=0.06)
     if not snapped:
         return None
     x0, y0, x1, y1 = snapped
     if x1 - x0 < w * MIN_SIZE or y1 - y0 < h * MIN_SIZE:
         return None
+    # A side is only pulled inwards a little. Moving one in is what cuts a strip off the picture, and the
+    # first thing it takes is the top of someone's head, or their chin: a border found inside the picture
+    # is not its edge. Moving a side outwards is always allowed, since all it adds is what is around it.
+    ax0, ay0, ax1, ay1 = fx * w, fy * h, (fx + fw) * w, (fy + fh) * h
+    limit_x, limit_y = INWARD * max(1.0, ax1 - ax0), INWARD * max(1.0, ay1 - ay0)
+    x0 = min(x0, ax0 + limit_x)
+    y0 = min(y0, ay0 + limit_y)
+    x1 = max(x1, ax1 - limit_x)
+    y1 = max(y1, ay1 - limit_y)
     small = (x0 * W / w, y0 * H / h, x1 * W / w, y1 * H / h)
-    # The model has already said a person is here, so the picture inside is allowed to move more than a
-    # measured box would be; what it may not be is the game itself.
-    if _plausible(*small, still, light, float(np.median(still)), share=1.0) is None:
+    # The model has already said a person is here, so the picture inside is allowed to move much more than
+    # a measured box would be; what it may not be is the game itself, or too small to be a picture.
+    if _plausible(*small, still, light, float(np.median(still)), share=1.0, cap=STILL_AI) is None:
         return None
     found = {"x": small[0], "y": small[1], "x1": small[2], "y1": small[3], "score": 0.0}
-    return _finish(path, found, w, h, still)
+    return _finish(path, found, w, h, still, sure=True)
 
 
 def detect(path: str | Path, ask=None) -> dict | None:
@@ -364,7 +416,8 @@ def detect(path: str | Path, ask=None) -> dict | None:
         # matches none of them is its own box measured and used.
         match = max(found, key=lambda c: _overlap(c, hinted)) if found else None
         if match and _overlap(match, hinted) >= MATCH:
-            return _finish(path, match, w, h, still)
+            # two ways of looking agree on where the picture is: the borders measured here, and the AI
+            return _finish(path, match, w, h, still, sure=True)
         seen = _seen(path, hinted, w, h, still, light)
         if seen:
             return seen
