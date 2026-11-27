@@ -419,6 +419,23 @@ img.av{object-fit:cover}
 .lay-prev.fit .ph{background:#000}.lay-prev.fit .ph::before{display:none}
 .lay-prev.split .ph i{top:0;height:23px;transform:none}
 .lay-prev.split .ph::before{inset:25px 0 0 0;filter:none;opacity:1;background:linear-gradient(135deg,#FFB27A,#FF8B33)}
+/* ---------- pasted-link preview bar inside Choose a style */
+.tpd-ctx{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 18px;background:var(--muted);border-bottom:1px solid var(--line);font-size:12.5px;color:var(--dim);flex-wrap:wrap}
+.tpd-ctx-l{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 240px}
+.tpd-ctx-l svg{width:15px;height:15px;flex:none;color:var(--brand-deep)}
+.tpd-ctx-l b{color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tpd-badge{display:inline-flex;align-items:center;gap:4px;font-style:normal;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#fff;border:1px solid var(--line);color:var(--text);flex:none}
+.tpd-badge.cam{background:#E7F7EE;border-color:#B7E4C7;color:#15803D}
+.tpd-badge.podcast{background:#E8F1FF;border-color:#BFDBFE;color:#1D4ED8}
+.tpd-badge svg{width:12px;height:12px;color:currentColor}
+.tpd-moments{display:flex;align-items:center;gap:6px;flex:none}
+.tpd-moments small{font-size:11px;color:var(--faint);margin-right:2px}
+.tpd-mom{position:relative;width:44px;height:25px;padding:0;border:2px solid transparent;border-radius:5px;overflow:hidden;background:#1E1612;cursor:pointer;flex:none;transition:border-color .15s ease}
+.tpd-mom img{width:100%;height:100%;object-fit:cover;display:block}
+.tpd-mom:hover{border-color:var(--brand-line)}
+.tpd-mom.on{border-color:var(--brand)}
+.tpd-fit{font-style:normal;font-size:10.5px;font-weight:700;color:#15803D;background:#E7F7EE;padding:1px 6px;border-radius:999px;flex:none}
+.tpd-foot .tpd-cust{margin-right:auto}
 .seg{display:flex;gap:4px;background:#fff;border-radius:10px;padding:4px}
 .composer.compact .seg{background:var(--muted)}
 .seg button{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 6px;border:0;border-radius:7px;background:transparent;color:var(--dim);font-size:13px;font-weight:600;cursor:pointer;transition:background-color .15s ease,color .15s ease}
@@ -3550,7 +3567,7 @@ function go(v, tab, fromHistory) {
   else if (v === "updates") view.innerHTML = updatesPage();
   else if (v === "schedule") { view.innerHTML = `<div id="sched"></div>`; schMarkSeen(); loadSchedule(); }
   else view.innerHTML = `<div id="stream"></div><div id="cbody"></div>`;   // the live player stays put across tabs: no restart, no rebuffer
-  if ($("#add")) drawAdd(v === "overview" ? "hero" : "compact");
+  if ($("#add")) { drawAdd(v === "overview" ? "hero" : "compact"); syncLinkSample(); }
   if (v === "overview" && window.GradientASCII) { try { window._gaStop = GradientASCII($("#appAscii"), {colors: ["#ffb27a", "#ffffff", "#ffd2ae", "#ffe0c2", "#fff1e6"], shape: "horizon", lightMode: true, cellSize: 16, density: 0.8, glyphOpacity: 0.26, gradientOpacity: 0.32, glow: 0.06, grain: 0.06, mouseInteraction: false, clickEffect: "none"}); } catch {} }
   if (v === "settings") drawSettings();
   if (v === "styles") loadTpls().then(tplRoute);
@@ -3564,7 +3581,7 @@ function setTab(t) {
   drawShell();
   $("#cbody").innerHTML = t === "clips" ? `<div id="campbar"></div><div id="live"></div><div id="add"></div><div id="jobs"></div>` : t === "setup" || t === "campaign" ? `<div id="cform"></div>` : `<div id="clog"></div>`;
   if ($("#stream")) $("#stream").style.display = t === "clips" ? "" : "none";
-  if (t === "clips") { drawAdd("compact"); drawCampBar(); }
+  if (t === "clips") { drawAdd("compact"); drawCampBar(); syncLinkSample(); }
   if (t === "setup" || t === "campaign") drawCreatorForm();
   render();
 }
@@ -3572,6 +3589,7 @@ function setTab(t) {
 /* ============================================================ add bar */
 function drawAdd(variant) {
   const c = creator(), cr = c ? campRules(c, camps(c).find(e => e.key === c.campaign_use)) : null;     // the campaign in use sets the starting options
+  const A = att(), pickedTpl = A.template && tplOf(A.template) ? A.template : S.tpl.default;
   $("#add").innerHTML = `<form class="composer ${variant === "hero" ? "big" : "compact"}" id="addform">
     <div class="composer-input">${ic("link")}<input id="url" placeholder="Paste a YouTube, Twitch or Kick video link" autocomplete="off" aria-label="Video link"></div>
     <div class="att" id="att"><div><div class="att-in" id="attIn"></div></div></div>
@@ -3579,7 +3597,7 @@ function drawAdd(variant) {
       <button type="button" class="chip" data-act="pickfile" title="Upload a video file (or drop it here)">${ic("up")}Upload</button>
       ${c || !S.mc.list.some(e => e.ready !== false) ? "" : picker("o_camp", "Campaign", [{v: "", label: "No campaign", icon: "money"}, ...S.mc.list.filter(e => e.ready !== false).map(e => ({v: e.key, label: e.name, img: e.logo && !isMovie(e.logo) ? campLogoUrl(LIBC, e) : "", icon: "coins"}))], "")}
       ${c ? "" : picker("o_creator", "File under streamer", [{v:"", label:"No streamer", icon:"user"}, ...S.creators.map(x => ({v:x.id, label:x.name, img:x.profile?.pic && x.profile.channel === x.channel ? avatarUrl(x) : ""}))], "")}
-      ${c || !tplAll().length ? "" : tplChip("o_tpl", S.tpl.default)}
+      ${c || !tplAll().length ? "" : tplChip("o_tpl", pickedTpl)}
       <span class="grow"></span>
       ${c ? "" : `<button type="button" class="chip chip-ic" data-act="toggleopts" aria-expanded="false" title="Options" aria-label="Options">${ic("sliders")}</button>`}
       <button class="btn primary" id="goBtn">${ic("scissors")}Make clips</button>
@@ -3606,6 +3624,51 @@ function drawAdd(variant) {
   drawAtt(); hqNote();
 }
 const LAYOUT_SHORT = {blur:"Blurred fill", zoom:"Zoomed in", crop:"Fill screen", left:"Keep left", right:"Keep right", fit:"Black bars", split:"Split screen", gameplay:"Gameplay + facecam", podcast:"Podcast split"};
+
+/* ---- Style preview frames for a pasted video link (grabbed quickly in the background once resolved). */
+const LINK_SAMPLES = new Map();
+function composerReadyLink(A = att()) {
+  const oks = (A?.links || []).filter(l => l.state === "ok");
+  return oks.length ? oks[oks.length - 1].url : "";
+}
+function refreshStyleChips() {
+  for (const id of ["o_tpl", "camp_tpl"]) {
+    const inp = $("#" + id), wrap = inp?.closest(".tpc");
+    if (!wrap) continue;
+    const made = !!wrap.querySelector("[data-made]"), k = inp.dataset.k;
+    wrap.outerHTML = tplChip(id, inp.value, {k, made});
+  }
+}
+async function ensureLinkSample(url, moment = null) {
+  if (!url) return null;
+  let cur = LINK_SAMPLES.get(url);
+  if (cur && moment === null && (cur.key || cur.loading)) return cur.promise || cur;
+  if (cur && cur.loading && moment !== null) return cur.promise;
+  const entry = cur || {url, loading: true, err: ""};
+  entry.loading = true; entry.err = "";
+  LINK_SAMPLES.set(url, entry);
+  const req = send("/api/templates/link-sample", moment === null ? {url} : {url, moment}).then(meta => {
+    Object.assign(entry, meta, {loading: false, err: ""});
+    return entry;
+  }).catch(er => {
+    entry.loading = false; entry.err = er.message || "Couldn't load preview frames.";
+    return entry;
+  }).finally(() => {
+    entry.promise = null;
+    if (S.tplLinkUrl === url) { tplRefresh(); refreshStyleChips(); }
+  });
+  entry.promise = req;
+  if ($("#tpldlg")?.open && S.tpdArgs?.[0] !== "cd_tpl") tplRefresh();
+  return req;
+}
+function syncLinkSample(preferUrl = "") {
+  const u = preferUrl || composerReadyLink();
+  if (!u) { S.tplLinkUrl = ""; return; }
+  if (S.tplLinkUrl !== u) S.tplUseSaved = false;
+  S.tplLinkUrl = u;
+  ensureLinkSample(u);
+}
+
 /* The language spoken in the video picks which speech model writes the transcript. Languages other than English
    need their model downloaded once (Settings → Speech models). */
 const LANG_NATIVE = {ar:"العربية"};
@@ -3809,7 +3872,7 @@ function takeLink(A, u, input) {
   A.links.push(l); A.note = null;
   if (input) input.value = "";            // the box is free for the next link straight away
   drawAtt();
-  lookUp(u).then(info => { l.state = "ok"; l.info = info; }, e => { l.state = "bad"; l.msg = e.message; }).then(() => {
+  lookUp(u).then(info => { l.state = "ok"; l.info = info; if (A === att()) syncLinkSample(u); }, e => { l.state = "bad"; l.msg = e.message; }).then(() => {
     drawAtt();
     if (A.queued && !A.links.some(x => x.state === "wait")) {
       A.queued = false;
@@ -3837,6 +3900,9 @@ document.addEventListener("click", e => {
   if (r.dataset.rm === "link") A.links = A.links.filter(l => l.id !== r.dataset.id);
   else { const i = A.files.findIndex(f => f.id === r.dataset.id); if (i >= 0) { URL.revokeObjectURL(A.files[i].src); A.files.splice(i, 1); } }
   if (!A.links.some(l => l.state === "wait")) A.queued = false;
+  syncLinkSample();
+  if (!S.tplLinkUrl) S.tplReturn = null;
+  refreshStyleChips();
   drawAtt();
 });
 
@@ -3992,6 +4058,9 @@ async function makeClipsRun() {
   A.files = A.files.filter(f => { if (f.state === "done") { URL.revokeObjectURL(f.src); return false; } return true; });
   A.busy = false; drawAtt();
   if (started) {
+    A.template = ""; syncLinkSample();
+    if (!S.tplLinkUrl) S.tplReturn = null;
+    refreshStyleChips();
     toast(`${started === 1 ? "Your video is" : started + " videos are"} being clipped now.`, "ok");
     tick();
   } else if (failed) {
@@ -5259,7 +5328,25 @@ function tplGeo(look) {
 }
 const CAM_ART = `<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="24" r="11" fill="currentColor"/><path d="M10 60c2-13 11-20 22-20s20 7 22 20z" fill="currentColor"/></svg>`;
 const TPL_STEP = .34;
-const tplSrc = n => `/api/templates/sample.${n}?v=${S.tpl.sample_v || 0}`;
+function activeLinkSample(ignoreLink = false) {
+  if (ignoreLink || S.tplUseSaved || !S.tplLinkUrl) return null;
+  return LINK_SAMPLES.get(S.tplLinkUrl) || null;
+}
+function isLoadingLinkSample(ignoreLink = false) {
+  if (ignoreLink || S.tplUseSaved || !S.tplLinkUrl) return false;
+  const ls = LINK_SAMPLES.get(S.tplLinkUrl);
+  return !!(ls && ls.loading && !ls.key);
+}
+function tplSrc(n, ignoreLink = false) {
+  const ls = activeLinkSample(ignoreLink);
+  if (ls?.key) return `/api/templates/link-sample/${encodeURIComponent(ls.key)}/${n}?v=${ls.v || 0}`;
+  return `/api/templates/sample.${n}?v=${S.tpl.sample_v || 0}`;
+}
+function tplCam(ignoreLink = false) {
+  const ls = activeLinkSample(ignoreLink);
+  if (ls?.key) return ls.sample_cam ?? null;
+  return S.tpl.sample_cam;
+}
 const tplFrame = () => tplSrc("jpg");
 (function presetDrift() {
   $$(".tpe-pre").forEach(el => {
@@ -5275,7 +5362,7 @@ const tplFrame = () => tplSrc("jpg");
 // a part of the video (shares of its frame) shown in a box: object-view-box crops it in the browser
 const tplInset = b => `object-view-box:inset(${(b.y * 100).toFixed(1)}% ${((1 - b.x - b.w) * 100).toFixed(1)}% ${((1 - b.y - b.h) * 100).toFixed(1)}% ${(b.x * 100).toFixed(1)}%)`;
 // videos load and play only while they're on screen (tplIO below)
-const tplVid = st => `<video class="tpv" data-src="${tplSrc("mp4")}" poster="${tplSrc("jpg")}" muted loop playsinline preload="none" style="${st}"></video>`;
+const tplVid = (st, ig = false) => `<video class="tpv" data-src="${tplSrc("mp4", ig)}" poster="${tplSrc("jpg", ig)}" muted loop playsinline preload="none" style="${st}"></video>`;
 const tplPx = v => (v / 10.8).toFixed(3) + "cqw";
 S.tplPlay ||= {};          // what each playing preview shows, by its key
 // The captions of a style. `o.t` (a word counter) plays them: the words move on one at a time, a group at a time.
@@ -5330,11 +5417,12 @@ function tplAnim(cap, c, within) {
 function tplPrev(look, o = {}) {
   const g = tplGeo(look), pct = v => (v / 19.2).toFixed(2) + "%", h = look.hook;
   const hookY = h.y != null ? h.y * 19.2 : g.hook;
+  const ig = !!o.ignoreLink, nopic = !!o.nopic;
   const gv = look.game_src ? tplInset(look.game_src) : "";
-  const pic = `<img src="${tplSrc("jpg")}" alt="" loading="lazy" decoding="async" style="${gv}">`;
-  const mov = o.video ? tplVid(gv) : pic;
+  const pic = nopic ? "" : `<img src="${tplSrc("jpg", ig)}" alt="" loading="lazy" decoding="async" style="${gv}">`;
+  const mov = nopic ? "" : (o.video ? tplVid(gv, ig) : pic);
   // the fill behind the video is a picture blurred on the server: blurring in the browser made long pages lag
-  const fill = `<div class="tp9-fill" style="background-image:url('${tplSrc("blur.jpg")}')"></div>`;
+  const fill = `<div class="tp9-fill"${nopic ? "" : ` style="background-image:url('${tplSrc("blur.jpg", ig)}')"`}></div>`;
   const vb = o.edit ? ' data-pick="video" data-name="Video"' : "";
   const half = at => `<div class="tp9-half ${at}"${vb}>${mov}</div>`;
   const band = look.layout === "podcast" ? half("up") + half("low")
@@ -5342,8 +5430,8 @@ function tplPrev(look, o = {}) {
     : look.layout === "crop" ? `<div class="tp9-band full"${vb}>${mov}</div>` : `${fill}<div class="tp9-band" style="top:${pct(g.top)};height:${pct(g.h)}"${vb}>${mov}</div>`;
   // the cam box: the real cam from the preview video (where it was drawn, else where it was found), else a placeholder;
   // it plays only in the editor (a page of styles shows its first picture, to stay light)
-  const m = look.layout === "podcast" ? null : look.cam, sc = look.cam_src || S.tpl.sample_cam, view = sc ? tplInset(sc) : "";
-  const real = sc ? (o.video === "full" ? tplVid(view) : `<img src="${tplSrc("jpg")}" alt="" decoding="async" style="${view}">`) : "";
+  const m = look.layout === "podcast" ? null : look.cam, sc = nopic ? null : (look.cam_src || tplCam(ig)), view = sc ? tplInset(sc) : "";
+  const real = sc ? (o.video === "full" ? tplVid(view, ig) : `<img src="${tplSrc("jpg", ig)}" alt="" decoding="async" style="${view}">`) : "";
   // corners: % of the cam box's shorter side (50: fully round), as the clip draws them
   const cs = look.cam_style || {}, cst = (cs.r && m ? `border-radius:${tplPx(Math.min(cs.r, 50) / 100 * Math.min(m.w * 10.8, m.h * 19.2))};` : "") + (cs.bw ? `--cb:inset 0 0 0 ${tplPx(cs.bw)} #${cs.bc || "FFFFFF"};` : "");
   const cam = m ? `<div class="tp9-cam${o.edit ? " drag" : ""}${g.stack ? " stack" : ""}${real ? " real" : ""}${cs.r || cs.bw ? " styled" : ""}" data-drag="cam" data-name="Streamer cam" style="left:${m.x}%;top:${m.y}%;width:${m.w}%;height:${m.h}%;${cst}">${real || CAM_ART}${o.mini ? "" : "<b>Streamer cam</b>"}${o.edit ? `${RS}` : ""}</div>` : "";
@@ -5353,7 +5441,7 @@ function tplPrev(look, o = {}) {
   const hook = h.show ? `<div class="tp9-hook${o.edit ? " drag" : ""}" data-drag="hook" data-name="Heading" style="${hst}">${o.mini ? "" : h.upper ? "HE ACTUALLY DID IT 😭" : "he actually did it 😭"}</div>` : "";
   if (o.play) S.tplPlay[o.play] = look;
   const n = Math.max(1, Math.min(look.cap.per, 5)), group = o.play ? Math.floor(performance.now() / 1000 / TPL_STEP / n) : null;
-  return `<div class="tp9${o.mini ? " mini" : ""}${o.focus ? " f-" + o.focus : ""}"${o.play ? ` data-play="${esc(o.play)}"` : ""}>${band}${cam}${hook}${tplCap(look, {...o, group})}${o.edit ? `<div class="tp9-guide" hidden></div>` : ""}</div>`;
+  return `<div class="tp9${nopic ? " nopic" : ""}${o.mini ? " mini" : ""}${o.focus ? " f-" + o.focus : ""}"${o.play ? ` data-play="${esc(o.play)}"` : ""}>${band}${cam}${hook}${tplCap(look, {...o, group})}${o.edit ? `<div class="tp9-guide" hidden></div>` : ""}</div>`;
 }
 // One clock for every preview on the page: the words move on every TPL_STEP seconds, and the sample videos are
 // kept at the same point, so a page of styles plays as one.
@@ -5394,17 +5482,18 @@ function tplWatch() { $$(".tp9[data-play]:not([data-io]),video.tpv:not([data-io]
 })();
 // The style of a video, streamer or clip: a chip showing the style; it opens the big picker.
 function tplChip(id, val, o = {}) {
-  const t = tplOf(val), def = tplOf(S.tpl.default);
+  const t = tplOf(val), def = tplOf(S.tpl.default), ig = id === "cd_tpl";
   const shown = t || (o.made ? null : def), label = shown ? shown.name : "As it was made";
   return `<span class="tpc"><input type="hidden" id="${id}" value="${esc(shown && !(!t && o.made) ? shown.id : "")}"${o.k ? ` data-k="${o.k}"` : ""}>
-    <button type="button" class="chip tpc-btn" data-act="tplpick" data-for="${id}"${o.made ? ' data-made="1"' : ""} aria-label="Style: ${esc(label)}">${shown ? `<span class="tpm">${tplPrev(shown.look, {mini: true})}</span>` : ic("film")}<span class="pv"><small>Style</small>${esc(label)}</span></button></span>`;
+    <button type="button" class="chip tpc-btn" data-act="tplpick" data-for="${id}"${o.made ? ' data-made="1"' : ""} aria-label="Style: ${esc(label)}">${shown ? `<span class="tpm">${tplPrev(shown.look, {mini: true, ignoreLink: ig, nopic: isLoadingLinkSample(ig)})}</span>` : ic("film")}<span class="pv"><small>Style</small>${esc(label)}</span></button></span>`;
 }
 // pointing at a Style chip: the style big and playing, next to it
 function tplHover(btn) {
   let pop = $("#tpcpop");
   if (!pop) { pop = document.createElement("div"); pop.id = "tpcpop"; pop.className = "tpc-pop"; document.body.append(pop); }
   const t = tplOf($("#" + btn.dataset.for)?.value); if (!t) return;
-  pop.innerHTML = `${tplPrev(t.look, {play: "chip", video: true})}<span><b>${esc(t.name)}</b>Click to change</span>`;
+  const ig = btn.dataset.for === "cd_tpl";
+  pop.innerHTML = `${tplPrev(t.look, {play: "chip", video: true, ignoreLink: ig, nopic: isLoadingLinkSample(ig)})}<span><b>${esc(t.name)}</b>Click to change</span>`;
   const r = btn.getBoundingClientRect(), w = 200, h = w * 16 / 9 + 40;
   const up = r.top > h + 16;
   pop.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2)) + "px";
@@ -5415,53 +5504,102 @@ function tplUnhover() { const pop = $("#tpcpop"); if (pop) { pop.hidden = true; 
 document.addEventListener("pointerover", e => { const b = e.target.closest?.(".tpc-btn"); if (b && e.pointerType !== "touch") tplHover(b); });
 document.addEventListener("pointerout", e => { const b = e.target.closest?.(".tpc-btn"); if (b && !b.contains(e.relatedTarget)) tplUnhover(); });
 document.addEventListener("click", e => { if (e.target.closest?.(".tpc-btn")) tplUnhover(); }, true);
+function tplFitTag(t, ls) {
+  if (!ls?.key) return "";
+  const L = t.look;
+  if (ls.kind === "cam" && (L.cam || L.layout === "gameplay")) return "Fits cam";
+  if (ls.kind === "podcast" && (L.layout === "podcast" || L.layout === "split")) return "Fits 2 speakers";
+  return "";
+}
+function tplCtxHtml(u) {
+  if (!u) return "";
+  const ls = LINK_SAMPLES.get(u), linkObj = att().links.find(l => l.url === u);
+  const title = ls?.title || linkObj?.info?.title || "Pasted video";
+  if (S.tplUseSaved) {
+    return `<div class="tpd-ctx"><div class="tpd-ctx-l"><span>Using your saved preview video instead of <b>${esc(title)}</b></span></div>
+      <button type="button" class="btn sm ghost" data-act="tplusepasted">Preview pasted video</button></div>`;
+  }
+  if (!ls || (ls.loading && !ls.key)) {
+    return `<div class="tpd-ctx"><div class="tpd-ctx-l"><span class="cw-spin"></span><span>Grabbing 3 frames from <b>${esc(title)}</b> to preview your styles…</span></div></div>`;
+  }
+  if (ls.err && !ls.key) {
+    return `<div class="tpd-ctx"><div class="tpd-ctx-l">${ic("warn")}<span><b>Couldn't grab frames from this video.</b> ${esc(ls.err)}</span></div>
+      <button type="button" class="btn sm ghost" data-act="tpllretry">Try again</button></div>`;
+  }
+  const n = Math.min(3, ls.frames || 0), moms = n > 1 ? `<div class="tpd-moments"><small>Moments</small>${Array.from({length: n}, (_, i) =>
+    `<button type="button" class="tpd-mom${ls.active === i ? " on" : ""}" data-act="tplmoment" data-i="${i}" title="Preview at ${ls.moments?.[i] != null ? fmtLen(ls.moments[i]) : "frame " + (i + 1)}"${ls.loading ? " disabled" : ""}>
+      <img src="/api/templates/link-sample/${encodeURIComponent(ls.key)}/f${i}.jpg?v=${ls.v || 0}" alt=""></button>`).join("")}</div>` : "";
+  return `<div class="tpd-ctx"><div class="tpd-ctx-l"><span>Previewing</span><b>${esc(title)}</b>
+    <em class="tpd-badge ${esc(ls.kind || "screen")}">${ic("check")}${esc(ls.kind_label || "Ready")}</em></div>${moms}</div>`;
+}
 function tplPickDlg(id, made) {
   let d = $("#tpldlg");
   if (!d) { d = document.createElement("dialog"); d.id = "tpldlg"; d.className = "tpd"; document.body.append(d); }
-  let sel = $("#" + id)?.value ?? "";
-  const card = (v, inner, name, tag) => `<button type="button" class="tpd-card${v === sel ? " on" : ""}" data-pick="${esc(v)}" data-kind="${!v ? "made" : tplOf(v)?.builtin ? "ready" : "own"}"><span class="tpd-pv">${inner}</span>
-    <span class="tpd-n"><b title="${esc(name)}">${esc(name)}</b>${tag ? `<em>${tag}</em>` : ""}</span></button>`;
+  const ig = id === "cd_tpl";
+  const u = ig ? "" : (S.tplLinkUrl || composerReadyLink());
+  if (u && !S.tplLinkUrl) S.tplLinkUrl = u;
+  if (u && !S.tplUseSaved) ensureLinkSample(u);
+  const ls = ig ? null : activeLinkSample(ig), nopic = isLoadingLinkSample(ig);
+  const curOn = d.open ? $(".tpd-card.on", d)?.dataset.pick : undefined;
+  let sel = curOn !== undefined ? curOn : ($("#" + id)?.value ?? "");
+  const card = (v, inner, name, tag, fit = "") => `<button type="button" class="tpd-card${v === sel ? " on" : ""}" data-pick="${esc(v)}" data-kind="${!v ? "made" : tplOf(v)?.builtin ? "ready" : "own"}"><span class="tpd-pv">${inner}</span>
+    <span class="tpd-n"><b title="${esc(name)}">${esc(name)}</b>${tag ? `<em>${tag}</em>` : ""}${fit ? `<i class="tpd-fit">${esc(fit)}</i>` : ""}</span></button>`;
   S.tpdArgs = [id, made];
   const f = S.tpdF || "all";
+  const ctx = ig ? "" : tplCtxHtml(u);
   d.innerHTML = `<form method="dialog" class="tpd-in"><div class="tpd-head"><h2>Choose a style</h2>
       <div class="seg tpd-f" role="group" aria-label="Show">${[["all", "All"], ["own", "My styles"], ["ready", "Ready-made"]].map(([k, l]) =>
         `<button type="button" data-f="${k}" aria-pressed="${f === k}">${l}</button>`).join("")}</div><span class="grow"></span>
       <button type="button" class="btn sm ghost" data-act="tplvideo">${ic("film")}Preview video</button>
       <button type="button" class="btn sm ghost" data-act="gotpls">${ic("sliders")}Edit styles</button><button class="btn icon ghost sm" value="x" aria-label="Close">${ic("x")}</button></div>
+    ${ctx}
     <div class="tpd-grid">${made ? card("", `<span class="tpd-same">${ic("film")}Keep the look it was made with</span>`, "As it was made") : ""}
-      ${tplAll().map(t => card(t.id, tplPrev(t.look, {play: t.id, video: true}), t.name, t.id === S.tpl.default ? "Default" : t.builtin ? "" : "Yours")).join("")}</div>
-    <div class="tpd-foot"><button class="btn ghost" value="x">Cancel</button><button class="btn primary" value="ok">${ic("check")}Select</button></div></form>`;
+      ${tplAll().map(t => card(t.id, tplPrev(t.look, {play: t.id, video: true, ignoreLink: ig, nopic}), t.name, t.id === S.tpl.default ? "Default" : t.builtin ? "" : "Yours", tplFitTag(t, ls))).join("")}</div>
+    <div class="tpd-foot">${ig ? "" : `<button type="button" class="btn ghost tpd-cust" data-act="tplcust">${ic("sliders")}Customize layout</button>`}<button class="btn ghost" value="x">Cancel</button><button class="btn primary" value="ok">${ic("check")}Select</button></div></form>`;
   const filter = k => { S.tpdF = k; $$(".tpd-f button", d).forEach(b => b.setAttribute("aria-pressed", String(b.dataset.f === k)));
     $$(".tpd-card", d).forEach(c => c.hidden = k !== "all" && c.dataset.kind !== k && c.dataset.kind !== "made"); };
   d.onclick = e => { const fb = e.target.closest("[data-f]"); if (fb) return filter(fb.dataset.f);
     const c = e.target.closest("[data-pick]"); if (!c) return; sel = c.dataset.pick; $$(".tpd-card", d).forEach(x => x.classList.toggle("on", x === c)); };
   d.ondblclick = e => { if (e.target.closest("[data-pick]")) d.close("ok"); };
   d.onclose = () => { const ok = d.returnValue === "ok"; d.innerHTML = ""; if (ok) tplChoose(id, sel); };
-  d.returnValue = "x"; d.showModal(); filter(f);
+  d.returnValue = "x"; if (!d.open) d.showModal(); filter(f);
   $(".tpd-card.on", d)?.scrollIntoView({block: "nearest"});
 }
 async function tplVideoDlg() {
   let d = $("#tpvdlg");
   if (!d) { d = document.createElement("dialog"); d.id = "tpvdlg"; d.className = "tpd tpv-dlg"; document.body.append(d); }
+  const pastedUrl = S.tplLinkUrl || composerReadyLink();
+  const pastedLs = pastedUrl ? LINK_SAMPLES.get(pastedUrl) : null;
+  const pastedObj = pastedUrl ? att().links.find(l => l.url === pastedUrl) : null;
+  const pastedRow = pastedUrl ? `<button type="button" class="tpv-item${!S.tplUseSaved ? " on" : ""}" data-use-pasted="1">
+      <span class="tpv-th">${ic("link")}${pastedLs?.key ? `<img src="/api/templates/link-sample/${encodeURIComponent(pastedLs.key)}/jpg?v=${pastedLs.v || 0}" alt="">` : pastedObj?.info?.thumb ? `<img src="${esc(pastedObj.info.thumb)}" alt="">` : ""}</span>
+      <span class="tpv-t"><b title="${esc(pastedLs?.title || pastedObj?.info?.title || pastedUrl)}">${esc(pastedLs?.title || pastedObj?.info?.title || "Pasted video")}</b>
+        <small>${esc(["From your pasted link", pastedLs?.kind_label || "", !S.tplUseSaved ? "In use" : ""].filter(Boolean).join(" · "))}</small></span></button>` : "";
   d.innerHTML = `<div class="tpd-in"><div class="tpd-head"><h2>Preview video</h2><span class="grow"></span><button class="btn icon ghost sm" data-x aria-label="Close">${ic("x")}</button></div>
-    <div class="tpv-list"><div class="set-load">Loading your videos…</div></div></div>`;
+    <div class="tpv-list">${pastedRow}<div class="set-load">Loading your videos…</div></div></div>`;
   d.onclick = async e => {
     if (e.target.closest("[data-x]")) return d.close();
+    if (e.target.closest("[data-use-pasted]")) {
+      S.tplUseSaved = false; S.tplLinkUrl = pastedUrl; ensureLinkSample(pastedUrl);
+      d.close(); toast("Styles now preview on your pasted video.", "ok"); tplRefresh(); refreshStyleChips(); return;
+    }
     const b = e.target.closest("[data-vid]"); if (!b || b.disabled) return;
     $$("[data-vid]", d).forEach(x => x.disabled = true); b.classList.add("busy"); b.querySelector("small").textContent = "Making the preview…";
     try {
       S.tpl = await send(`/api/templates/videos/${encodeURIComponent(b.dataset.vid)}`, {});
-      d.close(); toast("Styles now preview on that video.", "ok"); tplRefresh();
+      if (pastedUrl) S.tplUseSaved = true;
+      d.close(); toast("Styles now preview on that video.", "ok"); tplRefresh(); refreshStyleChips();
     } catch (er) { toast(er.message, "bad"); $$("[data-vid]", d).forEach(x => x.disabled = false); b.classList.remove("busy"); }
   };
   d.showModal();
   try {
     const {videos} = await api("/api/templates/videos");
-    put($(".tpv-list", d), videos.length ? videos.map(v => `<button type="button" class="tpv-item${v.picked ? " on" : ""}" data-vid="${esc(v.id)}">
+    const listHtml = videos.length ? videos.map(v => `<button type="button" class="tpv-item${v.picked && (!pastedUrl || S.tplUseSaved) ? " on" : ""}" data-vid="${esc(v.id)}">
         <span class="tpv-th">${ic(v.kind === "live" ? "radio" : "film")}${v.thumb ? `<img src="${esc(v.thumb)}" alt="" loading="lazy" onerror="this.remove()">` : ""}${v.live ? `<em>Live</em>` : ""}</span>
-        <span class="tpv-t"><b title="${esc(v.title)}">${esc(v.title)}</b><small>${esc([v.streamer || (v.kind === "live" ? "Stream" : "Video"), v.kind === "live" && !v.live ? "Recorded" : "", v.picked ? "In use" : ""].filter(Boolean).join(" · "))}</small></span></button>`).join("")
-      : `<div class="dz-empty">Make clips from a video or a stream first. Its ten best-looking seconds play in every style.</div>`);
-  } catch (er) { put($(".tpv-list", d), `<div class="dz-empty">${esc(er.message)}</div>`); }
+        <span class="tpv-t"><b title="${esc(v.title)}">${esc(v.title)}</b><small>${esc([v.streamer || (v.kind === "live" ? "Stream" : "Video"), v.kind === "live" && !v.live ? "Recorded" : "", v.picked && (!pastedUrl || S.tplUseSaved) ? "In use" : ""].filter(Boolean).join(" · "))}</small></span></button>`).join("")
+      : (pastedRow ? "" : `<div class="dz-empty">Make clips from a video or a stream first. Its ten best-looking seconds play in every style.</div>`);
+    put($(".tpv-list", d), pastedRow + listHtml);
+  } catch (er) { put($(".tpv-list", d), pastedRow + `<div class="dz-empty">${esc(er.message)}</div>`); }
 }
 function tplRefresh() {           // every preview open now plays the new video
   if (S.view === "styles") drawTplTab();
@@ -5475,7 +5613,7 @@ function tplChoose(id, v) {
 }
 function tplCard(t) {
   const def = t.id === S.tpl.default, id = esc(t.id);
-  return `<div class="tpl-card${def ? " def" : ""}"><button type="button" class="tpl-pv" data-act="${t.builtin ? "tplcopy" : "tpledit"}" data-id="${id}" aria-label="${t.builtin ? "Copy and edit" : "Edit"} ${esc(t.name)}">${tplPrev(t.look, {play: t.id, video: true})}</button>
+  return `<div class="tpl-card${def ? " def" : ""}"><button type="button" class="tpl-pv" data-act="${t.builtin ? "tplcopy" : "tpledit"}" data-id="${id}" aria-label="${t.builtin ? "Copy and edit" : "Edit"} ${esc(t.name)}">${tplPrev(t.look, {play: t.id, video: true, nopic: isLoadingLinkSample()})}</button>
     <div class="tpl-meta"><b title="${esc(t.name)}">${esc(t.name)}</b>${def ? `<span class="tpl-def">${ic("check")}Default</span>` : ""}</div>
     <div class="tpl-acts">${t.builtin ? `<button class="btn sm ghost" data-act="tplcopy" data-id="${id}">${ic("copy")}Copy</button>` : `<button class="btn sm ghost" data-act="tpledit" data-id="${id}">Edit</button>`}
       ${def ? "" : `<button class="btn sm ghost" data-act="tpldef" data-id="${id}">Make default</button>`}
@@ -5484,7 +5622,8 @@ function tplCard(t) {
 function drawTplTab(body) {
   body = body || $("#setbody"); if (!body) return;
   if (S.tplEdit) return drawTplEditor(body);
-  body.innerHTML = `<section class="set-sec tpl-sec"><div class="tpl-top"><span class="grow"></span><button class="btn sm ghost" data-act="tplvideo">${ic("film")}Preview video</button><button class="btn primary sm" data-act="tplnew">${ic("plus")}New style</button></div>
+  const ret = S.tplReturn ? `<button class="btn sm ghost" data-act="tplret">${ic("caret").replace("<svg", '<svg style="transform:rotate(90deg)"')}Back to video</button>` : "";
+  body.innerHTML = `<section class="set-sec tpl-sec"><div class="tpl-top">${ret}<span class="grow"></span><button class="btn sm ghost" data-act="tplvideo">${ic("film")}Preview video</button><button class="btn primary sm" data-act="tplnew">${ic("plus")}New style</button></div>
     ${S.tpl.own.length ? `<h3 class="tpl-h">Yours</h3><div class="tpl-grid">${S.tpl.own.map(tplCard).join("")}</div>` : ""}
     <h3 class="tpl-h">Ready-made</h3><div class="tpl-grid">${S.tpl.builtin.map(tplCard).join("")}</div></section>`;
 }
@@ -5549,6 +5688,7 @@ setInterval(() => {
 addEventListener("beforeunload", e => { if (S.tplEdit?.dirty) { e.preventDefault(); e.returnValue = ""; } });
 // /app/styles/new and /app/styles/<id>: open that style (and its unsaved changes, when this browser kept some)
 function tplRoute() {
+  if (S.tplPendingEdit) { S.tplEdit = S.tplPendingEdit; S.tplPendingEdit = null; return drawTplTab(); }
   const k = S.styv || "";
   if (!k) { S.tplEdit = null; return drawTplTab(); }
   if (S.tplEdit && (S.tplEdit.id || "new") === (k === "new" ? "new" : k)) return drawTplTab();
@@ -5565,7 +5705,7 @@ function drawTplEditor(body) {
   const E = S.tplEdit;
   body.innerHTML = `<div class="tpe"><div class="tpe-top"><button class="btn sm ghost" data-act="tplback">${ic("caret").replace("<svg", '<svg class="back"')}Styles</button>
       <input class="tpe-name" id="tpe_name" maxlength="40" value="${esc(E.name)}" aria-label="Style name" placeholder="Style name">
-      <span class="grow"></span><button class="btn ghost" data-act="tplvideo">${ic("film")}Preview video</button><button class="btn primary" data-act="tplsave">${ic("check")}Save changes</button></div>
+      <span class="grow"></span><button class="btn ghost" data-act="tplvideo">${ic("film")}Preview video</button><button class="btn primary" data-act="tplsave">${ic("check")}${S.tplReturn ? "Save & use style" : "Save changes"}</button></div>
     <div class="tpe-body"><div class="tpe-l"><div class="tpe-stage" id="tpestage"></div><p class="tpe-hint">Drag the captions or the heading to move them.</p></div>
       <div class="tpe-r"><div class="seg tpe-tabs" role="tablist">${[["captions", "Captions"], ["heading", "Heading"], ["layout", "Layout"]].map(([k, l]) =>
         `<button type="button" role="tab" data-act="tpltab" data-k="${k}" aria-pressed="${E.tab === k}">${l}</button>`).join("")}</div><div id="tpectl"></div></div></div></div>`;
@@ -5574,18 +5714,18 @@ function drawTplEditor(body) {
 function tplPaint() {
   const st = $("#tpestage"), E = S.tplEdit; if (!st) return;
   const focus = E.tab === "heading" ? "hook" : E.tab === "captions" ? "cap" : "video";
-  const old = st.querySelector(".tp9"), vid = st.querySelector("video.tpv");
+  const old = st.querySelector(".tp9"), vid = st.querySelector("video.tpv"), nopic = isLoadingLinkSample();
   // the same layout: only the words and the heading change, so the video keeps playing
-  const key = E.look.layout + JSON.stringify([E.look.cam, E.look.cam_style, E.look.cam_src, E.look.game_src]);
+  const key = E.look.layout + JSON.stringify([E.look.cam, E.look.cam_style, E.look.cam_src, E.look.game_src, nopic]);
   if (old && old.dataset.layout === key) {   // (the loop redraws the captions on its next frame)
-    const fresh = document.createElement("div"); fresh.innerHTML = tplPrev(E.look, {edit: true, play: "edit", focus});
+    const fresh = document.createElement("div"); fresh.innerHTML = tplPrev(E.look, {edit: true, play: "edit", focus, nopic});
     const n = fresh.firstElementChild;
     old.className = n.className;
     for (const sel of [".tp9-hook", ".tp9-cap"]) { const a = old.querySelector(":scope > " + sel), b = n.querySelector(":scope > " + sel);
       if (a && b) a.replaceWith(b); else if (a) a.remove(); else if (b) old.querySelector(":scope > .tp9-guide").before(b); }
     return;
   }
-  st.innerHTML = tplPrev(E.look, {edit: true, play: "edit", video: "full", focus});
+  st.innerHTML = tplPrev(E.look, {edit: true, play: "edit", video: "full", focus, nopic});
   st.querySelector(".tp9").dataset.layout = key;
 }
 function tplCtl() {
@@ -5718,9 +5858,9 @@ function srcPic(kind, b, label) {
     <div class="camf-pic tpe-src"><img src="${tplSrc("jpg")}" alt=""><div class="camf-box ${kind}" data-src="${kind}" style="left:${b.x * 100}%;top:${b.y * 100}%;width:${b.w * 100}%;height:${b.h * 100}%"><i class="fit" style="${fitStyle(f)}"></i><b>${label}</b>${RS}</div></div>`;
 }
 function aiPic() {
-  const b = S.tpl.sample_cam, busy = S.tplAiBusy;
+  const b = tplCam(), busy = S.tplAiBusy;
   const pic = b ? `<div class="camf-pic tpe-src"><img src="${tplSrc("jpg")}" alt=""><div class="camf-box cam ro" style="left:${b.x * 100}%;top:${b.y * 100}%;width:${b.w * 100}%;height:${b.h * 100}%"><i class="fit" style="${fitStyle(tplFit("cam", S.tplEdit.look, b))}"></i><b>Found by AI</b></div></div>` : "";
-  return `<p class="tpe-note tpe-gap">${b ? "This is the cam the AI found in your preview video. Each streamer's own cam is found the same way, on their stream." : "Try the AI on your preview video to see where it finds the cam."}</p>
+  return `<p class="tpe-note tpe-gap">${b ? "This is the cam found in your preview video. Each streamer's own cam is found the same way, on their stream." : "Try the AI on your preview video to see where it finds the cam."}</p>
     ${pic}<div class="tpe-ai"><button type="button" class="btn sm" data-act="tplaicam"${busy ? " disabled" : ""}>${busy ? "Looking…" : b ? "Find it again" : "Find it in this video"}</button>
     <button type="button" class="btn sm ghost" data-act="tplvideo">${ic("film")}Change preview video</button></div>`;
 }
@@ -5806,20 +5946,46 @@ async function tplAct(a, d) {
   }
   if (a === "tplaicam") {
     S.tplAiBusy = true; tplCtl();
-    try { const out = await send("/api/templates/sample/cam", {}); S.tpl = out;
-      toast(out.found ? "Found the cam in your preview video." : "No separate cam in this video. Pick another preview video, or draw it.", out.found ? "ok" : "warn"); }
-    finally { S.tplAiBusy = false; tplCtl(); tplPaint(); }
+    try {
+      const ls = activeLinkSample();
+      if (ls?.key) {
+        const meta = await send(`/api/templates/link-sample/${encodeURIComponent(ls.key)}/cam`, {});
+        Object.assign(ls, meta);
+        toast(meta.sample_cam ? "Found the cam in your pasted video." : "No separate cam in these frames. Draw it below if there is one.", meta.sample_cam ? "ok" : "warn");
+      } else {
+        const out = await send("/api/templates/sample/cam", {}); S.tpl = out;
+        toast(out.found ? "Found the cam in your preview video." : "No separate cam in this video. Pick another preview video, or draw it.", out.found ? "ok" : "warn");
+      }
+    } finally { S.tplAiBusy = false; tplCtl(); tplPaint(); }
     return;
   }
-  if (a === "tplcsrc") { S.tplEdit.look.cam_src = d.k === "draw" ? {...(S.tpl.sample_cam || {x: 0, y: 0.35, w: 0.25, h: 0.25})} : null; S.tplEdit.dirty = true; tplPaint(); return tplCtl(); }
+  if (a === "tplcsrc") { S.tplEdit.look.cam_src = d.k === "draw" ? {...(tplCam() || {x: 0, y: 0.35, w: 0.25, h: 0.25})} : null; S.tplEdit.dirty = true; tplPaint(); return tplCtl(); }
   if (a === "tplgsrc") { S.tplEdit.look.game_src = d.k === "part" ? {x: 0.2, y: 0.1, w: 0.6, h: 0.8} : null; S.tplEdit.dirty = true; tplPaint(); return tplCtl(); }
   if (a === "tplcam") { S.tplEdit.look.cam = d.k === "off" ? null : {...CAM_AT[d.k]}; S.tplEdit.dirty = true; tplPaint(); return tplCtl(); }
   if (a === "tplback") { if (S.tplEdit?.dirty && !await ask("Leave without saving?", "Your changes to this style are lost.", "Leave", true)) return;
     tplDraftClear(); S.tplEdit = null; S.styv = ""; remember("styles", ""); return drawTplTab(); }
+  if (a === "tplret") {
+    const ret = S.tplReturn; S.tplReturn = null;
+    if (ret) return go(ret.view, ret.tab);
+    return go("overview");
+  }
   if (a === "tplsave") {
     const E = S.tplEdit, name = E.name.trim() || "My style";
     const out = E.id ? await send(`/api/templates/${E.id}`, {name, look: E.look}, "PUT") : await send("/api/templates", {name, look: E.look});
-    S.tpl = out; S.tplEdit = null; tplDraftClear(); S.styv = ""; remember("styles", ""); drawTplTab(); drawCampBar();
+    S.tpl = out; S.tplEdit = null; tplDraftClear(); S.styv = "";
+    const ret = S.tplReturn; S.tplReturn = null;
+    if (ret) {
+      if (ret.prevUrl) { S.tplLinkUrl = ret.prevUrl; S.tplUseSaved = false; }
+      if (ret.chipId === "camp_tpl" && ret.view.startsWith("c:")) {
+        const cid = ret.view.slice(2), c = S.creators.find(x => x.id === cid);
+        if (c) Object.assign(c, await send(`/api/creators/${encodeURIComponent(cid)}`, {template: out.saved}, "PUT"));
+      } else {
+        (DRAFTS[ret.view] ||= {files: [], links: [], note: null, busy: false, queued: false}).template = out.saved;
+      }
+      go(ret.view, ret.tab);
+      return toast("Style saved and selected. Press Make clips when ready.", "ok");
+    }
+    remember("styles", ""); drawTplTab(); drawCampBar();
     return toast(E.id ? "Style saved. New clips that use it look like this." : `${name} saved. Pick it for a streamer or a video.`, "ok");
   }
   if (a === "tpldef") { S.tpl = await send(`/api/templates/${d.id}/default`, {}); drawTplTab(); return toast(`${tplOf(d.id).name} is now your default style.`, "ok"); }
@@ -5830,6 +5996,20 @@ async function tplAct(a, d) {
     drawTplTab(); return toast(`${t.name} deleted.`, "ok");
   }
   if (a === "tplpick") return tplPickDlg(d.for, !!d.made);
+  if (a === "tplmoment") { const u = S.tplLinkUrl || composerReadyLink(); if (u) ensureLinkSample(u, Number(d.i)); return; }
+  if (a === "tpllretry") { const u = S.tplLinkUrl || composerReadyLink(); if (u) { LINK_SAMPLES.delete(u); S.tplUseSaved = false; ensureLinkSample(u); } return; }
+  if (a === "tplusepasted") { const u = S.tplLinkUrl || composerReadyLink(); S.tplUseSaved = false; if (u) { S.tplLinkUrl = u; ensureLinkSample(u); } tplRefresh(); refreshStyleChips(); return; }
+  if (a === "tplcust") {
+    const pick = $("#tpldlg .tpd-card.on")?.dataset.pick || S.tpl.default, t = tplOf(pick);
+    if (!t) return toast("Pick a style first to customize it.", "bad");
+    const u = S.tplLinkUrl || composerReadyLink();
+    S.tplReturn = {view: S.view, tab: S.ctab, chipId: S.tpdArgs?.[0] || "o_tpl", prevUrl: u};
+    S.tplPendingEdit = {id: t.builtin ? null : t.id, name: t.builtin ? `${t.name} copy` : t.name, look: JSON.parse(JSON.stringify(t.look)), tab: "layout", dirty: !!t.builtin};
+    S.styv = t.builtin ? "new" : t.id;
+    closePicks(); tplUnhover();
+    if ($("#tpldlg")?.open) $("#tpldlg").close();
+    return go("styles", S.styv);
+  }
   if (a === "cbopts") { S.cbOpen = !S.cbOpen; b.setAttribute("aria-expanded", String(S.cbOpen)); return slide($("#campbar .cb-panel"), S.cbOpen); }
   if (a === "cbsave") {            // the streamer's clip settings: on its campaign when one is in use, else on the streamer
     const c = creator(), cur = (S.mc.list || []).find(e => e.key === c?.campaign_use); if (!c) return;
@@ -5841,7 +6021,11 @@ async function tplAct(a, d) {
     return toast(`Saved. New clips of ${c.name} follow it.`, "ok");
   }
   if (a === "tplvideo") return tplVideoDlg();
-  if (a === "gotpls") { closePicks(); for (const x of ["#tpldlg", "#clipdlg"]) if ($(x)?.open) $(x).close(); return go("styles"); }
+  if (a === "gotpls") {
+    const u = $("#tpldlg")?.open && S.tpdArgs?.[0] !== "cd_tpl" ? (S.tplLinkUrl || composerReadyLink()) : "";
+    S.tplReturn = u ? {view: S.view, tab: S.ctab, chipId: S.tpdArgs[0], prevUrl: u} : null;
+    closePicks(); for (const x of ["#tpldlg", "#clipdlg"]) if ($(x)?.open) $(x).close(); return go("styles");
+  }
 }
 // a streamer's template for new clips (the bar above its clips), and a clip made again with another template
 document.addEventListener("change", async e => {
@@ -5852,7 +6036,7 @@ document.addEventListener("change", async e => {
       Object.assign(c, await send(`/api/creators/${encodeURIComponent(c.id)}`, {cap_lang: t.value}, "PUT"));
       return toast(t.value ? `New clips of ${c.name} get captions in ${S.status.cap_langs?.[t.value] || t.value}.` : `New clips of ${c.name} get captions in the language spoken.`, "ok");
     }
-    if (t.id === "o_tpl") return hqNote();
+    if (t.id === "o_tpl") { att().template = t.value; return hqNote(); }
     if (t.id === "camp_tpl") {
       const c = creator(); if (!c) return;
       Object.assign(c, await send(`/api/creators/${encodeURIComponent(c.id)}`, {template: t.value}, "PUT"));
@@ -6274,6 +6458,8 @@ document.addEventListener("click", async e => {
     if (a === "go") { closePops();
       if (S.tplEdit?.dirty && !await ask("Leave without saving?", "Your changes to this style are lost.", "Leave", true)) return;
       if (S.tplEdit) { tplDraftClear(); S.tplEdit = null; }
+      if (d.v !== "styles") S.tplReturn = null;
+      else { S.tplReturn = null; S.tplLinkUrl = ""; S.tplUseSaved = false; }
       return go(d.v, d.t || d.tab); }
     if (a === "airemove") {
       if (!await ask("Remove your AI key?", "PeakCut can't make clips or record until you add a key again.", "Remove", true)) return;

@@ -162,6 +162,28 @@ def info(url: str) -> dict:
             "thumbnail": i.get("thumbnail") or "", "kind": i.get("_type") or "video"}
 
 
+def stream_info(url: str) -> dict:
+    """Direct stream address and headers for grabbing preview frames quickly without downloading the whole video."""
+    fmt = "b[height<=480][ext=mp4]/b[height<=720][ext=mp4]/bv*[height<=480][ext=mp4]/bv*[height<=720][vcodec^=avc1]/bv*[height<=480]/b"
+    def work(x):
+        with _ydl({"format": fmt, **x}) as ydl:
+            return ydl.extract_info(url, download=False), x.get("proxy") or ""
+    i, proxy = _yt(url, work)
+    kind = i.get("_type") or "video"
+    title = i.get("title") or ""
+    if kind != "video" or not title:
+        raise ValueError("That link is a channel or playlist, not a single video.")
+    pick = i
+    if not pick.get("url") and i.get("requested_formats"):
+        pick = next((f for f in i["requested_formats"] if f.get("vcodec") != "none" and f.get("url")), i["requested_formats"][0])
+    return {"url": pick.get("url") or "", "headers": pick.get("http_headers") or i.get("http_headers") or {},
+            "protocol": pick.get("protocol") or i.get("protocol") or "",
+            "width": int(pick.get("width") or i.get("width") or 0),
+            "height": int(pick.get("height") or i.get("height") or 0),
+            "duration": float(i.get("duration") or 0), "is_live": bool(i.get("is_live")),
+            "title": title, "proxy": proxy}
+
+
 def youtube_words(url: str):
     """YouTube's own transcript of a video, word by word: ([{'w', 's', 'e'}, ...], language), or None if the video
     has none. Only the transcript in the language that was spoken is used, never a translation."""

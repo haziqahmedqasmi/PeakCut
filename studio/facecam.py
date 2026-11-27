@@ -617,9 +617,13 @@ def find_local(paths, n=10):
     # faces seen in most of the frames (a passing face doesn't count), at most four
     most = max(g["n"] for g in groups)
     groups = sorted([g for g in groups if g["n"] >= most * 0.6], key=lambda g: (-g["n"], -g["w"]))[:4]
-    # Lines that stay put (in most frames): the camera box's border, but in a still scene the game's lines too. So
-    # whole boxes around the face are scored: all four sides on still lines (the frame's own edge counts), a webcam's
-    # shape (16:9 or 4:3), the face well inside, and a size that fits the face.
+    box, _, _, _ = _fit_face_boxes(grays, groups)
+    return box
+
+
+def _fit_face_boxes(grays, groups):
+    """Best webcam rectangle around the candidate face clusters, plus its border scores."""
+    cv2 = _cv2()
     E = np.mean([cv2.Canny(x, 60, 160) > 0 for x in grays], axis=0)
     Ex = np.maximum(np.maximum(E, np.roll(E, 1, 1)), np.roll(E, -1, 1))       # a line one pixel off still counts
     Ey = np.maximum(np.maximum(E, np.roll(E, 1, 0)), np.roll(E, -1, 0))
@@ -652,7 +656,8 @@ def find_local(paths, n=10):
     cx, cy, fw = g["cx"], g["cy"], g["w"]
     # a box is trusted only when its sides really sit on lines (or the frame's edge); a cam with no clear border
     # (its background like the game's) gets a 16:9 box from the face's size instead, flush with a near edge
-    if box is None or best < 0.4 or edges < 0.62:
+    has_border = box is not None and best >= 0.4 and edges >= 0.62
+    if not has_border:
         bw = fw * 5.2
         bh = bw * 9 / 16
         left = 0 if cx - bw / 2 < FW * 0.04 else max(0, int(cx - bw / 2))
@@ -660,7 +665,87 @@ def find_local(paths, n=10):
         box = (left, top, min(FW - left, int(bw)), min(FH - top, int(bh)))
     left, top, w, h = box
     r = lambda v: round(max(0.0, min(1.0, v)), 4)                       # noqa: E731
-    return {"x": r(left / FW), "y": r(top / FH), "w": r(w / FW), "h": r(h / FH)}
+    return {"x": r(left / FW), "y": r(top / FH), "w": r(w / FW), "h": r(h / FH)}, best, edges, g
+
+
+def analyze_sample(paths) -> dict:
+    """Look at 2-3 sample frames from a video to decide its framing (facecam, podcast, person, or screen)
+    and pick the clearest frame index."""
+    cv2 = _cv2()
+    if cv2 is None:
+        return {"cam": None, "kind": "screen", "best": 0}
+    grays, valid = [], []
+    for i, p in enumerate(paths):
+        img = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE)
+        if img is None or not img.size:
+            continue
+        if img.shape != (FH, FW):
+            img = cv2.resize(img, (FW, FH), interpolation=cv2.INTER_AREA)
+        grays.append(img)
+        valid.append(i)
+    if not grays:
+        return {"cam": None, "kind": "screen", "best": 0}
+
+    stds = [float(g.std()) for g in grays]
+    faces = _faces(grays)
+    best_idx = max(range(len(grays)), key=lambda i: stds[i])
+    non_dark = [i for i, s in enumerate(stds) if s >= 12.0] or list(range(len(grays)))
+    need = max(1, (len(non_dark) + 1) // 2)
+
+    # 1) Check 2-speaker scenes (podcast split) before stationary face clustering, since fixed podcast shots also
+    # have faces in steady positions across frames. Two faces side-by-side inside one corner box stay close together.
+    pod_frames, person_frames = [], []
+    for i in non_dark:
+        prom = sorted([f for f in faces[i] if f[2] >= FW * 0.04], key=lambda f: -f[2])
+        if len(prom) >= 2 and prom[1][2] >= prom[0][2] * 0.45:
+            c0 = prom[0][0] + prom[0][2] / 2
+            c1 = prom[1][0] + prom[1][2] / 2
+            if abs(c0 - c1) >= FW * 0.22:
+                pod_frames.append(i)
+                continue
+        if any(f[2] >= FW * 0.11 for f in prom):
+            person_frames.append(i)
+    if len(pod_frames) >= need:
+        best_idx = max(pod_frames, key=lambda i: stds[i])
+        return {"cam": None, "kind": "podcast", "best": valid[best_idx]}
+
+    # 2) Stationary facecam across >=2 sample frames (distant moments keep the cam in one spot while the game changes)
+    groups = []
+    for idx, fs in enumerate(faces):
+        for (x, y, w, h) in fs:
+            if w > FW * 0.24:
+                continue
+            cx, cy = x + w / 2, y + h / 2
+            g = next((g for g in groups if abs(g["cx"] - cx) < FW * 0.045 and abs(g["cy"] - cy) < FH * 0.065), None)
+            if g:
+                g["n"] += 1
+                g["cx"] += (cx - g["cx"]) / g["n"]
+                g["cy"] += (cy - g["cy"]) / g["n"]
+                g["w"] += (w - g["w"]) / g["n"]
+                g["frames"].append(idx)
+            else:
+                groups.append({"cx": cx, "cy": cy, "w": float(w), "n": 1, "frames": [idx]})
+
+    multi = [g for g in groups if g["n"] >= 2] if len(grays) >= 2 else []
+    if multi:
+        cam, _, _, win = _fit_face_boxes(grays, multi)
+        best_idx = max(win["frames"], key=lambda i: stds[i])
+        return {"cam": cam, "kind": "cam", "best": valid[best_idx]}
+
+    # Single-frame corner cam with strong rectangle borders (e.g. only 1 frame extracted or cam shown in 1 of 3 frames)
+    corners = [g for g in groups if g["w"] <= FW * 0.20 and (g["cx"] < FW * 0.34 or g["cx"] > FW * 0.66)]
+    if corners:
+        for g in corners:
+            gi = g["frames"][0]
+            box, bscore, escore, _ = _fit_face_boxes([grays[gi]], [g])
+            if bscore >= 0.55 and escore >= 0.68:
+                return {"cam": box, "kind": "cam", "best": valid[gi]}
+
+    # 3) Single person / full screen fallback
+    if len(person_frames) >= need:
+        best_idx = max(person_frames, key=lambda i: stds[i])
+        return {"cam": None, "kind": "person", "best": valid[best_idx]}
+    return {"cam": None, "kind": "screen", "best": valid[best_idx]}
 
 
 def _best_box(cx, cy, fw, col, row, picks):

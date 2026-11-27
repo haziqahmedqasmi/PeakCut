@@ -1791,6 +1791,50 @@ def style_video_pick(jid: str):
     return {**templates.all_templates()}
 
 
+@app.post("/api/templates/link-sample")
+def style_link_sample(body: dict = Body(...)):
+    """Extract 2-3 frames and a short preview clip from a pasted video link for Style previews."""
+    url = str(body.get("url", "")).strip()[:500]
+    if not media.site_allowed(url):
+        raise HTTPException(400, "Paste a full link to a YouTube, Twitch or Kick video.")
+    _throttle("linksample:" + ctx.uid(), 16, 60)
+    moment = body.get("moment")
+    if moment is not None:
+        try:
+            moment = int(moment)
+        except (TypeError, ValueError):
+            moment = None
+    try:
+        return _lookup(templates.link_sample, url, moment)
+    except media.YouTubeBlocked as e:
+        raise HTTPException(503, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    except Exception:  # noqa: BLE001
+        raise HTTPException(422, "Couldn't grab a preview from that video.")
+
+
+@app.get("/api/templates/link-sample/{key}/{ext}")
+def style_link_sample_file(key: str, ext: str):
+    """Frames, blurred background and short sample clip extracted from a pasted video link."""
+    f = templates.link_sample_file(key, ext)
+    if not f:
+        raise HTTPException(404)
+    return FileResponse(f, media_type="video/mp4" if ext == "mp4" else "image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
+
+
+@app.post("/api/templates/link-sample/{key}/cam")
+def style_link_sample_cam(key: str):
+    """Run the AI / face cam finder on the pasted video's cached preview frames."""
+    _throttle("tplcam:" + ctx.uid(), 20, 600)
+    try:
+        return templates.link_sample_cam(key)
+    except KeyError:
+        raise HTTPException(404, "Preview expired. Paste the link again.")
+    except Exception:  # noqa: BLE001
+        raise HTTPException(400, "Couldn't read that preview.")
+
+
 def _creator_or_404(cid):
     try:
         c = creators.get(cid)
