@@ -19,7 +19,7 @@ creator's live stream and clip the highlights while the stream is still running.
 - **No sign-in on your own computer.** It opens straight into the dashboard. On a shared server, switch accounts on
   (`PEAKCUT_ACCOUNTS=1`) for email or Google sign-in and an admin dashboard.
 - **Your own AI.** Gemini, OpenAI, Grok, Groq, OpenRouter, Claude, a local model through Ollama, or anything that
-  speaks the OpenAI chat format. No key at all also works: clips are then picked by loudness.
+  speaks the OpenAI chat format. A working AI key is needed: without one, no clips are made.
 
 ## Quick start
 
@@ -63,12 +63,12 @@ python -m studio.server
 
 The first start downloads the speech model by itself (about 480 MB, once).
 
-Open http://127.0.0.1:8765. There is no sign-in: it opens straight into the dashboard. Go to **Settings, AI**, choose
+Open http://127.0.0.1:8765. There is no sign-in: it opens straight into the dashboard. Open the **AI** page (the AI card at the bottom of the sidebar), choose
 your AI service, paste your key and press **Save and test** (see [Choose your AI](#choose-your-ai)).
 
 ## Choose your AI
 
-PeakCut needs a chat model that can return JSON. The easy way is in the dashboard: **Settings, AI**. Pick the
+PeakCut needs a chat model that can return JSON. The easy way is in the dashboard: the **AI** page. Pick the
 service, paste your key, press **Find models** to choose from the service's own list, then **Save and test**. The
 key is kept in the data folder on your machine and is never shown again.
 
@@ -93,6 +93,11 @@ model after it, as above: when Google is busy ("high demand") or a limit is reac
 | `groq` | Groq | https://console.groq.com/keys |
 | `openrouter` | OpenRouter (many models, one key) | https://openrouter.ai/keys |
 | `anthropic` | Claude | https://console.anthropic.com |
+| `deepseek` | DeepSeek | https://platform.deepseek.com/api_keys |
+| `mistral` | Mistral | https://console.mistral.ai/api-keys |
+| `together`, `fireworks`, `cerebras`, `nvidia` | Hosted open models | each service's own site |
+| `moonshot`, `qwen` | Kimi, Qwen | each service's own site |
+| `lmstudio` | A model on your own machine, no key | https://lmstudio.ai |
 | `ollama` | A model on your own machine, no key | https://ollama.com |
 | `custom` | Any OpenAI-compatible address: also set `PEAKCUT_AI_BASE_URL` | |
 
@@ -102,6 +107,14 @@ model after it, as above: when Google is busy ("high demand") or a limit is reac
 - You pay the AI service directly for what you use. The **AI usage** page in the app shows how many requests and
   tokens each video took.
 - Speech to text does not use the AI service. It runs on your own machine, so audio never leaves it.
+
+### Videos in Arabic
+
+PeakCut hears English by default. To clip videos in Arabic, add the Arabic speech model once in
+**Settings → Speech models** (about 107 MB), or choose **Arabic** under Options when adding a video and PeakCut
+offers to download it. Set a creator's language on their Setup page so their live recordings use it too.
+It understands Modern Standard Arabic and everyday dialects, and the AI turns English words said in between
+back into English. Captions on the clips are in English.
 
 ## Settings
 
@@ -140,7 +153,9 @@ python -m studio.admin grant you@example.com
 | `tests/` | Tests that run against a throwaway copy of the app |
 | `deploy/`, `Dockerfile`, `docker-compose.yml` | One-server deployment with PostgreSQL and automatic HTTPS |
 
-Video work is done with `ffmpeg` and `yt-dlp`. Speech is transcribed with `sherpa-onnx` and the Parakeet model.
+Video work is done with `ffmpeg` and `yt-dlp`. Speech is transcribed with `sherpa-onnx` and NVIDIA's Parakeet
+model (English) and FastConformer Arabic model, both released by NVIDIA under the Creative Commons Attribution 4.0
+licence (CC-BY-4.0). The Arabic model was converted for sherpa-onnx with `tools/export_arabic_model.py`.
 Data is kept per user: accounts in the database (SQLite on your own computer, PostgreSQL on a server), videos and
 clips in each user's own folder. [AGENTS.md](AGENTS.md) is a short map of the code for contributors and AI coding
 assistants.
@@ -154,6 +169,10 @@ everything there the next time it starts. If the drive is nearly full, PeakCut s
 until there is room. (`PEAKCUT_DATA` in `.env` still works and takes priority.)
 
 ## Updating
+
+With a git install, press **Update now** on the notice in the dashboard, or switch on **Settings, Updates, Update
+automatically** (off by default). It waits until nothing is recording or being made, and keeps the old version if the
+new one can't start. To do it by hand instead:
 
 PeakCut checks GitHub once a minute while it runs. When a newer version is out, the dashboard shows a notice
 within a minute or two (no restart needed), with what changed
@@ -208,3 +227,5 @@ post, and for following the terms of the sites you fetch from and post to.
 
 [MIT](LICENSE). Caption fonts in `studio/fonts/` (Anton, Archivo Black, Poppins) are under the SIL Open Font
 License; the licence texts are in the same folder.
+
+The licence covers the code, not the PeakCut name or logo: see [TRADEMARKS.md](TRADEMARKS.md).

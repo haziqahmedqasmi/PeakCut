@@ -1,5 +1,5 @@
 """Talking to the AI service. You bring your own key, and choose the service and model in the dashboard
-(Settings, AI) or in .env. What is saved from the dashboard is kept in ai.json in the data folder and wins.
+(the AI page) or in .env. What is saved from the dashboard is kept in ai.json in the data folder and wins.
 
     PEAKCUT_AI_PROVIDER   gemini | openai | xai | groq | openrouter | anthropic | ollama | custom
     PEAKCUT_AI_MODELS     one or more model ids, comma separated, tried in this order
@@ -10,8 +10,17 @@ Every service is asked for the same thing: JSON that follows a small schema. Gem
 The others are told the schema in the prompt and asked for a JSON object, which works with any chat model.
 
 One picture can also be shown (`see`), which is how the webcam is looked for on a gaming stream. A model that
-cannot look at pictures answers with something else, and that is simply taken as "it did not look"."""
+cannot look at pictures answers with something else, and that is simply taken as "it did not look".
+
+Gemini can also listen to sound (`hear`, `word_times`): a decided clip then gets its exact cut and its captions from
+the audio itself. Every other service returns None there, and the local speech-to-text result is used as it is.
+These optional .env settings only apply while the service is the one .env names:
+    PEAKCUT_AI_AUDIO_MODELS   models that listen (default: the usual models)
+    PEAKCUT_AI_FIX_MODELS     cheaper models for proofreading captions (default: the usual models)
+    PEAKCUT_AI_FIX_THINKING   Gemini thinking budget (a number) or level (a word) for those
+    PEAKCUT_AI_TIMING_MODEL   Gemini speech-to-text model that times every word in any language (off when empty)"""
 import base64
+import hashlib
 import json
 import os
 import re
@@ -29,11 +38,20 @@ PROVIDERS = {
     "groq": ("Groq", "https://api.groq.com/openai/v1", "openai", "https://console.groq.com/keys", "llama-3.3-70b-versatile"),
     "openrouter": ("OpenRouter", "https://openrouter.ai/api/v1", "openai", "https://openrouter.ai/keys", "google/gemini-2.5-flash"),
     "anthropic": ("Claude", "https://api.anthropic.com/v1", "anthropic", "https://console.anthropic.com", ""),
+    "deepseek": ("DeepSeek", "https://api.deepseek.com/v1", "openai", "https://platform.deepseek.com/api_keys", "deepseek-chat"),
+    "mistral": ("Mistral", "https://api.mistral.ai/v1", "openai", "https://console.mistral.ai/api-keys", "mistral-small-latest"),
+    "together": ("Together AI", "https://api.together.xyz/v1", "openai", "https://api.together.ai/settings/api-keys", ""),
+    "fireworks": ("Fireworks AI", "https://api.fireworks.ai/inference/v1", "openai", "https://fireworks.ai/account/api-keys", ""),
+    "cerebras": ("Cerebras", "https://api.cerebras.ai/v1", "openai", "https://cloud.cerebras.ai", ""),
+    "nvidia": ("NVIDIA", "https://integrate.api.nvidia.com/v1", "openai", "https://build.nvidia.com", ""),
+    "moonshot": ("Moonshot (Kimi)", "https://api.moonshot.ai/v1", "openai", "https://platform.moonshot.ai/console/api-keys", ""),
+    "qwen": ("Qwen (Alibaba)", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "openai", "https://bailian.console.alibabacloud.com", "qwen-plus"),
+    "lmstudio": ("LM Studio (on this machine)", "http://127.0.0.1:1234/v1", "openai", "https://lmstudio.ai", ""),
     "ollama": ("Ollama (on this machine)", "http://127.0.0.1:11434/v1", "openai", "https://ollama.com", "llama3.1"),
     "custom": ("Custom (OpenAI-compatible)", "", "openai", "", ""),
 }
 ALIASES = {"google": "gemini", "grok": "xai", "claude": "anthropic", "local": "ollama"}
-NO_KEY = {"ollama", "custom"}       # a model running on your own machine needs no key
+NO_KEY = {"ollama", "lmstudio", "custom"}       # a model running on your own machine needs no key
 
 # ---------------------------------------------------------------- the settings in use
 _lock = threading.Lock()
@@ -142,6 +160,20 @@ def save(provider_id: str, model_ids, address: str = "", new_key=None) -> dict:
     return public()
 
 
+def remove_key() -> dict:
+    """Forget the key. The service and model stay chosen; an empty key is saved, so one in .env isn't used either."""
+    c = current()
+    with _lock:
+        f = _file()
+        tmp = f.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"provider": c["provider"], "models": c["models"], "base_url": c["base_url"], "key": ""}), encoding="utf-8")
+        tmp.replace(f)
+        _saved["at"] = None
+        _checked.clear()
+    clear_problem()
+    return public()
+
+
 def list_models(provider_id=None, address=None, with_key=None) -> list:
     """The model ids a service offers, so the settings page can show a list to pick from."""
     c = current()
@@ -154,7 +186,7 @@ def list_models(provider_id=None, address=None, with_key=None) -> list:
         raise ValueError("Enter the service's address first.")
     how = PROVIDERS[p][2]
     if how == "gemini":
-        r = httpx.get(base, params={"pageSize": 200}, headers={"x-goog-api-key": k}, timeout=20)
+        r = httpx.get(base, params={"pageSize": 200}, headers={"x-goog-api-key": k}, timeout=10)
     elif how == "anthropic":
         r = httpx.get(f"{base}/models", params={"limit": 200}, headers={"x-api-key": k, "anthropic-version": "2023-06-01"}, timeout=20)
     else:
@@ -163,11 +195,85 @@ def list_models(provider_id=None, address=None, with_key=None) -> list:
         raise AIError(f"HTTP {r.status_code} {r.text[:200].replace(k or chr(0), '<key>')}")
     data = r.json()
     if how == "gemini":
-        found = [m.get("name", "").split("/")[-1] for m in data.get("models", [])
-                 if "generateContent" in (m.get("supportedGenerationMethods") or [])]
+        found = []
+        for m in data.get("models", []):
+            if "generateContent" not in (m.get("supportedGenerationMethods") or []):
+                continue
+            mid = m.get("name", "").split("/")[-1]
+            low_id = mid.lower()
+            if mid and low_id != "aqa" and not any(t in low_id for t in ("-tts", "-image", "imagen-", "veo-", "lyria-", "embedding")):
+                found.append(mid)
     else:
-        found = [m.get("id", "") for m in data.get("data", []) if isinstance(m, dict)]
-    return sorted({m for m in found if m})[:400]
+        rows = data if isinstance(data, list) else data.get("data", [])
+        found = [m.get("id", "") for m in rows if isinstance(m, dict)]
+    found = sorted({m for m in found if m and _writes_text(m)}, key=_rank)[:400]
+    return _usable(found, base, k) if how == "gemini" and k else found
+
+
+_checked: dict = {}          # (address, key) -> (when, the models that answered), so a page visit doesn't ask again
+CHECK_FOR = 3600
+CHECK_WAIT = 6              # seconds the page waits for the models to answer
+
+
+def _usable(found: list, base: str, k: str) -> list:
+    """Google lists models a key can't use (retired ones such as the 2.5 family for newer keys, paid-only ones,
+    ones for another kind of request). Each is asked for a single word, and only those that answer, or are just
+    busy for the moment, are offered."""
+    import time
+    from concurrent.futures import ThreadPoolExecutor, wait
+    mark = (base, hashlib.sha256(k.encode()).hexdigest())
+    had = _checked.get(mark)
+    if had and time.time() - had[0] < CHECK_FOR:
+        return had[1]
+
+    def ask(m):
+        try:
+            r = httpx.post(f"{base}/{_gem(m)}:generateContent", headers={"x-goog-api-key": k}, timeout=CHECK_WAIT,
+                           json={"contents": [{"parts": [{"text": "ok"}]}], "generationConfig": {"maxOutputTokens": 1}})
+            return r.status_code
+        except httpx.HTTPError:
+            return 0                        # slow to answer: not proof that it can't be used
+
+    pool = ThreadPoolExecutor(32)
+    asked = [pool.submit(ask, m) for m in found[:60]]
+    done = wait(asked, timeout=CHECK_WAIT).done
+    pool.shutdown(wait=False, cancel_futures=True)          # stragglers are not waited for
+    codes = [f.result() if f in done else 0 for f in asked]
+    good = [m for m, c in zip(found, codes) if c == 200]
+    busy = [m for m, c in zip(found, codes) if c == 0 or c >= 500]
+    if not good and not busy and 429 in codes:
+        raise AIError("HTTP 429 The key has hit its limit for now.")
+    out = good + busy
+    _checked[mark] = (time.time(), out)
+    return out
+
+
+# Models a service lists that cannot write the text PeakCut asks for: speech, pictures, video, embeddings, safety
+# checks and the like. They are left out of the list so nobody picks one by mistake.
+_NOT_TEXT = ("whisper", "tts", "transcribe", "speech", "audio", "realtime", "dall-e", "image", "imagen", "veo-", "sora",
+             "lyria", "banana", "robotics", "embed", "moderation", "guard", "rerank", "babbage", "davinci", "-search", "computer-use", "aqa")
+
+
+def _writes_text(model_id: str) -> bool:
+    low = model_id.lower()
+    return not any(t in low for t in _NOT_TEXT)
+
+
+def _rank(model_id: str):
+    """The order models are offered in: finished models before previews and experiments, the fast and inexpensive
+    kinds first (what PeakCut needs), and newer versions before older ones."""
+    low = model_id.lower()
+    parts = set(re.split(r"[-_/:.@\s]+", low))             # whole name parts: "gemini" must not count as "mini"
+    unfinished = bool(parts & {"preview", "exp", "experimental", "beta", "alpha"})
+    cheap = 0 if "flash-lite" in low or parts & {"mini", "haiku", "nano", "small", "instant", "lite", "8b"} else \
+        1 if parts & {"flash", "fast", "turbo"} else 2
+    nums = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", low)[:2]] or [0.0]
+    return (unfinished, cheap, [-n for n in nums], low)
+
+
+def recommended(found: list) -> str:
+    """The model to suggest from a service's list: the first one in the order above."""
+    return found[0] if found else ""
 
 
 def test() -> dict:
@@ -175,29 +281,71 @@ def test() -> dict:
     ms = models()
     if not ready():
         raise ValueError("Save a service, a model and a key first.")
-    out, sent, wrote = call(ms[0], 'Answer with a JSON array that holds the single string "ok".', {"type": "ARRAY", "items": {"type": "STRING"}})
+    import time
+    for attempt in (1, 2):
+        try:
+            out, sent, wrote = call(ms[0], 'Answer with a JSON array that holds the single string "ok".', {"type": "ARRAY", "items": {"type": "STRING"}})
+            break
+        except Exception as e:
+            if is_busy(e):
+                if attempt == 1:
+                    time.sleep(2)
+                    continue
+                clear_problem()                 # the service answered: the key is fine, the model is just busy
+                return {"ok": True, "busy": True, "model": ms[0], "tokens": 0, "answer": ""}
+            note_problem(e)                     # the warning on the pages says why
+            raise
+    clear_problem()
     return {"ok": True, "model": ms[0], "tokens": sent + wrote, "answer": str(out)[:80]}
 
 
 class AIError(RuntimeError):
-    pass
+    """A failed AI call. `wait` is how many seconds the service asked us to wait before trying again, when it
+    said so (a Retry-After header, or Gemini's retryDelay)."""
+    def __init__(self, message, wait=None, daily=False):
+        super().__init__(message)
+        self.wait = wait
+        self.daily = daily        # the limit is for the whole day, so waiting a minute won't help
+
+
+class Unreadable(AIError):
+    """The AI answered (and the service counts its tokens), but the answer can't be used: cut off, blocked, broken."""
+    def __init__(self, message, sent=0, wrote=0):
+        super().__init__(message)
+        self.sent, self.wrote = sent, wrote
 
 
 problem = {"text": "", "at": 0.0}       # why the AI last failed, for the dashboard; cleared when it answers again
 
 
-def explain(e) -> str:
+def is_busy(e) -> bool:
+    """The service itself is overloaded or down for the moment (HTTP 5xx): the key and the setup are fine."""
+    return bool(re.search(r"\bHTTP 5\d\d\b", str(e)))
+
+
+def explain(e, about: str = "") -> str:
     """What went wrong with an AI call, in words the owner can act on."""
     text, low = str(e), str(e).lower()
+    who = ALIASES.get(about, about) if about else provider()      # the service being asked about
+    service = PROVIDERS.get(who, ("The AI service",))[0]
     name = (models() or ["?"])[0]
-    if "404" in text or "not found" in low or "does not exist" in low or "unknown model" in low or "not_found" in low:
-        return f"{label()} doesn't know the model \"{name}\". Open Settings, AI, press Find models and pick one from the list."
-    if "401" in text or "403" in text or "api key" in low or "api_key" in low or "unauthorized" in low or "permission" in low:
-        return f"{label()} refused the key. Paste a working key under Settings, AI."
+    m = re.match(r"HTTP (\d{3})\b", text)
+    status = m.group(1) if m else ""
+    if is_busy(e):
+        return f"{service} is very busy right now. Try again in a minute, or pick another model."
+    if status in ("401", "403") or "api key" in low or "api_key" in low or "unauthorized" in low or "permission" in low:
+        return f"{service} refused the key. Paste a working key on the AI page."
+    if "no longer available" in low or "deprecated" in low or "retired" in low or "discontinued" in low:
+        return f"{service} has retired \"{name}\" (or it isn't available to new keys). Open the AI page, press Find models and pick a newer model."
+    # Only a 404 that is about a model says the model is unknown. A 400 like "API key not found" or a stray
+    # "404" inside some other message must not be reported as an unknown model.
+    if (status == "404" and "model" in low) or (not status and ("404" in text or "not found" in low or "does not exist" in low or "unknown model" in low or "not_found" in low)) \
+            or (status and "is not found for api version" in low):
+        return f"{service} doesn't know the model \"{name}\". Open the AI page, press Find models and pick one from the list."
     if "429" in text or "quota" in low or "rate limit" in low or "exhausted" in low:
-        return f"{label()} says the key has hit its limit or has no credit left. Check the account with {label()}, or try again later."
+        return f"{service} says the key has hit its limit or has no credit left. Check the account with {service}, or try again later."
     if "connect" in low or "timed out" in low or "timeout" in low or "getaddrinfo" in low or "refused" in low or "nodename" in low or "servname" in low or "nameresolutionerror" in low or "name resolution" in low:
-        return f"PeakCut couldn't reach {label()}. Check the internet connection" + (" and that Ollama is running." if provider() == "ollama" else ".")
+        return f"PeakCut couldn't reach {service}. Check the internet connection" + (" and that Ollama is running." if who == "ollama" else ".")
     return ""
 
 
@@ -212,9 +360,23 @@ def clear_problem():
     problem.update(text="", at=0.0)
 
 
+def asked_wait(r) -> float | None:
+    """How long the service asked us to wait, in seconds, or None when it didn't say."""
+    try:
+        v = (r.headers.get("retry-after") or "").strip()
+        if v:
+            return max(0.0, float(v))
+    except (ValueError, AttributeError):
+        pass
+    m = re.search(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"', getattr(r, "text", "") or "")
+    return float(m.group(1)) if m else None
+
+
 def _fail(r, model):
     text = r.text[:300].replace(key() or "\0", "<key>")
-    raise AIError(f"HTTP {r.status_code} {text}")
+    limited = r.status_code in (429, 503)
+    raise AIError(f"HTTP {r.status_code} {text}", wait=asked_wait(r) if limited else None,
+                  daily=limited and bool(re.search(r"PerDay|per day|daily", r.text or "", re.I)))
 
 
 # ---------------------------------------------------------------- the schema, said in words for chat models
@@ -292,13 +454,95 @@ def _parse(text):
 
 
 # ---------------------------------------------------------------- one call
-def call(model: str, prompt: str, schema: dict, timeout: float | None = None):
+def call(model: str, prompt: str, schema: dict, timeout: float | None = None, temperature: float = 0.4,
+         images=None, thinking: str = ""):
     """Ask one model. Returns (the parsed JSON answer, tokens sent, tokens written back).
 
     `timeout` is how long one answer may take. A live stream passes a short one, because a slow
-    answer must not stop the recording."""
+    answer must not stop the recording. `images`: pictures shown with the question, as (bytes, type) pairs,
+    for the models that can look at them. `thinking` is only understood by Gemini (a number is a thinking
+    budget, a word a thinking level) and is left out for every other service."""
     how = PROVIDERS[provider()][2]
-    return {"gemini": _gemini, "openai": _openai, "anthropic": _anthropic}[how](model, prompt, schema, timeout)
+    if how == "gemini":
+        return _gemini(model, prompt, schema, timeout, temperature, images=images, thinking=thinking)
+    return {"openai": _openai, "anthropic": _anthropic}[how](model, prompt, schema, timeout, temperature, images=images)
+
+
+# ---------------------------------------------------------------- Gemini only: hearing sound
+# Gemini can listen to a stretch of audio: that is how a decided clip gets its exact cut and its captions from the
+# sound itself, and how words in languages the local speech model doesn't know get their exact times. The other
+# services can't, so these return None for them and the local transcript is used as it is.
+def _env_list(name: str) -> list:
+    return [m.strip() for m in os.environ.get(name, "").split(",") if m.strip()]
+
+
+def _env_is_current() -> bool:
+    """The extra model settings in .env belong to the service .env names. Once another one is picked in the
+    dashboard, they no longer apply."""
+    p = str(config.AI_PROVIDER or "").strip().lower()
+    return provider() == ALIASES.get(p, p)
+
+
+def can_hear() -> bool:
+    """Can the AI in use listen to audio? Only Gemini can."""
+    return ready() and provider() == "gemini"
+
+
+def audio_models() -> list:
+    """The models that listen (PEAKCUT_AI_AUDIO_MODELS), else the usual ones. Empty when the service can't hear."""
+    if not can_hear():
+        return []
+    return (_env_list("PEAKCUT_AI_AUDIO_MODELS") if _env_is_current() else []) or models()
+
+
+def fix_models() -> list:
+    """The models for small, simple jobs like proofreading captions (PEAKCUT_AI_FIX_MODELS), else the usual ones."""
+    return (_env_list("PEAKCUT_AI_FIX_MODELS") if _env_is_current() else []) or models()
+
+
+def fix_thinking() -> str:
+    """How much a Gemini model thinks on those small jobs (PEAKCUT_AI_FIX_THINKING); nothing for other services."""
+    return os.environ.get("PEAKCUT_AI_FIX_THINKING", "").strip() if provider() == "gemini" and _env_is_current() else ""
+
+
+def timing_model() -> str:
+    """Gemini's speech-to-text model that times each word in any language (PEAKCUT_AI_TIMING_MODEL), or ""."""
+    return os.environ.get("PEAKCUT_AI_TIMING_MODEL", "").strip() if can_hear() and _env_is_current() else ""
+
+
+def hear(model: str, prompt: str, audio: tuple, schema: dict, timeout: float | None = None, temperature: float = 0.4):
+    """Ask a Gemini model about a stretch of sound (bytes, type): (answer, tokens sent, tokens written), or None
+    when the service in use can't listen."""
+    if not can_hear() or not audio:
+        return None
+    return _gemini(model, prompt, schema, timeout, temperature, audio=audio)
+
+
+def word_times(audio: tuple, lang: str = "", timeout: float = 180):
+    """Each word said in this sound with its start and end, from Gemini's speech-to-text model: ([{"w", "s", "e"}],
+    tokens sent, tokens written), or None when there is no such model in use."""
+    model = timing_model()
+    if not model or not audio:
+        return None
+    tc = {"mode": {"type": "verbatim", "timestamp_granularities": ["word"]}}
+    if re.fullmatch(r"[a-z]{2,3}(-[A-Za-z]{2})?", lang or ""):
+        tc["language_codes"] = [lang]
+    body = {"model": "models/" + _gem(model), "generation_config": {"transcription_config": tc},
+            "input": [{"type": "audio", "data": base64.b64encode(audio[0]).decode(), "mime_type": audio[1]}]}
+    url = os.environ.get("PEAKCUT_AI_INTERACTIONS", "").strip() or base_url().rsplit("/models", 1)[0] + "/interactions"
+    r = httpx.post(url, json=body, headers={"x-goog-api-key": key()}, timeout=timeout)
+    if r.status_code != 200:
+        _fail(r, model)
+    data = r.json()
+    u = data.get("usage") or {}
+    sent = int(u.get("total_input_tokens") or 0)
+    wrote = int(u.get("total_output_tokens") or 0) + int(u.get("total_thought_tokens") or 0)
+    num = lambda v: float(str(v or "0").rstrip("s") or 0)                                   # noqa: E731
+    found = [{"w": re.sub(r"[\x00-\x1f\x7f]+", " ", str(a.get("text") or "")).strip()[:60],
+              "s": round(num(a.get("start_offset")), 2), "e": round(num(a.get("end_offset")), 2)}
+             for step in data.get("steps") or [] for part in step.get("content") or [] for a in part.get("annotations") or []
+             if a.get("type") == "word_info" and str(a.get("text") or "").strip()]
+    return found, sent, wrote
 
 
 def see(prompt: str, image: bytes, timeout: float | None = None) -> tuple[str, int, int]:
@@ -316,7 +560,7 @@ def see(prompt: str, image: bytes, timeout: float | None = None) -> tuple[str, i
         body = {"contents": [{"role": "user", "parts": [
             {"text": prompt},
             {"inline_data": {"mimeType": "image/jpeg", "data": b64}}]}]}
-        r = httpx.post(f"{base_url()}/{model}:generateContent", json=body,
+        r = httpx.post(f"{base_url()}/{_gem(model)}:generateContent", json=body,
                        headers={"x-goog-api-key": key()}, timeout=timeout or 120)
         if r.status_code != 200:
             _fail(r, model)
@@ -350,17 +594,46 @@ def see(prompt: str, image: bytes, timeout: float | None = None) -> tuple[str, i
     return text, int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
 
 
-def _gemini(model, prompt, schema, timeout=None):
-    body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.4, "responseMimeType": "application/json", "responseSchema": schema}}
-    r = httpx.post(f"{base_url()}/{model}:generateContent", json=body, headers={"x-goog-api-key": key()}, timeout=timeout or 120)
+def _gem(model: str) -> str:
+    """Gemini names models "models/gemini-2.5-flash"; the address already ends in /models, so only the bare id is used."""
+    return model.removeprefix("models/")
+
+
+def _media_parts(images=None, audio=None) -> list:
+    """Pictures and sound as Gemini parts, in order, before the words."""
+    parts = [{"inlineData": {"mimeType": typ, "data": base64.b64encode(raw).decode()}} for raw, typ in (images or [])]
+    if audio:
+        parts.append({"inlineData": {"mimeType": audio[1], "data": base64.b64encode(audio[0]).decode()}})
+    return parts
+
+
+def _gemini(model, prompt, schema, timeout=None, temperature=0.4, images=None, audio=None, thinking=""):
+    url = f"{base_url()}/{_gem(model)}:generateContent"
+    headers = {"x-goog-api-key": key()}
+    media = _media_parts(images, audio)
+    gen = {"temperature": temperature, "responseMimeType": "application/json", "responseSchema": schema}
+    if thinking:                   # a number is a thinking budget (older models), a word a thinking level (newer ones)
+        gen["thinkingConfig"] = {"thinkingBudget": int(thinking)} if str(thinking).isdigit() else {"thinkingLevel": str(thinking)}
+    body = {"contents": [{"role": "user", "parts": media + [{"text": prompt}]}], "generationConfig": gen}
+    r = httpx.post(url, json=body, headers=headers, timeout=timeout or 120)
+    used_plain = False
+    if r.status_code in (400, 422) and "api key" not in r.text.lower() and "api_key" not in r.text.lower():
+        # Models like Gemma in the Gemini list support generateContent without responseSchema.
+        plain = {"contents": [{"role": "user", "parts": media + [{"text": _wrapped(prompt, schema)}]}]}
+        r = httpx.post(url, json=plain, headers=headers, timeout=timeout or 120)
+        used_plain = True
     if r.status_code != 200:
         _fail(r, model)
     data = r.json()
-    text = "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"])
     u = data.get("usageMetadata", {})
     sent = int(u.get("promptTokenCount") or 0)
-    return json.loads(text), sent, max(0, int(u.get("totalTokenCount") or 0) - sent)   # the answer, and any thinking billed with it
+    wrote = max(0, int(u.get("totalTokenCount") or 0) - sent)    # the answer, and any thinking counted with it
+    try:
+        text = "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"])
+        parsed = _parse(text) if used_plain else json.loads(text)
+    except (KeyError, IndexError, TypeError, ValueError, AIError) as e:
+        raise Unreadable("The AI's answer could not be read.", sent, wrote) from e
+    return parsed, sent, wrote
 
 
 def _openai_body(r):
@@ -414,11 +687,15 @@ def _from_events(text: str) -> dict:
     return {"choices": [{"message": message}], "usage": usage}
 
 
-def _openai(model, prompt, schema, timeout=None):
+def _openai(model, prompt, schema, timeout=None, temperature=0.4, images=None):
     headers = {"Authorization": f"Bearer {key()}"} if key() else {}
-    body = {"model": model, "messages": [{"role": "user", "content": _wrapped(prompt, schema)}], "stream": False}
+    content = _wrapped(prompt, schema)
+    if images:
+        content = [{"type": "text", "text": content}] + [
+            {"type": "image_url", "image_url": {"url": f"data:{typ};base64," + base64.b64encode(raw).decode()}} for raw, typ in images]
+    body = {"model": model, "messages": [{"role": "user", "content": content}], "stream": False}
     # Most services accept these two extras; a few models refuse one of them, so they are dropped on a refusal.
-    extras = [{"temperature": 0.4, "response_format": {"type": "json_object"}}, {"response_format": {"type": "json_object"}}, {}]
+    extras = [{"temperature": temperature, "response_format": {"type": "json_object"}}, {"response_format": {"type": "json_object"}}, {}]
     r = None
     for extra in extras:
         r = httpx.post(f"{base_url()}/chat/completions", json={**body, **extra}, headers=headers, timeout=timeout or 180)
@@ -431,8 +708,10 @@ def _openai(model, prompt, schema, timeout=None):
     return _parse(data["choices"][0]["message"].get("content")), int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
 
 
-def _anthropic(model, prompt, schema, timeout=None):
-    body = {"model": model, "max_tokens": 8192, "messages": [{"role": "user", "content": _wrapped(prompt, schema)}]}
+def _anthropic(model, prompt, schema, timeout=None, temperature=0.4, images=None):
+    content = [{"type": "image", "source": {"type": "base64", "media_type": typ, "data": base64.b64encode(raw).decode()}}
+               for raw, typ in (images or [])] + [{"type": "text", "text": _wrapped(prompt, schema)}]
+    body = {"model": model, "max_tokens": 8192, "temperature": temperature, "messages": [{"role": "user", "content": content}]}
     r = httpx.post(f"{base_url()}/messages", json=body, timeout=timeout or 180,
                    headers={"x-api-key": key(), "anthropic-version": "2023-06-01"})
     if r.status_code != 200:
