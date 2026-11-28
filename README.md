@@ -23,6 +23,8 @@ creator's live stream and clip the highlights while the stream is still running.
 
 ## Quick start
 
+For a step-by-step Windows guide, see [RUNNING.md](RUNNING.md).
+
 You need Python 3.10 or newer and `ffmpeg`. On Windows: `winget install Gyan.FFmpeg`. On a Mac: `brew install ffmpeg`.
 On Linux: `sudo apt install ffmpeg`. PeakCut finds it by itself and tells you in the dashboard if it is missing.
 
