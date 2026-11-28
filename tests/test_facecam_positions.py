@@ -24,23 +24,25 @@ FW, FH = 1280, 720
 GAME = "mandelbrot=s=640x360:r=25:start_scale=2:end_scale=0.0002,scale=1280:720"
 
 
-def cam(w, h):
-    """A webcam picture: a lit room with a person in it who sways and nods."""
-    pw, ph = max(20, w // 4), max(30, h * 5 // 8)
+def cam(w, h, to_bottom=0.0):
+    """A webcam picture: a lit room with a person in it who sways and nods. With to_bottom (how much of the
+    width the body takes), the body runs down past the bottom of the picture, as a streamer sitting close
+    to the camera does."""
+    pw, ph = (max(20, int(w * to_bottom)), h) if to_bottom else (max(20, w // 4), max(30, h * 5 // 8))
     return (f"color=c=0x5A3E8C:s={w}x{h}:r=25,"
             f"drawbox=x='{(w - pw) // 2}+{w // 8}*sin(2*t)':y='{h // 6}+{h // 20}*sin(3*t)'"
             f":w={pw}:h={ph}:color=0xD9A27A:t=fill")
 
 
-def make(name, w, h, x, y):
+def make(name, w, h, x, y, to_bottom=0.0):
     path = os.path.join(work, name + ".mp4")
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", GAME, "-f", "lavfi", "-i", cam(w, h),
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", GAME, "-f", "lavfi", "-i", cam(w, h, to_bottom),
                     "-filter_complex", f"[0:v][1:v]overlay={x}:{y}[v]", "-map", "[v]", "-frames:v", "100",
                     "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", path], check=True)
     return path
 
 
-# (name, width, height, x, y, the corner or edge it should be reported on)
+# (name, width, height, x, y, the corner or edge it should be reported on[, the person reaches the bottom])
 LAYOUTS = [
     ("left side, halfway down", 256, 160, 0, 300, "left"),
     ("right side, halfway down", 256, 160, FW - 256, 260, "right"),
@@ -52,10 +54,14 @@ LAYOUTS = [
     ("bottom, in the middle", 300, 168, 490, FH - 168, "bottom"),
     ("with a margin all round", 256, 160, 40, 40, "middle"),
     ("a phone held upright", 160, 284, FW - 200, 220, "middle"),
+    # the person moves right up against the webcam's bottom border, so the strip just inside it moves too
+    ("the person reaches the bottom border", 256, 160, 0, 300, "left", 0.25),
+    ("the person reaches the bottom, in a corner", 256, 160, FW - 256, FH - 160, "bottom-right", 0.25),
+    ("broad shoulders across most of the bottom", 256, 160, 0, 300, "left", 0.6),
 ]
 
-for name, w, h, x, y, where in LAYOUTS:
-    box = facecam.detect(make(name.replace(" ", "_").replace(",", ""), w, h, x, y)) or {}
+for name, w, h, x, y, where, *rest in LAYOUTS:
+    box = facecam.detect(make(name.replace(" ", "_").replace(",", ""), w, h, x, y, *rest)) or {}
     check(f"{name}: found", bool(box), True)
     check(f"{name}: on the right part of the frame", box.get("corner"), where)
     check(f"{name}: in the right place", abs(box.get("x", -99) - x) <= 4 and abs(box.get("y", -99) - y) <= 4, True)
