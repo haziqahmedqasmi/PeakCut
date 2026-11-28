@@ -1,0 +1,9 @@
+{
+  "name": "PeakCut",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12-bookworm",
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y ffmpeg && pip install -r requirements.txt",
+  "postStartCommand": "nohup bash -lc 'PEAKCUT_HOST=0.0.0.0 PEAKCUT_PORT=8765 PEAKCUT_ACCOUNTS=1 PEAKCUT_TRUST_PROXY=1 PEAKCUT_UPDATE_CHECK=0 python -m studio.server' > /tmp/peakcut.log 2>&1 &",
+  "portsAttributes": {
+    "8765": { "label": "PeakCut", "onAutoForward": "notify", "visibility": "public" }
+  }
+}
