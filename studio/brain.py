@@ -576,6 +576,20 @@ _FACE_BOX = re.compile(r"x\s*=\s*(\d+(?:\.\d+)?)\s*%?\s*,?\s*y\s*=\s*(\d+(?:\.\d
                        r",?\s*w\s*=\s*(\d+(?:\.\d+)?)\s*%?\s*,?\s*h\s*=\s*(\d+(?:\.\d+)?)", re.I)
 
 
+def _face_box_parts(nums: list) -> tuple | None:
+    """The model's four numbers as parts of the frame (0 to 1), whichever way it wrote them.
+
+    Asked for percent, models also answer in parts of one (x=0.42) or in tenths of a percent (y=420%,
+    which is 42%). Read as plain percent, "420%" would be clipped to the whole frame and the webcam lost.
+    So the scale is the one that makes a box that fits inside the frame."""
+    big = max(nums)
+    for scale in (1.0,) if big <= 1.0 else (100.0,) if big <= 100.0 else (1000.0,):
+        x, y, w, h = (v / scale for v in nums)
+        if w > 0 and h > 0 and x + w <= 1.02 and y + h <= 1.02:
+            return tuple(max(0.0, min(1.0, v)) for v in (x, y, w, h))
+    return None
+
+
 def look_for_facecam(jpeg: bytes, timeout=None) -> dict:
     """One frame of a stream to the model: where is the webcam, if there is one.
 
@@ -590,8 +604,10 @@ def look_for_facecam(jpeg: bytes, timeout=None) -> dict:
         usage.record(sent, wrote, "Webcam: one frame")
     m = _FACE_BOX.search(text or "")
     if m:
-        x, y, w, h = (max(0.0, min(1.0, float(v) / 100.0)) for v in m.groups())
-        return {"looked": True, "box": (x, y, w, h)}
+        box = _face_box_parts([float(v) for v in m.groups()])
+        if box:
+            return {"looked": True, "box": box}
+        return {"looked": False, "box": None}       # numbers that make no box: as if it had not looked
     said_no = re.search(r"\bno\s*(?:web\s*-?\s*)?cam\b|\bnot\s+(?:visible|there|present)\b", text or "", re.I)
     if said_no:
         return {"looked": True, "box": None}
