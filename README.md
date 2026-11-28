@@ -76,9 +76,12 @@ If you prefer a file (or run a server), the same three things can go in `.env`. 
 
 ```ini
 PEAKCUT_AI_PROVIDER=gemini
-PEAKCUT_AI_MODELS=gemini-2.5-flash
+PEAKCUT_AI_MODELS=gemini-3.5-flash-lite,gemini-3.1-flash-lite
 PEAKCUT_AI_KEY=your-key-here
 ```
+
+**Which Gemini model.** Older models may be refused for new keys: in Settings, AI, press **Find models** to see what
+yours can use.
 
 | `PEAKCUT_AI_PROVIDER` | Service | Where to get a key |
 |---|---|---|
