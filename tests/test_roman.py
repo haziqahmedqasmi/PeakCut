@@ -89,6 +89,26 @@ brain.ask_ai = by_purpose
 answers["now"] = ["Hello", "there", "friend."]
 check("English stays English", text(brain.english_captions(ws("hello there friend"), "en", "")) == "Hello there friend.")
 
+# ---- universal / English loanwords spelled phonetically take standard English spelling without allowing real translations
+loan = ws("एबिलिटी फोकस मोड प्लेन बोट वेट")
+answers["now"] = ["ability", "focus", "mode", "plane", "boat", "wait"]
+got_loan = text(brain.fix_caption_words(loan, "", "hi"))
+check("borrowed English words keep English spelling in Hinglish captions", got_loan == "ability focus mode plane boat wait", got_loan)
+
+roman_loan = ws("Guys vet ek phokas ebiliti")
+brain.ask_ai = lambda *a, **kw: (["Guys", "wait", "ek", "focus", "ability"], "m", 10)
+got_heard = text(brain.fix_heard(roman_loan, "", "GTA 6"))
+check("proofreading accepts phonetic English loanword fixes", got_heard == "Guys wait ek focus ability", got_heard)
+
+brain.ask_ai = by_purpose
+bad_trans = ws("चूना नहीं नया दोस्त")
+answers["now"] = ["lime", "no", "new", "friend"]
+got_bad = text(brain.fix_caption_words(bad_trans, "", "hi"))
+check("native Hindi translations are still refused in favor of Roman spelling", got_bad == "chuna nahi naya dost", got_bad)
+
+check("clip rules mention standard English spelling for universal loanwords",
+      "universal or generic English words" in brain._rules(15, 60, "[1] Jason ki ebiliti"), True)
+
 print("ALL PASSED" if not fails else f"{len(fails)} failed")
 import shutil; shutil.rmtree(os.environ["PEAKCUT_DATA"], ignore_errors=True)
 sys.exit(1 if fails else 0)
